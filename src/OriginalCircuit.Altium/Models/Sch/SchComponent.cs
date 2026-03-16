@@ -532,6 +532,115 @@ public sealed class SchComponent : ISchComponent
     /// </summary>
     public void AddPowerObject(SchPowerObject powerObject) => _powerObjects.Add(powerObject);
 
+    // Explicit interface implementations for ISchComponent
+    void ISchComponent.AddPin(ISchPin pin)
+    {
+        if (pin is not SchPin p) throw new ArgumentException($"Expected {nameof(SchPin)}", nameof(pin));
+        _pins.Add(p);
+    }
+
+    bool ISchComponent.RemovePin(ISchPin pin) => pin is SchPin p && _pins.Remove(p);
+
+    void ISchComponent.AddLine(ISchLine line)
+    {
+        if (line is not SchLine l) throw new ArgumentException($"Expected {nameof(SchLine)}", nameof(line));
+        _lines.Add(l);
+    }
+
+    bool ISchComponent.RemoveLine(ISchLine line) => line is SchLine l && _lines.Remove(l);
+
+    void ISchComponent.AddRectangle(ISchRectangle rectangle)
+    {
+        if (rectangle is not SchRectangle r) throw new ArgumentException($"Expected {nameof(SchRectangle)}", nameof(rectangle));
+        _rectangles.Add(r);
+    }
+
+    bool ISchComponent.RemoveRectangle(ISchRectangle rectangle) => rectangle is SchRectangle r && _rectangles.Remove(r);
+
+    void ISchComponent.AddLabel(ISchLabel label)
+    {
+        if (label is not SchLabel l) throw new ArgumentException($"Expected {nameof(SchLabel)}", nameof(label));
+        _labels.Add(l);
+    }
+
+    bool ISchComponent.RemoveLabel(ISchLabel label) => label is SchLabel l && _labels.Remove(l);
+
+    void ISchComponent.AddWire(ISchWire wire)
+    {
+        if (wire is not SchWire w) throw new ArgumentException($"Expected {nameof(SchWire)}", nameof(wire));
+        _wires.Add(w);
+    }
+
+    bool ISchComponent.RemoveWire(ISchWire wire) => wire is SchWire w && _wires.Remove(w);
+
+    void ISchComponent.AddPolyline(ISchPolyline polyline)
+    {
+        if (polyline is not SchPolyline p) throw new ArgumentException($"Expected {nameof(SchPolyline)}", nameof(polyline));
+        _polylines.Add(p);
+    }
+
+    bool ISchComponent.RemovePolyline(ISchPolyline polyline) => polyline is SchPolyline p && _polylines.Remove(p);
+
+    void ISchComponent.AddPolygon(ISchPolygon polygon)
+    {
+        if (polygon is not SchPolygon p) throw new ArgumentException($"Expected {nameof(SchPolygon)}", nameof(polygon));
+        _polygons.Add(p);
+    }
+
+    bool ISchComponent.RemovePolygon(ISchPolygon polygon) => polygon is SchPolygon p && _polygons.Remove(p);
+
+    void ISchComponent.AddArc(ISchArc arc)
+    {
+        if (arc is not SchArc a) throw new ArgumentException($"Expected {nameof(SchArc)}", nameof(arc));
+        _arcs.Add(a);
+    }
+
+    bool ISchComponent.RemoveArc(ISchArc arc) => arc is SchArc a && _arcs.Remove(a);
+
+    void ISchComponent.AddCircle(ISchCircle circle) => throw new NotSupportedException("Altium schematic components do not support circles. Use ellipses instead.");
+
+    bool ISchComponent.RemoveCircle(ISchCircle circle) => false;
+
+    void ISchComponent.AddBezier(ISchBezier bezier)
+    {
+        if (bezier is not SchBezier b) throw new ArgumentException($"Expected {nameof(SchBezier)}", nameof(bezier));
+        _beziers.Add(b);
+    }
+
+    bool ISchComponent.RemoveBezier(ISchBezier bezier) => bezier is SchBezier b && _beziers.Remove(b);
+
+    void ISchComponent.AddNetLabel(ISchNetLabel netLabel)
+    {
+        if (netLabel is not SchNetLabel nl) throw new ArgumentException($"Expected {nameof(SchNetLabel)}", nameof(netLabel));
+        _netLabels.Add(nl);
+    }
+
+    bool ISchComponent.RemoveNetLabel(ISchNetLabel netLabel) => netLabel is SchNetLabel nl && _netLabels.Remove(nl);
+
+    void ISchComponent.AddJunction(ISchJunction junction)
+    {
+        if (junction is not SchJunction j) throw new ArgumentException($"Expected {nameof(SchJunction)}", nameof(junction));
+        _junctions.Add(j);
+    }
+
+    bool ISchComponent.RemoveJunction(ISchJunction junction) => junction is SchJunction j && _junctions.Remove(j);
+
+    void ISchComponent.AddImage(ISchImage image)
+    {
+        if (image is not SchImage i) throw new ArgumentException($"Expected {nameof(SchImage)}", nameof(image));
+        _images.Add(i);
+    }
+
+    bool ISchComponent.RemoveImage(ISchImage image) => image is SchImage i && _images.Remove(i);
+
+    void ISchComponent.AddParameter(ISchParameter parameter)
+    {
+        if (parameter is not SchParameter p) throw new ArgumentException($"Expected {nameof(SchParameter)}", nameof(parameter));
+        _parameters.Add(p);
+    }
+
+    bool ISchComponent.RemoveParameter(ISchParameter parameter) => parameter is SchParameter p && _parameters.Remove(p);
+
     /// <summary>
     /// Creates a fluent builder for a new component.
     /// </summary>

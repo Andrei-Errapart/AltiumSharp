@@ -137,6 +137,62 @@ public sealed class PcbDocument : IPcbDocument
     /// </summary>
     public void AddComponent(PcbComponent component) => _components.Add(component);
 
+    void IPcbDocument.AddComponent(IPcbComponent component)
+    {
+        if (component is not PcbComponent c) throw new ArgumentException($"Expected {nameof(PcbComponent)}", nameof(component));
+        _components.Add(c);
+    }
+
+    bool IPcbDocument.RemoveComponent(IPcbComponent component) => component is PcbComponent c && _components.Remove(c);
+
+    void IPcbDocument.AddPad(IPcbPad pad)
+    {
+        if (pad is not PcbPad p) throw new ArgumentException($"Expected {nameof(PcbPad)}", nameof(pad));
+        _pads.Add(p);
+    }
+
+    bool IPcbDocument.RemovePad(IPcbPad pad) => pad is PcbPad p && _pads.Remove(p);
+
+    void IPcbDocument.AddVia(IPcbVia via)
+    {
+        if (via is not PcbVia v) throw new ArgumentException($"Expected {nameof(PcbVia)}", nameof(via));
+        _vias.Add(v);
+    }
+
+    bool IPcbDocument.RemoveVia(IPcbVia via) => via is PcbVia v && _vias.Remove(v);
+
+    void IPcbDocument.AddTrack(IPcbTrack track)
+    {
+        if (track is not PcbTrack t) throw new ArgumentException($"Expected {nameof(PcbTrack)}", nameof(track));
+        _tracks.Add(t);
+    }
+
+    bool IPcbDocument.RemoveTrack(IPcbTrack track) => track is PcbTrack t && _tracks.Remove(t);
+
+    void IPcbDocument.AddArc(IPcbArc arc)
+    {
+        if (arc is not PcbArc a) throw new ArgumentException($"Expected {nameof(PcbArc)}", nameof(arc));
+        _arcs.Add(a);
+    }
+
+    bool IPcbDocument.RemoveArc(IPcbArc arc) => arc is PcbArc a && _arcs.Remove(a);
+
+    void IPcbDocument.AddText(IPcbText text)
+    {
+        if (text is not PcbText t) throw new ArgumentException($"Expected {nameof(PcbText)}", nameof(text));
+        _texts.Add(t);
+    }
+
+    bool IPcbDocument.RemoveText(IPcbText text) => text is PcbText t && _texts.Remove(t);
+
+    void IPcbDocument.AddRegion(IPcbRegion region)
+    {
+        if (region is not PcbRegion r) throw new ArgumentException($"Expected {nameof(PcbRegion)}", nameof(region));
+        _regions.Add(r);
+    }
+
+    bool IPcbDocument.RemoveRegion(IPcbRegion region) => region is PcbRegion r && _regions.Remove(r);
+
     /// <summary>
     /// Adds a pad to the document.
     /// </summary>

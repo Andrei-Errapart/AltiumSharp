@@ -452,6 +452,55 @@ public sealed class PcbComponent : IPcbComponent
     /// </summary>
     public void AddComponentBody(PcbComponentBody body) => _componentBodies.Add(body);
 
+    // Explicit interface implementations for IPcbComponent
+    void IPcbComponent.AddPad(IPcbPad pad)
+    {
+        if (pad is not PcbPad p) throw new ArgumentException($"Expected {nameof(PcbPad)}", nameof(pad));
+        _pads.Add(p);
+    }
+
+    bool IPcbComponent.RemovePad(IPcbPad pad) => pad is PcbPad p && _pads.Remove(p);
+
+    void IPcbComponent.AddTrack(IPcbTrack track)
+    {
+        if (track is not PcbTrack t) throw new ArgumentException($"Expected {nameof(PcbTrack)}", nameof(track));
+        _tracks.Add(t);
+    }
+
+    bool IPcbComponent.RemoveTrack(IPcbTrack track) => track is PcbTrack t && _tracks.Remove(t);
+
+    void IPcbComponent.AddVia(IPcbVia via)
+    {
+        if (via is not PcbVia v) throw new ArgumentException($"Expected {nameof(PcbVia)}", nameof(via));
+        _vias.Add(v);
+    }
+
+    bool IPcbComponent.RemoveVia(IPcbVia via) => via is PcbVia v && _vias.Remove(v);
+
+    void IPcbComponent.AddArc(IPcbArc arc)
+    {
+        if (arc is not PcbArc a) throw new ArgumentException($"Expected {nameof(PcbArc)}", nameof(arc));
+        _arcs.Add(a);
+    }
+
+    bool IPcbComponent.RemoveArc(IPcbArc arc) => arc is PcbArc a && _arcs.Remove(a);
+
+    void IPcbComponent.AddText(IPcbText text)
+    {
+        if (text is not PcbText t) throw new ArgumentException($"Expected {nameof(PcbText)}", nameof(text));
+        _texts.Add(t);
+    }
+
+    bool IPcbComponent.RemoveText(IPcbText text) => text is PcbText t && _texts.Remove(t);
+
+    void IPcbComponent.AddRegion(IPcbRegion region)
+    {
+        if (region is not PcbRegion r) throw new ArgumentException($"Expected {nameof(PcbRegion)}", nameof(region));
+        _regions.Add(r);
+    }
+
+    bool IPcbComponent.RemoveRegion(IPcbRegion region) => region is PcbRegion r && _regions.Remove(r);
+
     /// <summary>
     /// Creates a fluent builder for a new component.
     /// </summary>
