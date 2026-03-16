@@ -1686,6 +1686,8 @@ public sealed class SchLibReader
             IsActive = dto.IsActive,
             Symbol = dto.Symbol,
             AreaColor = dto.AreaColor,
+            SuppressAll = dto.SuppressAll,
+            ErrorKindSetToSuppress = dto.ErrorKindSetToSuppress,
             OwnerIndex = dto.OwnerIndex,
             IsNotAccessible = dto.IsNotAccessible,
             IndexInSheet = dto.IndexInSheet,
@@ -1962,6 +1964,9 @@ public sealed class SchLibReader
             var kind = TryGetString(parameters, $"MODELDATAFILEKIND{i}");
             if (kind != null)
                 impl.DataFileKinds.Add(kind);
+            var entity = TryGetString(parameters, $"MODELDATAFILEENTITY{i}");
+            if (entity != null)
+                impl.DataFileEntities.Add(entity);
         }
 
         return impl;

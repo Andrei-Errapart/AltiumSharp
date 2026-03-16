@@ -28,6 +28,12 @@ public sealed class SchImplementation : ISchImplementation
     public List<string> DataFileKinds { get; set; } = new();
 
     /// <summary>
+    /// List of data file entities associated with this implementation.
+    /// Indexed 1-based as MODELDATAFILEENTITY1, MODELDATAFILEENTITY2, etc. in Altium format.
+    /// </summary>
+    public List<string> DataFileEntities { get; set; } = new();
+
+    /// <summary>
     /// Whether this is the current (active) implementation.
     /// </summary>
     public bool IsCurrent { get; set; }

@@ -69,6 +69,7 @@ public sealed class SchDocReader
 
         ReadFileHeader(accessor, document, cancellationToken);
         ReadStorageImageData(accessor, document);
+        ReadAdditionalStreams(accessor, document);
 
         document.Diagnostics = _diagnostics;
         return document;
@@ -161,7 +162,12 @@ public sealed class SchDocReader
             if (parameters.TryGetValue("OWNERINDEX", out var ownerStr) && int.TryParse(ownerStr, out var oi))
                 ownerIndex = oi;
 
-            if (recordType == (int)SchRecordType.Component)
+            if (recordType == 31)
+            {
+                // Record 31: Sheet settings (font definitions, grid, border, title-block)
+                document.SheetSettings = parameters;
+            }
+            else if (recordType == (int)SchRecordType.Component)
             {
                 var component = CreateComponent(parameters);
                 components[primitiveIndex] = component;
@@ -183,6 +189,11 @@ public sealed class SchDocReader
                         sheetSymbols[primitiveIndex] = ss;
                     else if (primitive is SchImplementation impl)
                         implementations[primitiveIndex] = impl;
+                }
+                else if (ownerIndex < 0)
+                {
+                    // Unknown top-level record — store as opaque for round-trip
+                    document.OpaqueRecords.Add(parameters);
                 }
             }
 
@@ -335,7 +346,8 @@ public sealed class SchDocReader
             SchRecordType.Pie => CreatePie(paramCollection),
             SchRecordType.NetLabel => CreateNetLabel(paramCollection),
             SchRecordType.Junction => CreateJunction(paramCollection),
-            SchRecordType.Parameter => CreateParameter(paramCollection),
+            SchRecordType.Designator => CreateParameter(paramCollection, parameters),
+            SchRecordType.Parameter => CreateParameter(paramCollection, parameters),
             SchRecordType.TextFrame => CreateTextFrame(paramCollection),
             SchRecordType.Image => CreateImage(paramCollection),
             SchRecordType.Symbol => CreateSymbol(paramCollection),
@@ -786,13 +798,14 @@ public sealed class SchDocReader
         };
     }
 
-    private static SchParameter CreateParameter(ParameterCollection p)
+    private static SchParameter CreateParameter(ParameterCollection p, Dictionary<string, string>? rawParameters = null)
     {
         var dto = Dto.Sch.SchParameterDto.FromParameters(p);
         return new SchParameter
         {
             Name = dto.Name ?? string.Empty,
             Value = dto.Text ?? string.Empty,
+            TextIsUtf8 = rawParameters?.ContainsKey("%UTF8%TEXT") == true,
             Location = new CoordPoint(CoordFromDxp(dto.LocationX, dto.LocationXFrac), CoordFromDxp(dto.LocationY, dto.LocationYFrac)),
             Orientation = dto.Orientation,
             Justification = (TextJustification)dto.Justification,
@@ -982,6 +995,8 @@ public sealed class SchDocReader
             IsActive = dto.IsActive,
             Symbol = dto.Symbol,
             AreaColor = dto.AreaColor,
+            SuppressAll = dto.SuppressAll,
+            ErrorKindSetToSuppress = dto.ErrorKindSetToSuppress,
             OwnerIndex = dto.OwnerIndex,
             IsNotAccessible = dto.IsNotAccessible,
             IndexInSheet = dto.IndexInSheet,
@@ -1244,6 +1259,9 @@ public sealed class SchDocReader
             var kind = TryGetString(parameters, $"MODELDATAFILEKIND{i}");
             if (kind != null)
                 impl.DataFileKinds.Add(kind);
+            var entity = TryGetString(parameters, $"MODELDATAFILEENTITY{i}");
+            if (entity != null)
+                impl.DataFileEntities.Add(entity);
         }
 
         return impl;
@@ -1342,6 +1360,51 @@ public sealed class SchDocReader
             return true;
         }
         return false;
+    }
+
+    private static readonly HashSet<string> KnownStreamNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "FileHeader", "Storage"
+    };
+
+    private void ReadAdditionalStreams(CompoundFileAccessor accessor, SchDocument document)
+    {
+        var additional = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in accessor.EnumerateChildren(accessor.RootStorage))
+        {
+            if (KnownStreamNames.Contains(item.Name))
+                continue;
+
+            if (item is OpenMcdf.CFStorage childStorage)
+            {
+                foreach (var stream in accessor.EnumerateStreams(childStorage))
+                {
+                    try
+                    {
+                        additional[$"{item.Name}/{stream.Name}"] = stream.GetData();
+                    }
+                    catch (Exception ex) when (ex is EndOfStreamException or InvalidDataException or IOException)
+                    {
+                        _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning, $"Failed to read stream '{item.Name}/{stream.Name}': {ex.Message}"));
+                    }
+                }
+            }
+            else if (item is OpenMcdf.CFStream rootStream)
+            {
+                try
+                {
+                    additional[item.Name] = rootStream.GetData();
+                }
+                catch (Exception ex) when (ex is EndOfStreamException or InvalidDataException or IOException)
+                {
+                    _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning, $"Failed to read stream '{item.Name}': {ex.Message}"));
+                }
+            }
+        }
+
+        if (additional.Count > 0)
+            document.AdditionalStreams = additional;
     }
 
     private static Dictionary<string, string> ReadParameterBlock(BinaryFormatReader reader)

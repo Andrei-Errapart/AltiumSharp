@@ -155,6 +155,12 @@ public sealed class SchParameter : ISchParameter
     public string? UniqueId { get; set; }
 
     /// <summary>
+    /// Whether the Text value was stored with the %UTF8% prefix in the original file.
+    /// When true, the writer emits "%UTF8%Text" instead of "Text" as the parameter key.
+    /// </summary>
+    public bool TextIsUtf8 { get; set; }
+
+    /// <summary>
     /// Whether database synchronization is allowed (Designator specific).
     /// </summary>
     public bool AllowDatabaseSynchronize { get; set; }

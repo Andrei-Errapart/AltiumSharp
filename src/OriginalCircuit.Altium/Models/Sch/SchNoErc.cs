@@ -40,6 +40,16 @@ public sealed class SchNoErc : ISchNoConnect
     public int AreaColor { get; set; }
 
     /// <summary>
+    /// Whether all errors are suppressed at this location.
+    /// </summary>
+    public bool SuppressAll { get; set; }
+
+    /// <summary>
+    /// Set of error kinds to suppress (comma-separated string).
+    /// </summary>
+    public string? ErrorKindSetToSuppress { get; set; }
+
+    /// <summary>
     /// Index of the owning record in the schematic hierarchy.
     /// </summary>
     public int OwnerIndex { get; set; }

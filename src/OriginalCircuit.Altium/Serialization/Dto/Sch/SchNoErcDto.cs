@@ -118,4 +118,16 @@ internal sealed partial record SchNoErcDto
     /// </summary>
     [AltiumParameter("AREACOLOR")]
     public int AreaColor { get; init; }
+
+    /// <summary>
+    /// Gets or sets whether all errors are suppressed at this location.
+    /// </summary>
+    [AltiumParameter("SUPPRESSALL")]
+    public bool SuppressAll { get; init; }
+
+    /// <summary>
+    /// Gets or sets the set of error kinds to suppress.
+    /// </summary>
+    [AltiumParameter("ERRORKINDSET_TOSUPPRESS")]
+    public string? ErrorKindSetToSuppress { get; init; }
 }

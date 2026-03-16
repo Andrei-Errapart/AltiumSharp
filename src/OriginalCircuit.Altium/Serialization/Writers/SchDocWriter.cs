@@ -53,6 +53,7 @@ public sealed class SchDocWriter
 
         WriteFileHeader(cf, document, cancellationToken);
         WriteStorage(cf, document);
+        WriteAdditionalStreams(cf, document);
 
         cf.Save(stream);
     }
@@ -91,11 +92,18 @@ public sealed class SchDocWriter
         var index = 0;
         var pinIndex = 0;
 
+        // Write Record 31 (Sheet Settings) if present — occupies a primitive index slot
+        if (document.SheetSettings != null && document.SheetSettings.Count > 0)
+        {
+            writer.WriteCStringParameterBlock(document.SheetSettings);
+            index++;
+        }
+
         foreach (var component in document.Components.Cast<SchComponent>())
         {
             cancellationToken.ThrowIfCancellationRequested();
             var componentIndex = index;
-            SchLibWriter.WriteComponentRecord(writer, component, ref index);
+            SchLibWriter.WriteComponentRecord(writer, component, ref index, writeLocation: true);
 
             // Write component's children with OWNERINDEX pointing to the component
             WritePrimitives(writer, component, componentIndex, ref index, ref pinIndex, pinsFrac, pinsSymbolLineWidth);
@@ -211,23 +219,21 @@ public sealed class SchDocWriter
             var implIndex = index;
             SchLibWriter.WriteImplementationRecord(writer, impl, ref index, implListIndex);
 
-            if (impl.MapDefiners.Count > 0)
+            // Record 46: MapDefinerList container, owned by Implementation
+            // Always write even when empty — Altium expects this container
+            var mdlIndex = index;
+            var mdlParams = new Dictionary<string, string>
             {
-                // Record 46: MapDefinerList container, owned by Implementation
-                var mdlIndex = index;
-                var mdlParams = new Dictionary<string, string>
-                {
-                    ["RECORD"] = "46",
-                    ["OWNERINDEX"] = implIndex.ToString()
-                };
-                writer.WriteCStringParameterBlock(mdlParams);
-                index++;
+                ["RECORD"] = "46",
+                ["OWNERINDEX"] = implIndex.ToString()
+            };
+            writer.WriteCStringParameterBlock(mdlParams);
+            index++;
 
-                foreach (var mapDefiner in impl.MapDefiners.Cast<SchMapDefiner>())
-                {
-                    // Record 47: MapDefiner, owned by MapDefinerList
-                    SchLibWriter.WriteMapDefinerRecord(writer, mapDefiner, ref index, mdlIndex);
-                }
+            foreach (var mapDefiner in impl.MapDefiners.Cast<SchMapDefiner>())
+            {
+                // Record 47: MapDefiner, owned by MapDefinerList
+                SchLibWriter.WriteMapDefinerRecord(writer, mapDefiner, ref index, mdlIndex);
             }
 
             // Record 48: ImplementationParameters, owned by Implementation
@@ -343,6 +349,13 @@ public sealed class SchDocWriter
             foreach (var param in blanket.Parameters)
                 SchLibWriter.WriteParameterRecord(writer, param, ref index, blanketIndex);
         }
+
+        // Write opaque (unmodeled) records for round-trip fidelity
+        foreach (var record in document.OpaqueRecords)
+        {
+            writer.WriteCStringParameterBlock(record);
+            index++;
+        }
     }
 
     private static void WritePinAsParameterRecord(BinaryFormatWriter writer, SchPin pin, int ownerIndex, ref int index)
@@ -386,8 +399,8 @@ public sealed class SchDocWriter
         if (!string.IsNullOrEmpty(pin.SwapIdPin))
             parameters["SWAPID_PIN"] = pin.SwapIdPin;
 
-        // Propagation delay
-        AddNonZero(parameters, "PINPROPAGATIONDELAY", pin.PinPropagationDelay);
+        // Propagation delay — always write, using scientific notation format to match Altium's "0.000000E+000"
+        parameters["PINPROPAGATIONDELAY"] = ((double)pin.PinPropagationDelay).ToString("0.000000E+000");
 
         // Font/position customization
         AddNonZero(parameters, "DESIGNATOR.CUSTOMFONTID", pin.DesignatorCustomFontId);
@@ -490,6 +503,47 @@ public sealed class SchDocWriter
         }
 
         SchLibWriter.WriteStorageStream(cf.RootStorage, embeddedImages);
+    }
+
+    private static void WriteAdditionalStreams(CompoundFile cf, SchDocument document)
+    {
+        if (document.AdditionalStreams == null || document.AdditionalStreams.Count == 0)
+            return;
+
+        // Group entries by storage name
+        var storageGroups = new Dictionary<string, List<(string StreamName, byte[] Data)>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var kvp in document.AdditionalStreams)
+        {
+            var slashIndex = kvp.Key.IndexOf('/');
+            if (slashIndex > 0)
+            {
+                var storageName = kvp.Key[..slashIndex];
+                var streamName = kvp.Key[(slashIndex + 1)..];
+                if (!storageGroups.TryGetValue(storageName, out var list))
+                {
+                    list = new List<(string, byte[])>();
+                    storageGroups[storageName] = list;
+                }
+                list.Add((streamName, kvp.Value));
+            }
+            else
+            {
+                // Root-level stream
+                var rootStream = cf.RootStorage.AddStream(kvp.Key);
+                rootStream.SetData(kvp.Value);
+            }
+        }
+
+        foreach (var group in storageGroups)
+        {
+            var storage = cf.RootStorage.AddStorage(group.Key);
+            foreach (var (streamName, data) in group.Value)
+            {
+                var stream = storage.AddStream(streamName);
+                stream.SetData(data);
+            }
+        }
     }
 
     private static void AddNonZero(Dictionary<string, string> parameters, string key, int value)

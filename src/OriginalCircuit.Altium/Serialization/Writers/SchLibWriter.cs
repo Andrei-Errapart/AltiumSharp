@@ -305,7 +305,7 @@ public sealed class SchLibWriter
         WritePinSymbolLineWidth(componentStorage, pinsSymbolLineWidth);
     }
 
-    internal static void WriteComponentRecord(BinaryFormatWriter writer, SchComponent component, ref int index)
+    internal static void WriteComponentRecord(BinaryFormatWriter writer, SchComponent component, ref int index, bool writeLocation = false)
     {
         // Parameter keys match Altium's exact mixed-case convention
         var parameters = new Dictionary<string, string>
@@ -414,7 +414,12 @@ public sealed class SchLibWriter
                 parameters["VaultHRID"] = schComp.VaultHrid;
             if (!string.IsNullOrEmpty(schComp.GenericComponentTemplateGuid))
                 parameters["GenericComponentTemplateGUEID"] = schComp.GenericComponentTemplateGuid;
-            // Altium doesn't write Location for components in SchLib (only SchDoc)
+            // Altium writes Location for components in SchDoc but not SchLib
+            if (writeLocation)
+            {
+                AddCoordParam(parameters, "Location.X", schComp.Location.X);
+                AddCoordParam(parameters, "Location.Y", schComp.Location.Y);
+            }
         }
 
         writer.WriteCStringParameterBlock(parameters);
@@ -818,7 +823,9 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.Y", param.Location.Y);
         AddNonZero(parameters, "Color", param.Color);
         parameters["FontID"] = param.FontId.ToString();
-        parameters["Text"] = param.Value;
+        // Preserve %UTF8% prefix for round-trip fidelity
+        var textKey = param.TextIsUtf8 ? "%UTF8%Text" : "Text";
+        parameters[textKey] = param.Value;
         parameters["Name"] = param.Name;
         if (param.IsReadOnly) parameters["ReadOnlyState"] = "1";
         AddNonZero(parameters, "ParamType", param.ParamType);
@@ -1074,6 +1081,9 @@ public sealed class SchLibWriter
         if (noErc.IsActive) parameters["IsActive"] = "T";
         AddNonZero(parameters, "Symbol", noErc.Symbol);
         AddNonZero(parameters, "AreaColor", noErc.AreaColor);
+        AddBool(parameters, "SuppressAll", noErc.SuppressAll);
+        if (!string.IsNullOrEmpty(noErc.ErrorKindSetToSuppress))
+            parameters["ErrorKindSet_ToSuppress"] = noErc.ErrorKindSetToSuppress;
         AddUniqueId(parameters, noErc.UniqueId);
 
         writer.WriteCStringParameterBlock(parameters);
@@ -1324,18 +1334,15 @@ public sealed class SchLibWriter
             // Record 45: Implementation
             WriteImplementationRecord(writer, impl, ref index);
 
-            if (impl.MapDefiners.Count > 0)
-            {
-                // Record 46: MapDefinerList container
-                var mdlParams = new Dictionary<string, string> { ["RECORD"] = "46" };
-                writer.WriteCStringParameterBlock(mdlParams);
-                index++;
+            // Record 46: MapDefinerList container — always write even when empty
+            var mdlParams = new Dictionary<string, string> { ["RECORD"] = "46" };
+            writer.WriteCStringParameterBlock(mdlParams);
+            index++;
 
-                foreach (var mapDefiner in impl.MapDefiners.Cast<SchMapDefiner>())
-                {
-                    // Record 47: MapDefiner
-                    WriteMapDefinerRecord(writer, mapDefiner, ref index);
-                }
+            foreach (var mapDefiner in impl.MapDefiners.Cast<SchMapDefiner>())
+            {
+                // Record 47: MapDefiner
+                WriteMapDefinerRecord(writer, mapDefiner, ref index);
             }
 
             // Record 48: ImplementationParameters (empty container, Altium always writes it)
@@ -1367,6 +1374,8 @@ public sealed class SchLibWriter
         for (var i = 0; i < impl.DataFileKinds.Count; i++)
         {
             parameters[$"MODELDATAFILEKIND{i + 1}"] = impl.DataFileKinds[i];
+            if (i < impl.DataFileEntities.Count)
+                parameters[$"MODELDATAFILEENTITY{i + 1}"] = impl.DataFileEntities[i];
         }
 
         if (impl.IsCurrent)
