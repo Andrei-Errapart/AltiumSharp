@@ -553,6 +553,38 @@ public sealed class BinaryComparisonTests
     }
 
     [Fact]
+    public void Diagnostic_DocFiles_StreamComparison()
+    {
+        foreach (var file in GetPcbDocFiles().Concat(GetSchDocFiles()))
+        {
+            var name = Path.GetFileName(file);
+            var origBytes = File.ReadAllBytes(file);
+            byte[] rtBytes;
+            try
+            {
+                using var ms = new MemoryStream();
+                if (file.EndsWith(".PcbDoc", StringComparison.OrdinalIgnoreCase))
+                {
+                    var doc = new PcbDocReader().Read(new MemoryStream(origBytes));
+                    new PcbDocWriter().Write(doc, ms);
+                }
+                else
+                {
+                    var doc = new SchDocReader().Read(new MemoryStream(origBytes));
+                    new SchDocWriter().Write(doc, ms);
+                }
+                rtBytes = ms.ToArray();
+            }
+            catch (Exception ex) { _output.WriteLine($"{name}: EXCEPTION {ex.GetType().Name}: {ex.Message}"); continue; }
+            var ratio = (double)rtBytes.Length / origBytes.Length * 100;
+            _output.WriteLine($"\n=== {name}: {ratio:F1}% (orig={origBytes.Length}, rt={rtBytes.Length}) ===");
+            using var oCf = new CompoundFile(new MemoryStream(origBytes));
+            using var rCf = new CompoundFile(new MemoryStream(rtBytes));
+            CompareStorage(oCf.RootStorage, rCf.RootStorage, "");
+        }
+    }
+
+    [Fact]
     public void PcbLib_RoundTrip_StreamLevelComparison()
     {
         // Use a single simple test file to compare stream-by-stream
