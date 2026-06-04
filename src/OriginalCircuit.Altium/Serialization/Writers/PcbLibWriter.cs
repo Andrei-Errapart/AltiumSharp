@@ -520,6 +520,15 @@ public sealed class PcbLibWriter
         PutI16(110, (short)pad.JumperID);                                // 110-111
         PutI32(162, pad.HolePositiveTolerance.ToRaw());                  // 162-165
         PutI32(166, pad.HoleNegativeTolerance.ToRaw());                  // 166-169
+
+        // Reproduce the original SubRecord-5 length (PcbLib pads are 202 bytes, PcbDoc pads 194).
+        var targetTailLength = pad.Sr5Length - PadExtendedStart;
+        if (targetTailLength > 0 && targetTailLength != ext.Length)
+        {
+            var resized = new byte[targetTailLength];
+            Array.Copy(ext, resized, Math.Min(ext.Length, targetTailLength));
+            return resized;
+        }
         return ext;
     }
 

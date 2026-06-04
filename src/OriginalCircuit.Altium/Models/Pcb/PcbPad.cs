@@ -570,6 +570,13 @@ public sealed class PcbPad : IPcbPad
     /// </summary>
     public bool HasSizeShapeBlock { get; set; }
 
+    /// <summary>
+    /// Length of SubRecord 5 (the main pad block) as read from the source. PcbLib pads use 202
+    /// bytes; PcbDoc pads use 194. Captured so the writer reproduces the original length rather
+    /// than always emitting 202. Defaults to 202 for pads created from scratch.
+    /// </summary>
+    internal int Sr5Length { get; set; } = 202;
+
     /// <inheritdoc />
     public CoordRect Bounds => CoordRect.FromCenter(Location, SizeTop.X, SizeTop.Y);
 

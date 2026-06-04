@@ -898,6 +898,7 @@ public sealed class PcbLibReader
             .Build();
 
         pad.ComponentIndex = componentIndex;
+        pad.Sr5Length = sanitizedSize;
         pad.SizeMiddle = sizeMiddle;
         pad.SizeBottom = sizeBottom;
         pad.ShapeMiddle = (PadShape)shapeMiddle;
