@@ -127,7 +127,9 @@ public sealed class PcbLibWriter
         writer.Write(componentsNeedingKeys.Count);
         foreach (var component in componentsNeedingKeys)
         {
-            writer.WritePascalString(component.Name);
+            // Name and key are both string blocks with no trailing null (WritePascalString would
+            // append one, growing the stream by one byte per entry).
+            writer.WriteStringBlock(component.Name);
             writer.WriteStringBlock(sectionKeys[component.Name]);
         }
 
