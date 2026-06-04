@@ -132,8 +132,14 @@ public sealed class SchDocReader
         using var reader = new BinaryFormatReader(ms, leaveOpen: true);
 
         // Read document header parameters and store them for round-trip
-        var headerParams = ReadParameterBlock(reader);
+        var headerParams = ReadParameterBlock(reader, out var rawHeader);
         document.HeaderParameters = headerParams;
+        document.HeaderParametersOrdered = SchLibReader.ParseParametersOrdered(rawHeader);
+
+        // Capture every record verbatim (ordered params) for a byte-faithful round-trip. Disabled
+        // if a binary-pin record is encountered (cannot be re-emitted from a textual param string).
+        var rawRecords = new List<List<KeyValuePair<string, string>>>();
+        var rawRecordsUsable = true;
 
         // Build a flat list of all primitives with their indices
         var allPrimitives = new List<(int index, int ownerIndex, object primitive)>();
@@ -150,9 +156,14 @@ public sealed class SchDocReader
         while (reader.HasMore)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var parameters = SchLibReader.ReadRecordParameters(reader);
+            var parameters = SchLibReader.ReadRecordParameters(reader, out var orderedParams, out var isBinaryRecord);
             if (parameters == null || parameters.Count == 0)
                 continue;
+
+            if (isBinaryRecord || orderedParams == null)
+                rawRecordsUsable = false;
+            else
+                rawRecords.Add(orderedParams);
 
             if (!parameters.TryGetValue("RECORD", out var recordTypeStr) ||
                 !int.TryParse(recordTypeStr, out var recordType))
@@ -199,6 +210,8 @@ public sealed class SchDocReader
 
             primitiveIndex++;
         }
+
+        document.RawRecords = rawRecordsUsable ? rawRecords : null;
 
         // Assign children to their owner components/containers via OWNERINDEX
         foreach (var (index, ownerIndex, primitive) in allPrimitives)
@@ -1408,7 +1421,11 @@ public sealed class SchDocReader
     }
 
     private static Dictionary<string, string> ReadParameterBlock(BinaryFormatReader reader)
+        => ReadParameterBlock(reader, out _);
+
+    private static Dictionary<string, string> ReadParameterBlock(BinaryFormatReader reader, out string rawString)
     {
+        rawString = string.Empty;
         var size = reader.ReadInt32();
         var sanitizedSize = size & 0x00FFFFFF;
 
@@ -1433,6 +1450,7 @@ public sealed class SchDocReader
         var nullIndex = Array.IndexOf(buffer, (byte)0);
         var length = nullIndex >= 0 ? nullIndex : sanitizedSize;
         var paramString = AltiumEncoding.Windows1252.GetString(buffer, 0, length);
+        rawString = paramString;
         return SchLibReader.ParseParameters(paramString);
     }
 }

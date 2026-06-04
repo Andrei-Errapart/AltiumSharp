@@ -70,6 +70,21 @@ public sealed class SchDocument : ISchDocument
     /// </summary>
     public List<Dictionary<string, string>> OpaqueRecords { get; } = new();
 
+    /// <summary>
+    /// The FileHeader document-header block parsed as an ordered key/value list, preserving order
+    /// and duplicate keys for a byte-faithful round-trip. The typed model and <see cref="HeaderParameters"/>
+    /// remain populated for from-scratch authoring.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? HeaderParametersOrdered { get; set; }
+
+    /// <summary>
+    /// Every FileHeader record (after the document header) captured as an ordered parameter list in
+    /// original record order. When present, the writer re-emits these verbatim so unmodeled parameters
+    /// and record ordering round-trip exactly; null (or after binary-pin records) falls back to the
+    /// typed-model serialization that supports from-scratch authoring.
+    /// </summary>
+    internal List<List<KeyValuePair<string, string>>>? RawRecords { get; set; }
+
     /// <inheritdoc />
     public IReadOnlyList<ISchComponent> Components => _components;
 

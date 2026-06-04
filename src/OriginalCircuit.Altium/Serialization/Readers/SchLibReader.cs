@@ -376,7 +376,19 @@ public sealed class SchLibReader
     /// Handles both parameter-based (ASCII) records and binary pin records.
     /// </summary>
     internal static Dictionary<string, string>? ReadRecordParameters(BinaryFormatReader reader)
+        => ReadRecordParameters(reader, out _, out _);
+
+    /// <summary>
+    /// Reads a record's parameters, additionally reporting the parameters as an ordered key/value
+    /// list (for byte-faithful verbatim round-trip) and whether the record was a binary pin record
+    /// (which has no textual parameter string and therefore cannot be re-emitted verbatim).
+    /// </summary>
+    internal static Dictionary<string, string>? ReadRecordParameters(BinaryFormatReader reader,
+        out List<KeyValuePair<string, string>>? ordered, out bool isBinaryRecord)
     {
+        ordered = null;
+        isBinaryRecord = false;
+
         if (!reader.HasMore)
             return null;
 
@@ -391,13 +403,17 @@ public sealed class SchLibReader
 
             if (flags == 0x01)
             {
-                // Binary pin record
+                // Binary pin record — no textual parameter string to capture verbatim.
+                isBinaryRecord = true;
                 return ReadBinaryPinRecord(reader, dataSize);
             }
             else
             {
                 // Parameter-based (ASCII) record
-                return ReadParameterRecord(reader, dataSize);
+                var dict = ReadParameterRecord(reader, dataSize, out var rawString);
+                if (rawString != null)
+                    ordered = ParseParametersOrdered(rawString);
+                return dict;
             }
         }
         catch (EndOfStreamException)
@@ -486,7 +502,11 @@ public sealed class SchLibReader
     /// Records are C-strings (null-terminated, no length prefix).
     /// </summary>
     private static Dictionary<string, string>? ReadParameterRecord(BinaryFormatReader reader, int dataSize)
+        => ReadParameterRecord(reader, dataSize, out _);
+
+    private static Dictionary<string, string>? ReadParameterRecord(BinaryFormatReader reader, int dataSize, out string? rawString)
     {
+        rawString = null;
         if (dataSize <= 0)
             return null;
 
@@ -510,6 +530,7 @@ public sealed class SchLibReader
             return null;
 
         var paramString = AltiumEncoding.Windows1252.GetString(buffer, 0, length);
+        rawString = paramString;
         return ParseParameters(paramString);
     }
 

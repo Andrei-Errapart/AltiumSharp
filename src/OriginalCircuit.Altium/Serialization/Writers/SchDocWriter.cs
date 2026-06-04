@@ -58,11 +58,34 @@ public sealed class SchDocWriter
         cf.Save(stream);
     }
 
+    private static string BuildOrderedParamString(List<KeyValuePair<string, string>> ordered)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var kvp in ordered)
+            sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+        return sb.ToString();
+    }
+
     private static void WriteFileHeader(CompoundFile cf, SchDocument document, CancellationToken cancellationToken = default)
     {
         var headerStream = cf.RootStorage.AddStream("FileHeader");
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
+
+        // Byte-faithful path: when the document was read from a file, re-emit the captured header
+        // and every record verbatim (preserving order, duplicate keys and unmodeled parameters).
+        // Files built from scratch (or containing binary-pin records) fall through to the typed
+        // serialization below.
+        if (document.RawRecords is { Count: > 0 } rawRecords &&
+            document.HeaderParametersOrdered is { Count: > 0 } headerOrdered)
+        {
+            writer.WriteCStringParameterBlockRaw(BuildOrderedParamString(headerOrdered));
+            foreach (var rec in rawRecords)
+                writer.WriteCStringParameterBlockRaw(BuildOrderedParamString(rec));
+            writer.Flush();
+            headerStream.SetData(ms.ToArray());
+            return;
+        }
 
         // Write document header record (C-string format, same as SchLib/PCB)
         // Use preserved header parameters for round-trip fidelity, or defaults for new files
