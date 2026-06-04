@@ -612,6 +612,18 @@ public sealed class PcbPad : IPcbPad
     internal int Sr5Length { get; set; } = 202;
 
     /// <summary>
+    /// SubRecord 2 (a Pascal string, usually empty) captured from the source so non-default values
+    /// round-trip. Null for pads built from scratch (written as an empty string).
+    /// </summary>
+    internal string? PadSubrecord2 { get; set; }
+
+    /// <summary>
+    /// SubRecord 3 (a Pascal string, usually "|&|0") captured from the source so non-default values
+    /// round-trip. Null for pads built from scratch (written as "|&|0").
+    /// </summary>
+    internal string? PadNetString { get; set; }
+
+    /// <summary>
     /// Per-layer full-stack opening entries appended after the 596-byte size/shape block for
     /// full-stack pads (e.g. rounded-rectangle SMD pads). Each entry carries a layer code, flags,
     /// X/Y size and corner percentage. Empty for simple pads.

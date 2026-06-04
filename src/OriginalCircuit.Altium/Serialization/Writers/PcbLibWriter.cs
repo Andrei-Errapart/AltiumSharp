@@ -405,9 +405,9 @@ public sealed class PcbLibWriter
     {
         // Pad has a complex multi-block structure
         writer.WriteStringBlock(pad.Designator ?? string.Empty);
-        writer.WriteBlock(new byte[] { 0 }); // reserved block 1
-        writer.WriteStringBlock("|&|0"); // net string (always this in footprint libraries)
-        writer.WriteBlock(new byte[] { 0 }); // reserved block 2
+        writer.WriteStringBlock(pad.PadSubrecord2 ?? string.Empty); // SubRecord 2 (usually empty)
+        writer.WriteStringBlock(pad.PadNetString ?? "|&|0"); // SubRecord 3 (usually "|&|0")
+        writer.WriteBlock(new byte[] { 0 }); // SubRecord 4 (always empty)
 
         // Main pad data block (114 bytes standard)
         writer.WriteBlock(w =>

@@ -843,9 +843,10 @@ public sealed class PcbLibReader
         // Pad has a complex multi-block structure
         var designator = reader.ReadStringBlock();
 
-        // Skip reserved blocks (always single zero byte) and net string (always "|&|0")
-        reader.SkipBlock();
-        reader.ReadStringBlock(); // Usually "|&|0" - discard
+        // SubRecords 2 and 3 (Pascal strings, usually empty and "|&|0") and SubRecord 4 (empty).
+        // Captured so non-default values round-trip; defaults applied for pads built from scratch.
+        var subrecord2 = reader.ReadStringBlock();
+        var netString = reader.ReadStringBlock();
         reader.SkipBlock();
 
         var size = reader.ReadInt32();
@@ -899,6 +900,8 @@ public sealed class PcbLibReader
             .Build();
 
         pad.ComponentIndex = componentIndex;
+        pad.PadSubrecord2 = subrecord2;
+        pad.PadNetString = netString;
         pad.Sr5Length = sanitizedSize;
         pad.SizeMiddle = sizeMiddle;
         pad.SizeBottom = sizeBottom;
