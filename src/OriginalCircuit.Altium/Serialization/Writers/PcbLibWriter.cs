@@ -236,21 +236,26 @@ public sealed class PcbLibWriter
                 parameters[kvp.Key] = kvp.Value;
         }
         parameters["PATTERN"] = component.Name;
-        parameters["HEIGHT"] = component.Height.ToRaw().ToString();
+        // Altium serializes HEIGHT as a mil-suffixed coordinate string (e.g. "0mil"),
+        // not a raw integer, with trailing zeros trimmed.
+        parameters["HEIGHT"] = FormatMilCoord(component.Height);
         if (!string.IsNullOrEmpty(component.Description))
             parameters["DESCRIPTION"] = component.Description;
-        if (component is PcbComponent pcbComp2)
-        {
-            if (!string.IsNullOrEmpty(pcbComp2.ItemGUID))
-                parameters["ITEMGUID"] = pcbComp2.ItemGUID;
-            if (!string.IsNullOrEmpty(pcbComp2.ItemRevisionGUID))
-                parameters["REVISIONGUID"] = pcbComp2.ItemRevisionGUID;
-        }
+        // Altium always emits ITEMGUID and REVISIONGUID, even when empty.
+        parameters["ITEMGUID"] = component.ItemGUID ?? "";
+        parameters["REVISIONGUID"] = component.ItemRevisionGUID ?? "";
         writer.WriteCStringParameterBlock(parameters);
 
         writer.Flush();
         paramsStream.SetData(ms.ToArray());
     }
+
+    /// <summary>
+    /// Formats a coordinate as an Altium mil-suffixed string with trailing zeros trimmed
+    /// (e.g. "0mil", "19.685mil"), matching how Altium serializes PcbLib component HEIGHT.
+    /// </summary>
+    private static string FormatMilCoord(Coord coord)
+        => coord.ToMils().ToString("0.######", System.Globalization.CultureInfo.InvariantCulture) + "mil";
 
     private static void WriteWideStrings(CFStorage storage, PcbComponent component)
     {
