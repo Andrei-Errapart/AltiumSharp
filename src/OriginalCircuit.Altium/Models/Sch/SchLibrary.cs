@@ -22,6 +22,13 @@ public sealed class SchLibrary : ISchLibrary
     /// </summary>
     internal Dictionary<string, string>? SectionKeys { get; set; }
 
+    /// <summary>
+    /// FileHeader parameters as an ordered key/value list (HEADER, MinorVersion, UniqueID, the
+    /// font table, UseMBCS, SheetStyle, etc.). Preserved verbatim for round-trip; only Weight is
+    /// updated to the current component count. New libraries fall back to a minimal header.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? HeaderParameters { get; set; }
+
     /// <inheritdoc />
     public IReadOnlyList<ISchComponent> Components => _components;
 

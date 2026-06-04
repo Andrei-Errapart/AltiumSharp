@@ -115,7 +115,7 @@ public sealed class SchLibReader
         ReadSectionKeys(accessor, library);
 
         // Read file header to get component list
-        var componentNames = ReadFileHeader(accessor);
+        var componentNames = ReadFileHeader(accessor, library);
 
         // Read each component
         foreach (var componentName in componentNames)
@@ -210,7 +210,7 @@ public sealed class SchLibReader
             library.SectionKeys = new Dictionary<string, string>(_sectionKeys, StringComparer.OrdinalIgnoreCase);
     }
 
-    private List<string> ReadFileHeader(CompoundFileAccessor accessor)
+    private List<string> ReadFileHeader(CompoundFileAccessor accessor, SchLibrary library)
     {
         var componentNames = new List<string>();
 
@@ -222,7 +222,10 @@ public sealed class SchLibReader
         using var ms = new MemoryStream(data);
         using var reader = new BinaryFormatReader(ms, leaveOpen: true);
 
-        var parameters = ReadParameterBlock(reader);
+        // Capture the full header parameter list (font table, UniqueID, SheetStyle, etc.) in order
+        // so the writer can reproduce it instead of emitting only HEADER + Weight.
+        var parameters = ReadParameterBlock(reader, out var rawHeader);
+        library.HeaderParameters = ParseParametersOrdered(rawHeader);
 
         // Check if there's more data after parameters (binary component list)
         if (reader.HasMore)
@@ -511,7 +514,11 @@ public sealed class SchLibReader
     }
 
     private static Dictionary<string, string> ReadParameterBlock(BinaryFormatReader reader)
+        => ReadParameterBlock(reader, out _);
+
+    private static Dictionary<string, string> ReadParameterBlock(BinaryFormatReader reader, out string rawString)
     {
+        rawString = string.Empty;
         var size = reader.ReadInt32();
         var sanitizedSize = size & 0x00FFFFFF;
 
@@ -538,7 +545,48 @@ public sealed class SchLibReader
         var length = nullIndex >= 0 ? nullIndex : sanitizedSize;
         var paramString = AltiumEncoding.Windows1252.GetString(buffer, 0, length);
 
+        rawString = paramString;
         return ParseParameters(paramString);
+    }
+
+    /// <summary>
+    /// Parses a pipe-delimited parameter string into an ordered list, preserving key order and
+    /// duplicate keys.
+    /// </summary>
+    internal static List<KeyValuePair<string, string>> ParseParametersOrdered(string paramString)
+    {
+        var result = new List<KeyValuePair<string, string>>();
+        if (string.IsNullOrEmpty(paramString))
+            return result;
+
+        var span = paramString.AsSpan();
+        var start = 0;
+        while (start < span.Length)
+        {
+            if (span[start] == '|')
+                start++;
+            if (start >= span.Length)
+                break;
+            var equalsIndex = span.Slice(start).IndexOf('=');
+            if (equalsIndex < 0)
+                break;
+            var key = span.Slice(start, equalsIndex).ToString();
+            start += equalsIndex + 1;
+            var pipeIndex = span.Slice(start).IndexOf('|');
+            string value;
+            if (pipeIndex < 0)
+            {
+                value = span.Slice(start).ToString();
+                start = span.Length;
+            }
+            else
+            {
+                value = span.Slice(start, pipeIndex).ToString();
+                start += pipeIndex;
+            }
+            result.Add(new KeyValuePair<string, string>(key, value));
+        }
+        return result;
     }
 
     internal static Dictionary<string, string> ParseParameters(string paramString)

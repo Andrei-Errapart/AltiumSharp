@@ -76,13 +76,30 @@ public sealed class SchLibWriter
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
-        // Write header parameters - Altium uses mixed case keys
-        var headerParams = new Dictionary<string, string>
+        // Re-emit the full header parameter list (font table, UniqueID, SheetStyle, MBCS flags,
+        // etc.) preserved from the source file, updating only Weight to the component count.
+        // New libraries with no captured header fall back to the minimal HEADER + Weight block.
+        if (library.HeaderParameters is { Count: > 0 } headerParams)
         {
-            ["HEADER"] = "Protel for Windows - Schematic Library Editor Binary File Version 5.0",
-            ["Weight"] = library.Components.Count.ToString()
-        };
-        writer.WriteCStringParameterBlock(headerParams);
+            var sb = new System.Text.StringBuilder();
+            foreach (var kvp in headerParams)
+            {
+                sb.Append('|').Append(kvp.Key).Append('=');
+                sb.Append(string.Equals(kvp.Key, "Weight", StringComparison.OrdinalIgnoreCase)
+                    ? library.Components.Count.ToString()
+                    : kvp.Value);
+            }
+            writer.WriteCStringParameterBlockRaw(sb.ToString());
+        }
+        else
+        {
+            var defaults = new Dictionary<string, string>
+            {
+                ["HEADER"] = "Protel for Windows - Schematic Library Editor Binary File Version 5.0",
+                ["Weight"] = library.Components.Count.ToString()
+            };
+            writer.WriteCStringParameterBlock(defaults);
+        }
 
         // Write component count and names
         writer.Write(library.Components.Count);
