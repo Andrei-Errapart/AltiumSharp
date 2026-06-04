@@ -72,6 +72,11 @@ public sealed class PcbDocReader
         _diagnostics = new List<AltiumDiagnostic>();
         var document = new PcbDocument();
 
+        // Capture the FileHeader version marker so the writer reproduces it exactly.
+        var fileHeaderStream = accessor.TryGetStream("FileHeader");
+        if (fileHeaderStream != null)
+            document.RawFileHeader = fileHeaderStream.GetData();
+
         // Read wide strings (used by text primitives)
         var wideStrings = ReadWideStrings(accessor);
 

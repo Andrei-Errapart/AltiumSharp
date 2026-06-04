@@ -52,7 +52,7 @@ public sealed class PcbDocWriter
     {
         using var cf = new CompoundFile();
 
-        WriteFileHeader(cf);
+        WriteFileHeader(cf, document);
         WriteBoard(cf, document);
         WriteNets(cf, document);
         cancellationToken.ThrowIfCancellationRequested();
@@ -79,9 +79,17 @@ public sealed class PcbDocWriter
         cf.Save(stream);
     }
 
-    private static void WriteFileHeader(CompoundFile cf)
+    private static void WriteFileHeader(CompoundFile cf, PcbDocument document)
     {
         var headerStream = cf.RootStorage.AddStream("FileHeader");
+
+        // Reproduce the source version marker verbatim (it is a fixed format stamp, not record data).
+        if (document.RawFileHeader is { Length: > 0 })
+        {
+            headerStream.SetData(document.RawFileHeader);
+            return;
+        }
+
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
