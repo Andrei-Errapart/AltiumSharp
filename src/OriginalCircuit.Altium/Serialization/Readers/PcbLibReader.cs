@@ -1333,15 +1333,17 @@ public sealed class PcbLibReader
 
         ReadCommonPrimitiveData(reader, out var layer, out var flags);
 
-        // Structure: uint32 prefix + byte prefix + nested parameter block + outline vertices
-        reader.Skip(4); // reserved uint32 prefix
-        reader.Skip(1); // reserved byte prefix
+        // Header: reserved byte @13 + hole_count uint16 @14-15 + 2 reserved bytes @16-17,
+        // then the nested parameter block and the geometry.
+        reader.Skip(1);
+        var holeCount = reader.ReadUInt16();
+        reader.Skip(2);
 
         // Read nested C-string parameter block (capture ordered form for faithful round-trip)
         var parameters = ReadParameterBlock(reader, out var rawRegionParams);
         var orderedRegionParams = ParseParametersOrdered(rawRegionParams);
 
-        // Read outline vertices (stored as doubles in Altium format)
+        // Read outline vertices (stored as 16-byte x,y doubles in Altium format)
         var vertexCount = reader.ReadUInt32();
         var kind = 0;
         if (parameters.TryGetValue("KIND", out var kindStr))
@@ -1358,6 +1360,25 @@ public sealed class PcbLibReader
             region.AddPoint(x, y);
         }
 
+        // Read hole / cutout contours: [uint32 count][count x,y doubles] per hole.
+        var holes = new List<List<CoordPoint>>(holeCount);
+        for (var h = 0; h < holeCount; h++)
+        {
+            if (reader.Position - startPos + 4 > sanitizedSize)
+                break;
+            var holeVertexCount = reader.ReadUInt32();
+            if (reader.Position - startPos + (long)holeVertexCount * 16 > sanitizedSize)
+                break;
+            var hole = new List<CoordPoint>((int)holeVertexCount);
+            for (var i = 0; i < holeVertexCount; i++)
+            {
+                var hx = Coord.FromRaw((int)reader.ReadDouble());
+                var hy = Coord.FromRaw((int)reader.ReadDouble());
+                hole.Add(new CoordPoint(hx, hy));
+            }
+            holes.Add(hole);
+        }
+
         // Skip trailing data
         var consumed = reader.Position - startPos;
         var remaining = sanitizedSize - consumed;
@@ -1366,6 +1387,7 @@ public sealed class PcbLibReader
 
         var result = region.Build();
         result.RawParametersOrdered = orderedRegionParams;
+        result.Holes = holes;
 
         // Decode flags
         PcbBinaryConstants.DecodeFlags(flags, out var isLocked, out var isTentingTop, out var isTentingBottom, out var isKeepout);

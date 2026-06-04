@@ -252,6 +252,12 @@ public sealed class PcbRegion : IPcbRegion
     internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
 
     /// <summary>
+    /// Hole / cutout contours. Each hole is a closed polygon of vertices subtracted from the
+    /// region outline (copper-pour cutouts). Preserved for round-trip and rendering.
+    /// </summary>
+    public List<List<CoordPoint>> Holes { get; set; } = new();
+
+    /// <summary>
     /// Adds a point to the region outline.
     /// </summary>
     internal void AddPoint(CoordPoint point) => _outline.Add(point);

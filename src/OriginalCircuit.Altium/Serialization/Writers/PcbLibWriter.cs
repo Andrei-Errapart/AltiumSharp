@@ -749,12 +749,14 @@ public sealed class PcbLibWriter
                 region.IsTentingBottom, region.IsKeepout);
             WriteCommonPrimitiveData(w, region.Layer, flags);
 
-            // Structure: uint32 prefix + byte prefix + nested parameter block + outline vertices (doubles)
-            w.Write((uint)0); // reserved prefix 1
-            w.Write((byte)0); // reserved prefix 2
+            // Header: reserved byte @13 + hole_count uint16 @14-15 + 2 reserved bytes @16-17.
+            var holes = region.Holes;
+            w.Write((byte)0);
+            w.Write((ushort)(holes?.Count ?? 0));
+            w.Write((byte)0);
+            w.Write((byte)0);
 
-            // Round-trip: serialize the captured ordered parameter list verbatim (preserves key
-            // order, duplicates and Altium's mil formatting). New regions fall back to typed fields.
+            // Nested parameter block: ordered verbatim for round-trip; typed fields for new regions.
             if (region.RawParametersOrdered is { Count: > 0 } orderedRegionParams)
             {
                 var psb = new System.Text.StringBuilder();
@@ -764,39 +766,46 @@ public sealed class PcbLibWriter
                     psb.Append(orderedRegionParams[i].Key).Append('=').Append(orderedRegionParams[i].Value);
                 }
                 w.WriteCStringParameterBlockRaw(psb.ToString());
-                w.Write((uint)region.Outline.Count);
-                foreach (var point in region.Outline)
-                {
-                    w.Write((double)point.X.ToRaw());
-                    w.Write((double)point.Y.ToRaw());
-                }
-                return;
             }
-
-            // Generate parameters from typed properties
-            var regionParams = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            // Merge any additional parameters first (typed properties override)
-            if (region.AdditionalParameters != null)
+            else
             {
-                foreach (var kvp in region.AdditionalParameters)
-                    regionParams[kvp.Key] = kvp.Value;
+                var regionParams = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (region.AdditionalParameters != null)
+                {
+                    foreach (var kvp in region.AdditionalParameters)
+                        regionParams[kvp.Key] = kvp.Value;
+                }
+                if (region.Kind != 0)
+                    regionParams["KIND"] = region.Kind.ToString();
+                if (!string.IsNullOrEmpty(region.Net))
+                    regionParams["NET"] = region.Net;
+                if (!string.IsNullOrEmpty(region.UniqueId))
+                    regionParams["UNIQUEID"] = region.UniqueId;
+                if (!string.IsNullOrEmpty(region.Name))
+                    regionParams["NAME"] = region.Name;
+                w.WriteCStringParameterBlock(regionParams);
             }
-            if (region.Kind != 0)
-                regionParams["KIND"] = region.Kind.ToString();
-            if (!string.IsNullOrEmpty(region.Net))
-                regionParams["NET"] = region.Net;
-            if (!string.IsNullOrEmpty(region.UniqueId))
-                regionParams["UNIQUEID"] = region.UniqueId;
-            if (!string.IsNullOrEmpty(region.Name))
-                regionParams["NAME"] = region.Name;
-            w.WriteCStringParameterBlock(regionParams);
 
-            // Write outline vertices as doubles (Altium PCB format)
+            // Outline vertices (16-byte x,y doubles).
             w.Write((uint)region.Outline.Count);
             foreach (var point in region.Outline)
             {
                 w.Write((double)point.X.ToRaw());
                 w.Write((double)point.Y.ToRaw());
+            }
+
+            // Hole / cutout vertex arrays: [uint32 count][count x,y doubles] per hole.
+            if (holes != null)
+            {
+                foreach (var hole in holes)
+                {
+                    w.Write((uint)hole.Count);
+                    foreach (var point in hole)
+                    {
+                        w.Write((double)point.X.ToRaw());
+                        w.Write((double)point.Y.ToRaw());
+                    }
+                }
             }
         });
     }
