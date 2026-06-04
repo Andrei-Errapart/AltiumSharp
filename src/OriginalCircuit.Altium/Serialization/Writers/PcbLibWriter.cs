@@ -408,34 +408,10 @@ public sealed class PcbLibWriter
             w.Write((byte)pad.ShapeBottom);
             w.Write(pad.Rotation);
             w.Write(pad.IsPlated);
-            // Offset 61-85
-            w.Write((byte)0); // offset 61: constant 0
-            w.Write((byte)pad.Mode); // offset 62: StackMode
-            w.Write((byte)pad.PowerPlaneConnectStyle); // offset 63: PowerPlaneConnectStyle
-            w.WriteCoord(pad.ReliefAirGap); // offset 64: ReliefAirGap
-            w.WriteCoord(pad.ReliefConductorWidth); // offset 68: ReliefConductorWidth
-            w.Write((short)pad.ReliefEntries); // offset 72: ReliefEntries (typically 4)
-            w.WriteCoord(pad.PowerPlaneClearance); // offset 74: PowerPlaneClearance
-            w.WriteCoord(pad.PowerPlaneReliefExpansion); // offset 78: PowerPlaneReliefExpansion
-            w.Write(0); // offset 82: reserved (always 0)
-            // Offset 86-93: paste/solder mask expansions
-            w.WriteCoord(pad.PasteMaskExpansion);
-            w.WriteCoord(pad.SolderMaskExpansion);
-            // Offset 94-100: 7 zero bytes
-            w.Write(new byte[7]);
-            // Offset 101-102: manual mask flags (encoded as 0 or 2)
-            w.Write((byte)(pad.PasteMaskExpansion.ToRaw() != 0 ? 2 : 0));
-            w.Write((byte)(pad.SolderMaskExpansion.ToRaw() != 0 ? 2 : 0));
-            // Offset 103: DrillType
-            w.Write((byte)pad.DrillType);
-            // Offset 104-105: reserved
-            w.Write((short)0);
-            // Offset 106-109: reserved
-            w.Write(0);
-            // Offset 110-111: JumperID
-            w.Write((short)pad.JumperID);
-            // Offset 112-113: reserved
-            w.Write((short)0);
+            // Offsets 61-201: extended tail (thermal relief, mask expansion + modes,
+            // jumper, hole tolerances) built from a fixed template with the typed/semantic
+            // fields overlaid at their exact offsets.
+            w.Write(BuildPadExtendedTail(pad));
         });
 
         // Size/shape block (596 bytes standard, or empty if not present in original)
@@ -472,6 +448,62 @@ public sealed class PcbLibWriter
             // 32 corner radius percentages (offset 564-595)
             for (var i = 0; i < 32; i++) w.Write(pad.PerLayerCornerRadii[i]);
         });
+    }
+
+    // First offset of the pad SubRecord-5 extended tail (after the basic geometry).
+    private const int PadExtendedStart = 61;
+
+    // Canonical 141-byte pad SubRecord-5 extended tail (offsets 61-201), captured from a
+    // standard Altium pad. The typed/semantic fields are overlaid at their exact offsets in
+    // BuildPadExtendedTail; the remaining bytes are reserved / pad-cache / footprint-identity
+    // values reproduced verbatim so the record matches Altium's 202-byte layout.
+    private static readonly byte[] PadExtendedTailTemplate =
+    {
+        // 61-76
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xA0, 0x86, 0x01, 0x00, 0x04, 0x00, 0xA0, 0x86, 0x01,
+        // 77-92
+        0x00, 0x40, 0x0D, 0x03, 0x00, 0x40, 0x0D, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x9C, 0x00,
+        // 93-108
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        // 109-124
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x03, 0x01, 0x00, 0x00, 0x00, 0x40, 0x9C, 0x00, 0x00,
+        // 125-140
+        0x00, 0x64, 0x9A, 0x92, 0x26, 0x10, 0xC7, 0xE4, 0x41, 0xA3, 0x2B, 0x29, 0x17, 0xA5, 0x35, 0x2E,
+        // 141-156
+        0x67, 0x7F, 0xAB, 0x21, 0x20, 0xC3, 0x0B, 0x32, 0x47, 0xAD, 0xCE, 0x6C, 0xB7, 0xB8, 0xC9, 0x7E,
+        // 157-172
+        0x68, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0xFF, 0xFF, 0x7F, 0x00, 0x01, 0x1A,
+        // 173-188
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00,
+        // 189-201
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+
+    /// <summary>
+    /// Builds the pad SubRecord-5 extended tail (offsets 61-201) by overlaying the typed
+    /// semantic fields onto the canonical template.
+    /// </summary>
+    private static byte[] BuildPadExtendedTail(PcbPad pad)
+    {
+        var ext = (byte[])PadExtendedTailTemplate.Clone();
+        void PutI32(int offset, int value) => BitConverter.GetBytes(value).CopyTo(ext, offset - PadExtendedStart);
+        void PutI16(int offset, short value) => BitConverter.GetBytes(value).CopyTo(ext, offset - PadExtendedStart);
+
+        ext[62 - PadExtendedStart] = (byte)pad.Mode;                      // 62: pad stack mode
+        ext[67 - PadExtendedStart] = (byte)pad.PowerPlaneConnectStyle;    // 67: plane connection style
+        PutI32(68, pad.ReliefConductorWidth.ToRaw());                    // 68-71
+        PutI16(72, (short)pad.ReliefEntries);                            // 72-73
+        PutI32(74, pad.ReliefAirGap.ToRaw());                            // 74-77
+        PutI32(78, pad.PowerPlaneReliefExpansion.ToRaw());               // 78-81
+        PutI32(82, pad.PowerPlaneClearance.ToRaw());                     // 82-85
+        PutI32(86, pad.PasteMaskExpansion.ToRaw());                      // 86-89 (manual paste)
+        PutI32(90, pad.SolderMaskExpansion.ToRaw());                     // 90-93 (manual solder)
+        ext[101 - PadExtendedStart] = (byte)pad.PasteMaskExpansionMode;  // 101
+        ext[102 - PadExtendedStart] = (byte)pad.SolderMaskExpansionMode; // 102
+        PutI16(110, (short)pad.JumperID);                                // 110-111
+        PutI32(162, pad.HolePositiveTolerance.ToRaw());                  // 162-165
+        PutI32(166, pad.HoleNegativeTolerance.ToRaw());                  // 166-169
+        return ext;
     }
 
     internal static void WriteVia(BinaryFormatWriter writer, PcbVia via)

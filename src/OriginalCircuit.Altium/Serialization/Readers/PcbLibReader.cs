@@ -825,13 +825,14 @@ public sealed class PcbLibReader
         var rotation = reader.ReadDouble();
         var isPlated = reader.ReadByte() != 0;
 
-        // Read extended main block fields (power plane, masks, drill, jumper)
+        // Read extended main block fields (power plane, masks, mask modes, jumper, tolerances)
         ReadPadExtendedFields(reader, startPos, sanitizedSize,
             out var stackMode, out var powerPlaneConnectStyle,
             out var reliefAirGap, out var reliefConductorWidth, out var reliefEntries,
             out var powerPlaneClearance, out var powerPlaneReliefExpansion,
             out var pasteMaskExpansion, out var solderMaskExpansion,
-            out var drillType, out var jumperId);
+            out var pasteMaskMode, out var solderMaskMode,
+            out var jumperId, out var holePositiveTolerance, out var holeNegativeTolerance);
 
         // Read size/shape block (596 bytes for extended pad data)
         ReadPadSizeShapeBlock(reader, stackMode, ref shapeTop, ref shapeMiddle, ref shapeBottom,
@@ -859,6 +860,10 @@ public sealed class PcbLibReader
         pad.ShapeBottom = (PadShape)shapeBottom;
         pad.PasteMaskExpansion = Coord.FromRaw(pasteMaskExpansion);
         pad.SolderMaskExpansion = Coord.FromRaw(solderMaskExpansion);
+        pad.PasteMaskExpansionMode = pasteMaskMode;
+        pad.SolderMaskExpansionMode = solderMaskMode;
+        pad.HolePositiveTolerance = Coord.FromRaw(holePositiveTolerance);
+        pad.HoleNegativeTolerance = Coord.FromRaw(holeNegativeTolerance);
         pad.Mode = stackMode;
         pad.JumperID = jumperId;
 
@@ -874,7 +879,6 @@ public sealed class PcbLibReader
         pad.ReliefEntries = reliefEntries;
         pad.PowerPlaneClearance = Coord.FromRaw(powerPlaneClearance);
         pad.PowerPlaneReliefExpansion = Coord.FromRaw(powerPlaneReliefExpansion);
-        pad.DrillType = drillType;
 
         pad.LayerXSizes = layerXSizes;
         pad.LayerYSizes = layerYSizes;
@@ -891,56 +895,66 @@ public sealed class PcbLibReader
         return pad;
     }
 
+    // Pad SubRecord-5 extended tail (offsets relative to the start of the SubRecord).
+    // Layout verified against the Altium binary format: the thermal-relief / mask /
+    // tolerance fields live at fixed offsets, interleaved with reserved and pad-cache bytes.
+    private const int PadExtendedStart = 61;             // first byte after the basic geometry
+    private const int PadHolePositiveToleranceOffset = 162;
+    private const int PadHoleNegativeToleranceOffset = 166;
+
     private static void ReadPadExtendedFields(BinaryFormatReader reader, long startPos, long blockSize,
         out int stackMode, out byte powerPlaneConnectStyle,
         out int reliefAirGap, out int reliefConductorWidth, out short reliefEntries,
         out int powerPlaneClearance, out int powerPlaneReliefExpansion,
         out int pasteMaskExpansion, out int solderMaskExpansion,
-        out byte drillType, out short jumperId)
+        out byte pasteMaskMode, out byte solderMaskMode,
+        out short jumperId,
+        out int holePositiveTolerance, out int holeNegativeTolerance)
     {
         stackMode = 0;
-        pasteMaskExpansion = 0; solderMaskExpansion = 0;
-        jumperId = 0;
         powerPlaneConnectStyle = 0;
-        reliefAirGap = 0; reliefConductorWidth = 0;
-        reliefEntries = 4;
+        reliefAirGap = 0; reliefConductorWidth = 0; reliefEntries = 4;
         powerPlaneClearance = 0; powerPlaneReliefExpansion = 0;
-        drillType = 0;
+        pasteMaskExpansion = 0; solderMaskExpansion = 0;
+        pasteMaskMode = 1; solderMaskMode = 1; // 1 = From rule
+        jumperId = 0;
+        holePositiveTolerance = int.MaxValue; // 0x7FFFFFFF = unset
+        holeNegativeTolerance = int.MaxValue;
 
-        long Remaining() => blockSize - (reader.Position - startPos);
+        // We are positioned at offset 61 (start of the extended tail). Read the rest of the
+        // SubRecord into a buffer and index it by absolute offset; this also consumes the
+        // remainder so the SubRecord-6 read that follows stays aligned.
+        var consumed = (int)(reader.Position - startPos);
+        var tailLength = (int)(blockSize - consumed);
+        if (tailLength <= 0)
+            return;
+        var tail = reader.ReadBytes(tailLength);
 
-        if (Remaining() >= 25) // Fields from offset 61-85
-        {
-            reader.Skip(1); // offset 61: constant 0
-            stackMode = reader.ReadByte(); // offset 62: StackMode
-            powerPlaneConnectStyle = reader.ReadByte(); // offset 63
-            reliefAirGap = reader.ReadInt32(); // offset 64
-            reliefConductorWidth = reader.ReadInt32(); // offset 68
-            reliefEntries = reader.ReadInt16(); // offset 72
-            powerPlaneClearance = reader.ReadInt32(); // offset 74
-            powerPlaneReliefExpansion = reader.ReadInt32(); // offset 78
-            reader.Skip(4); // offset 82: reserved
-        }
-        if (Remaining() >= 8) // PasteMask + SolderMask (offset 86-93)
-        {
-            pasteMaskExpansion = reader.ReadInt32();
-            solderMaskExpansion = reader.ReadInt32();
-        }
-        if (Remaining() >= 16) // Unk bytes + flags + DrillType + reserved (offset 94-109)
-        {
-            reader.Skip(9); // offset 94-102: unknown + manual mask flags
-            drillType = reader.ReadByte(); // offset 103: DrillType
-            reader.Skip(6); // offset 104-109: reserved
-        }
-        if (Remaining() >= 4) // JumperID + reserved (offset 110-113)
-        {
-            jumperId = reader.ReadInt16();
-            reader.Skip(2); // offset 112: reserved
-        }
+        bool Has(int offset, int width) => offset >= PadExtendedStart
+            && offset - PadExtendedStart + width <= tail.Length;
+        byte B(int offset, byte fallback) => Has(offset, 1) ? tail[offset - PadExtendedStart] : fallback;
+        short I16(int offset, short fallback) => Has(offset, 2)
+            ? (short)(tail[offset - PadExtendedStart] | (tail[offset - PadExtendedStart + 1] << 8)) : fallback;
+        int I32(int offset, int fallback) => Has(offset, 4)
+            ? BitConverter.ToInt32(tail, offset - PadExtendedStart) : fallback;
 
-        // Skip any trailing data beyond the standard 114-byte main block
-        if (Remaining() > 0)
-            reader.Skip((int)Remaining());
+        stackMode = B(62, 0);                              // 62: pad stack mode
+        // 63-66: reserved
+        powerPlaneConnectStyle = B(67, 0);                 // 67: plane connection style
+        reliefConductorWidth = I32(68, 0);                 // 68-71
+        reliefEntries = I16(72, 4);                        // 72-73
+        reliefAirGap = I32(74, 0);                         // 74-77
+        powerPlaneReliefExpansion = I32(78, 0);            // 78-81
+        powerPlaneClearance = I32(82, 0);                  // 82-85
+        pasteMaskExpansion = I32(86, 0);                   // 86-89 (manual paste expansion)
+        solderMaskExpansion = I32(90, 0);                  // 90-93 (manual solder expansion)
+        // 94-100: pad-cache validity bytes (regenerated from template on write)
+        pasteMaskMode = B(101, 1);                         // 101: 0=None,1=Rule,2=Manual
+        solderMaskMode = B(102, 1);                        // 102
+        // 103-105: cache validity + gap; 106-109: user union; 110-111: jumper; 114-117: save id
+        jumperId = I16(110, 0);                            // 110-111
+        holePositiveTolerance = I32(PadHolePositiveToleranceOffset, int.MaxValue); // 162-165
+        holeNegativeTolerance = I32(PadHoleNegativeToleranceOffset, int.MaxValue); // 166-169
     }
 
     private static void ReadPadSizeShapeBlock(BinaryFormatReader reader, int stackMode,

@@ -165,6 +165,16 @@ public sealed class PcbPad : IPcbPad
     public Coord SolderMaskExpansion { get; set; }
 
     /// <summary>
+    /// Paste mask expansion mode (0 = None, 1 = From rule, 2 = Manual). Defaults to From rule.
+    /// </summary>
+    public int PasteMaskExpansionMode { get; set; } = 1;
+
+    /// <summary>
+    /// Solder mask expansion mode (0 = None, 1 = From rule, 2 = Manual). Defaults to From rule.
+    /// </summary>
+    public int SolderMaskExpansionMode { get; set; } = 1;
+
+    /// <summary>
     /// Whether solder mask expansion is measured from the hole edge.
     /// </summary>
     public bool SolderMaskExpansionFromHoleEdge { get; set; }
@@ -335,14 +345,16 @@ public sealed class PcbPad : IPcbPad
     public int MultiLayerHighBits { get; set; }
 
     /// <summary>
-    /// Hole positive tolerance.
+    /// Hole positive (upper) drill tolerance. Defaults to the "unset" sentinel
+    /// (<c>0x7FFFFFFF</c>), matching how Altium serializes a pad with no tolerance specified.
     /// </summary>
-    public Coord HolePositiveTolerance { get; set; }
+    public Coord HolePositiveTolerance { get; set; } = Coord.FromRaw(int.MaxValue);
 
     /// <summary>
-    /// Hole negative tolerance.
+    /// Hole negative (lower) drill tolerance. Defaults to the "unset" sentinel
+    /// (<c>0x7FFFFFFF</c>), matching how Altium serializes a pad with no tolerance specified.
     /// </summary>
-    public Coord HoleNegativeTolerance { get; set; }
+    public Coord HoleNegativeTolerance { get; set; } = Coord.FromRaw(int.MaxValue);
 
     /// <summary>
     /// Whether the hole size is valid.

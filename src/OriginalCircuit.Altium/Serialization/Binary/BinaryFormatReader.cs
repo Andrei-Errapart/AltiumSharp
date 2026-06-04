@@ -68,6 +68,25 @@ internal sealed class BinaryFormatReader : IDisposable
     }
 
     /// <summary>
+    /// Reads exactly <paramref name="count"/> bytes into a new array.
+    /// </summary>
+    public byte[] ReadBytes(int count)
+    {
+        if (count < 0)
+            throw new ArgumentOutOfRangeException(nameof(count));
+        var buffer = new byte[count];
+        var read = 0;
+        while (read < count)
+        {
+            var n = _stream.Read(buffer, read, count - read);
+            if (n == 0)
+                throw new EndOfStreamException();
+            read += n;
+        }
+        return buffer;
+    }
+
+    /// <summary>
     /// Reads a signed 16-bit integer (little-endian).
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
