@@ -245,6 +245,13 @@ public sealed class PcbRegion : IPcbRegion
     public Dictionary<string, string>? AdditionalParameters { get; set; }
 
     /// <summary>
+    /// The nested parameter block as an ordered key/value list, preserving key order, duplicate
+    /// keys and Altium's mil value formatting. Serialized verbatim for a byte-faithful round-trip;
+    /// regions built from scratch fall back to the typed properties.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+
+    /// <summary>
     /// Adds a point to the region outline.
     /// </summary>
     internal void AddPoint(CoordPoint point) => _outline.Add(point);

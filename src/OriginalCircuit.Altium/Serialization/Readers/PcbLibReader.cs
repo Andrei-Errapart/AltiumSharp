@@ -1337,8 +1337,9 @@ public sealed class PcbLibReader
         reader.Skip(4); // reserved uint32 prefix
         reader.Skip(1); // reserved byte prefix
 
-        // Read nested C-string parameter block
-        var parameters = ReadParameterBlock(reader);
+        // Read nested C-string parameter block (capture ordered form for faithful round-trip)
+        var parameters = ReadParameterBlock(reader, out var rawRegionParams);
+        var orderedRegionParams = ParseParametersOrdered(rawRegionParams);
 
         // Read outline vertices (stored as doubles in Altium format)
         var vertexCount = reader.ReadUInt32();
@@ -1364,6 +1365,7 @@ public sealed class PcbLibReader
             reader.Skip((int)remaining);
 
         var result = region.Build();
+        result.RawParametersOrdered = orderedRegionParams;
 
         // Decode flags
         PcbBinaryConstants.DecodeFlags(flags, out var isLocked, out var isTentingTop, out var isTentingBottom, out var isKeepout);

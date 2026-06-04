@@ -753,6 +753,26 @@ public sealed class PcbLibWriter
             w.Write((uint)0); // reserved prefix 1
             w.Write((byte)0); // reserved prefix 2
 
+            // Round-trip: serialize the captured ordered parameter list verbatim (preserves key
+            // order, duplicates and Altium's mil formatting). New regions fall back to typed fields.
+            if (region.RawParametersOrdered is { Count: > 0 } orderedRegionParams)
+            {
+                var psb = new System.Text.StringBuilder();
+                for (var i = 0; i < orderedRegionParams.Count; i++)
+                {
+                    if (i > 0) psb.Append('|');
+                    psb.Append(orderedRegionParams[i].Key).Append('=').Append(orderedRegionParams[i].Value);
+                }
+                w.WriteCStringParameterBlockRaw(psb.ToString());
+                w.Write((uint)region.Outline.Count);
+                foreach (var point in region.Outline)
+                {
+                    w.Write((double)point.X.ToRaw());
+                    w.Write((double)point.Y.ToRaw());
+                }
+                return;
+            }
+
             // Generate parameters from typed properties
             var regionParams = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             // Merge any additional parameters first (typed properties override)
