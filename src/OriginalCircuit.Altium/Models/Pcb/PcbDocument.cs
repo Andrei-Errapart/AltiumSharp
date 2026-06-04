@@ -108,6 +108,13 @@ public sealed class PcbDocument : IPcbDocument
     /// </summary>
     internal List<KeyValuePair<string, string>>? BoardParametersOrdered { get; set; }
 
+    /// <summary>
+    /// Names of root storages that were present in the source file, so the writer can reproduce
+    /// known storages that exist but are empty (e.g. an empty DifferentialPairs6) rather than
+    /// omitting them.
+    /// </summary>
+    internal HashSet<string> PresentStorages { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     private PcbLayerStack? _layerStackCache;
 
     /// <summary>

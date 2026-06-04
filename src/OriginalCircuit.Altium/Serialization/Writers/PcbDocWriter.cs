@@ -121,10 +121,26 @@ public sealed class PcbDocWriter
         dataStream.SetData(ms.ToArray());
     }
 
+    /// <summary>
+    /// Writes an empty Header(count=0) + empty Data storage when the named storage existed in the
+    /// source file but its collection is now empty, so a present-but-empty storage round-trips.
+    /// </summary>
+    private static void WriteEmptyStorageIfPresent(CompoundFile cf, PcbDocument document, string name)
+    {
+        if (!document.PresentStorages.Contains(name))
+            return;
+        var storage = cf.RootStorage.AddStorage(name);
+        PcbLibWriter.WriteStorageHeader(storage, 0);
+        storage.AddStream("Data");
+    }
+
     private static void WriteNets(CompoundFile cf, PcbDocument document)
     {
         if (document.Nets.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "Nets6");
             return;
+        }
 
         var storage = cf.RootStorage.AddStorage("Nets6");
         PcbLibWriter.WriteStorageHeader(storage, document.Nets.Count);
@@ -218,7 +234,10 @@ public sealed class PcbDocWriter
     private static void WriteClasses(CompoundFile cf, PcbDocument document)
     {
         if (document.Classes.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "Classes6");
             return;
+        }
 
         var texts = new List<string>();
         foreach (var objectClass in document.Classes)
@@ -229,7 +248,10 @@ public sealed class PcbDocWriter
     private static void WriteDifferentialPairs(CompoundFile cf, PcbDocument document)
     {
         if (document.DifferentialPairs.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "DifferentialPairs6");
             return;
+        }
 
         var texts = new List<string>();
         foreach (var pair in document.DifferentialPairs)
@@ -240,7 +262,10 @@ public sealed class PcbDocWriter
     private static void WriteRooms(CompoundFile cf, PcbDocument document)
     {
         if (document.Rooms.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "Rooms6");
             return;
+        }
 
         var texts = new List<string>();
         foreach (var room in document.Rooms)
@@ -365,7 +390,10 @@ public sealed class PcbDocWriter
     private static void WritePolygons(CompoundFile cf, PcbDocument document)
     {
         if (document.Polygons.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "Polygons6");
             return;
+        }
 
         var storage = cf.RootStorage.AddStorage("Polygons6");
         PcbLibWriter.WriteStorageHeader(storage, document.Polygons.Count);
@@ -632,7 +660,10 @@ public sealed class PcbDocWriter
     private static void WriteEmbeddedBoards(CompoundFile cf, PcbDocument document)
     {
         if (document.EmbeddedBoards.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "EmbeddedBoards6");
             return;
+        }
 
         var storage = cf.RootStorage.AddStorage("EmbeddedBoards6");
         PcbLibWriter.WriteStorageHeader(storage, document.EmbeddedBoards.Count);

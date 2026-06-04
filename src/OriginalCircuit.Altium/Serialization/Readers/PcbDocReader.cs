@@ -116,6 +116,11 @@ public sealed class PcbDocReader
 
         foreach (var item in accessor.EnumerateChildren(accessor.RootStorage))
         {
+            // Record every root entry so the writer can reproduce known storages that were
+            // present but empty (e.g. DifferentialPairs6) instead of omitting them.
+            if (item is OpenMcdf.CFStorage)
+                document.PresentStorages.Add(item.Name);
+
             if (KnownStorageNames.Contains(item.Name))
                 continue;
 
