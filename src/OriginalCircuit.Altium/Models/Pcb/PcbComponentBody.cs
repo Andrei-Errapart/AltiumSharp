@@ -348,6 +348,14 @@ public sealed class PcbComponentBody : IPcbComponentBody
     /// </summary>
     public Dictionary<string, string>? AdditionalParameters { get; set; }
 
+    /// <summary>
+    /// The nested parameter block as an ordered key/value list, preserving original key order
+    /// and duplicate keys (the block contains a duplicate ARCRESOLUTION and mil-formatted heights
+    /// that a flattened map cannot reproduce). When present, this is serialized verbatim for a
+    /// byte-faithful round-trip; new bodies built from scratch fall back to the typed properties.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+
     /// <inheritdoc />
     public CoordRect Bounds
     {

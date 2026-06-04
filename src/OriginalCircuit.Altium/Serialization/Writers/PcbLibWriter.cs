@@ -794,6 +794,27 @@ public sealed class PcbLibWriter
             w.Write((uint)0); // reserved prefix 1
             w.Write((byte)0); // reserved prefix 2
 
+            // Round-trip: serialize the captured ordered parameter list verbatim. It preserves
+            // key order, duplicate keys (e.g. ARCRESOLUTION) and Altium's mil formatting that a
+            // flattened typed view cannot reproduce. New bodies fall back to the typed fields below.
+            if (body.RawParametersOrdered is { Count: > 0 } orderedBodyParams)
+            {
+                var psb = new System.Text.StringBuilder();
+                for (var i = 0; i < orderedBodyParams.Count; i++)
+                {
+                    if (i > 0) psb.Append('|');
+                    psb.Append(orderedBodyParams[i].Key).Append('=').Append(orderedBodyParams[i].Value);
+                }
+                w.WriteCStringParameterBlockRaw(psb.ToString());
+                w.Write((uint)body.Outline.Count);
+                foreach (var point in body.Outline)
+                {
+                    w.Write((double)point.X.ToRaw());
+                    w.Write((double)point.Y.ToRaw());
+                }
+                return;
+            }
+
             // Generate ALL parameters from typed properties
             var bodyParams = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             // Merge any additional parameters first (typed properties override)
