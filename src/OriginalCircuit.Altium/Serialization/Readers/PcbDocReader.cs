@@ -910,11 +910,11 @@ public sealed class PcbDocReader
         while (reader.HasMore)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var parameters = PcbLibReader.ReadParameterBlock(reader);
+            var parameters = PcbLibReader.ReadParameterBlock(reader, out var rawComp);
             if (parameters.Count == 0)
                 continue;
 
-            var component = new PcbComponent();
+            var component = new PcbComponent { RawParametersOrdered = PcbLibReader.ParseParametersOrdered(rawComp) };
             ApplyComponentParameters(component, parameters);
             document.AddComponent(component);
         }

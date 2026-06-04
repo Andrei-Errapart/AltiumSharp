@@ -529,6 +529,17 @@ public sealed class PcbDocWriter
 
     private static void WriteComponentParameters(BinaryFormatWriter writer, PcbComponent comp)
     {
+        // Round-trip: re-emit the original component parameter block verbatim (preserves key
+        // order, mil formatting and all attributes). New components fall back to typed fields.
+        if (comp.RawParametersOrdered is { Count: > 0 } ordered)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var kvp in ordered)
+                sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+            writer.WriteCStringParameterBlockRaw(sb.ToString());
+            return;
+        }
+
         var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Merge AdditionalParameters first (typed properties override)

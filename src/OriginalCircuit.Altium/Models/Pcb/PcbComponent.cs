@@ -370,6 +370,12 @@ public sealed class PcbComponent : IPcbComponent
     /// </summary>
     public Dictionary<string, string>? AdditionalParameters { get; set; }
 
+    /// <summary>
+    /// The PcbDoc Components6 parameter block as an ordered key/value list, serialized verbatim
+    /// for a byte-faithful round-trip; components created from scratch fall back to typed fields.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+
     /// <inheritdoc />
     public IReadOnlyList<IPcbPad> Pads => _pads;
 
