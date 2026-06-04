@@ -385,12 +385,19 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(arc.IsLocked, arc.IsTentingTop,
                 arc.IsTentingBottom, arc.IsKeepout);
-            WriteCommonPrimitiveData(w, arc.Layer, flags);
-            w.WriteCoordPoint(arc.Center);
-            w.WriteCoord(arc.Radius);
-            w.Write(arc.StartAngle);
-            w.Write(arc.EndAngle);
-            w.WriteCoord(arc.Width);
+            WriteCommonPrimitiveData(w, arc.Layer, flags); // 0-12
+            w.WriteCoordPoint(arc.Center);                 // 13-20
+            w.WriteCoord(arc.Radius);                      // 21-24
+            w.Write(arc.StartAngle);                       // 25-32
+            w.Write(arc.EndAngle);                         // 33-40
+            w.WriteCoord(arc.Width);                       // 41-44
+            // Extended tail (offsets 45-59)
+            w.Write((short)0);                              // 45-46 subpoly index
+            w.WriteCoord(arc.SolderMaskExpansion);          // 47-50 solder mask expansion
+            w.Write((byte)0);                               // 51 paste mask expansion
+            w.Write(new byte[] { 0x01, 0x00, 0x00, 0x01 }); // 52-55 v7 layer id
+            w.Write((byte)arc.KeepoutRestrictions);         // 56 keepout restrictions
+            w.Write(new byte[3]);                           // 57-59 reserved
         });
     }
 
@@ -601,12 +608,17 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(track.IsLocked, track.IsTentingTop,
                 track.IsTentingBottom, track.IsKeepout);
-            WriteCommonPrimitiveData(w, track.Layer, flags);
-            w.WriteCoordPoint(track.Start);
-            w.WriteCoordPoint(track.End);
-            w.WriteCoord(track.Width);
-            w.Write(track.NetIndex);
-            w.Write(track.ComponentIndex);
+            WriteCommonPrimitiveData(w, track.Layer, flags); // 0-12
+            w.WriteCoordPoint(track.Start);                  // 13-20
+            w.WriteCoordPoint(track.End);                    // 21-28
+            w.WriteCoord(track.Width);                       // 29-32
+            // Extended tail (offsets 33-48)
+            w.Write((short)0);                              // 33-34 subpoly index
+            w.WriteCoord(track.SolderMaskExpansion);        // 35-38 solder mask expansion
+            w.Write((short)0);                              // 39-40 paste mask expansion
+            w.Write(new byte[] { 0x0D, 0x00, 0x03, 0x01 }); // 41-44 v7 layer id
+            w.Write((byte)track.KeepoutRestrictions);       // 45 keepout restrictions
+            w.Write(new byte[3]);                           // 46-48 reserved
         });
     }
 
@@ -716,10 +728,16 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(fill.IsLocked, fill.IsTentingTop,
                 fill.IsTentingBottom, fill.IsKeepout);
-            WriteCommonPrimitiveData(w, fill.Layer, flags);
-            w.WriteCoordPoint(fill.Corner1);
-            w.WriteCoordPoint(fill.Corner2);
-            w.Write(fill.Rotation);
+            WriteCommonPrimitiveData(w, fill.Layer, flags); // 0-12
+            w.WriteCoordPoint(fill.Corner1);                // 13-20
+            w.WriteCoordPoint(fill.Corner2);                // 21-28
+            w.Write(fill.Rotation);                         // 29-36
+            // Extended tail (offsets 37-49)
+            w.WriteCoord(fill.SolderMaskExpansion);         // 37-40 solder mask expansion
+            w.Write((byte)0);                               // 41 paste mask expansion
+            w.Write(new byte[] { 0x01, 0x00, 0x00, 0x01 }); // 42-45 v7 layer id
+            w.Write((byte)fill.KeepoutRestrictions);        // 46 keepout restrictions
+            w.Write(new byte[3]);                           // 47-49 reserved
         });
     }
 

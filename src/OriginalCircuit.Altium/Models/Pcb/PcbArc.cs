@@ -170,6 +170,11 @@ public sealed class PcbArc : IPcbArc
     public Coord PasteMaskExpansion { get; set; }
 
     /// <summary>
+    /// Keepout restriction bitmask (per object type: via/track/copper/SMD pad/TH pad).
+    /// </summary>
+    public byte KeepoutRestrictions { get; set; }
+
+    /// <summary>
     /// Whether this arc is hidden from view.
     /// </summary>
     public bool IsHidden { get; set; }

@@ -808,29 +808,25 @@ public sealed class PcbLibReader
         if (sanitizedSize <= 0)
             return null;
 
-        var startPos = reader.Position;
+        var sr = reader.ReadBytes(sanitizedSize);
+        bool Has(int off, int width) => off >= 0 && off + width <= sr.Length;
+        byte B(int off) => Has(off, 1) ? sr[off] : (byte)0;
+        int I32(int off) => Has(off, 4) ? BitConverter.ToInt32(sr, off) : 0;
+        double Dbl(int off) => Has(off, 8) ? BitConverter.ToDouble(sr, off) : 0.0;
 
-        ReadCommonPrimitiveData(reader, out var layer, out var flags);
-
-        var center = ReadCoordPoint(reader);
-        var radius = Coord.FromRaw(reader.ReadInt32());
-        var startAngle = reader.ReadDouble();
-        var endAngle = reader.ReadDouble();
-        var width = Coord.FromRaw(reader.ReadInt32());
-
-        // Skip any trailing data (record size 56 has 11 extra bytes)
-        var consumed = reader.Position - startPos;
-        var remaining = sanitizedSize - consumed;
-        if (remaining > 0)
-            reader.Skip((int)remaining);
+        var layer = B(0);
+        var flags = (ushort)(B(1) | (B(2) << 8));
 
         var arc = PcbArc.Create()
-            .At(center.X, center.Y)
-            .Radius(radius)
-            .Angles(startAngle, endAngle)
-            .Width(width)
+            .At(Coord.FromRaw(I32(13)), Coord.FromRaw(I32(17)))
+            .Radius(Coord.FromRaw(I32(21)))
+            .Angles(Dbl(25), Dbl(33))
+            .Width(Coord.FromRaw(I32(41)))
             .Layer(layer)
             .Build();
+
+        arc.SolderMaskExpansion = Coord.FromRaw(I32(47)); // 47-50
+        arc.KeepoutRestrictions = B(56);                  // 56
 
         // Decode flags
         PcbBinaryConstants.DecodeFlags(flags, out var isLocked, out var isTentingTop, out var isTentingBottom, out var isKeepout);
@@ -1125,38 +1121,23 @@ public sealed class PcbLibReader
         if (sanitizedSize <= 0)
             return null;
 
-        var startPos = reader.Position;
+        var sr = reader.ReadBytes(sanitizedSize);
+        bool Has(int off, int width) => off >= 0 && off + width <= sr.Length;
+        byte B(int off) => Has(off, 1) ? sr[off] : (byte)0;
+        int I32(int off) => Has(off, 4) ? BitConverter.ToInt32(sr, off) : 0;
 
-        ReadCommonPrimitiveData(reader, out var layer, out var flags);
-
-        var startX = reader.ReadInt32();
-        var startY = reader.ReadInt32();
-        var endX = reader.ReadInt32();
-        var endY = reader.ReadInt32();
-        var width = Coord.FromRaw(reader.ReadInt32());
-
-        // Read the 3 post-core bytes (always present in 36-byte minimum record)
-        ushort netIndex = 0;
-        byte componentIndex = 0;
-        var consumed = reader.Position - startPos;
-        if (consumed + 3 <= sanitizedSize)
-        {
-            netIndex = reader.ReadUInt16(); // SubNet/Net index
-            componentIndex = reader.ReadByte(); // Component index
-        }
-
-        // Skip optional trailing data (record sizes 41, 45)
-        consumed = reader.Position - startPos;
-        var remaining = sanitizedSize - consumed;
-        if (remaining > 0)
-            reader.Skip((int)remaining);
+        var layer = B(0);
+        var flags = (ushort)(B(1) | (B(2) << 8));
 
         var track = PcbTrack.Create()
-            .From(Coord.FromRaw(startX), Coord.FromRaw(startY))
-            .To(Coord.FromRaw(endX), Coord.FromRaw(endY))
-            .Width(width)
+            .From(Coord.FromRaw(I32(13)), Coord.FromRaw(I32(17)))
+            .To(Coord.FromRaw(I32(21)), Coord.FromRaw(I32(25)))
+            .Width(Coord.FromRaw(I32(29)))
             .Layer(layer)
             .Build();
+
+        track.SolderMaskExpansion = Coord.FromRaw(I32(35)); // 35-38
+        track.KeepoutRestrictions = B(45);                  // 45
 
         // Decode flags
         PcbBinaryConstants.DecodeFlags(flags, out var isLocked, out var isTentingTop, out var isTentingBottom, out var isKeepout);
@@ -1164,9 +1145,6 @@ public sealed class PcbLibReader
         track.IsTentingTop = isTentingTop;
         track.IsTentingBottom = isTentingBottom;
         track.IsKeepout = isKeepout;
-
-        track.NetIndex = netIndex;
-        track.ComponentIndex = componentIndex;
 
         return track;
     }
@@ -1314,26 +1292,24 @@ public sealed class PcbLibReader
         if (sanitizedSize <= 0)
             return null;
 
-        var startPos = reader.Position;
+        var sr = reader.ReadBytes(sanitizedSize);
+        bool Has(int off, int width) => off >= 0 && off + width <= sr.Length;
+        byte B(int off) => Has(off, 1) ? sr[off] : (byte)0;
+        int I32(int off) => Has(off, 4) ? BitConverter.ToInt32(sr, off) : 0;
+        double Dbl(int off) => Has(off, 8) ? BitConverter.ToDouble(sr, off) : 0.0;
 
-        ReadCommonPrimitiveData(reader, out var layer, out var flags);
-
-        var corner1 = ReadCoordPoint(reader);
-        var corner2 = ReadCoordPoint(reader);
-        var rotation = reader.ReadDouble();
-
-        // Skip any trailing data (record sizes 41, 46)
-        var consumed = reader.Position - startPos;
-        var remaining = sanitizedSize - consumed;
-        if (remaining > 0)
-            reader.Skip((int)remaining);
+        var layer = B(0);
+        var flags = (ushort)(B(1) | (B(2) << 8));
 
         var fill = PcbFill.Create()
-            .From(corner1.X, corner1.Y)
-            .To(corner2.X, corner2.Y)
-            .Rotation(rotation)
+            .From(Coord.FromRaw(I32(13)), Coord.FromRaw(I32(17)))
+            .To(Coord.FromRaw(I32(21)), Coord.FromRaw(I32(25)))
+            .Rotation(Dbl(29))
             .OnLayer(layer)
             .Build();
+
+        fill.SolderMaskExpansion = Coord.FromRaw(I32(37)); // 37-40
+        fill.KeepoutRestrictions = B(46);                  // 46
 
         // Decode flags
         PcbBinaryConstants.DecodeFlags(flags, out var isLocked, out var isTentingTop, out var isTentingBottom, out var isKeepout);

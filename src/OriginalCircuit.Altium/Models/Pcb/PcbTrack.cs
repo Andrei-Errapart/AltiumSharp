@@ -162,6 +162,11 @@ public sealed class PcbTrack : IPcbTrack
     public Coord PasteMaskExpansion { get; set; }
 
     /// <summary>
+    /// Keepout restriction bitmask (per object type: via/track/copper/SMD pad/TH pad).
+    /// </summary>
+    public byte KeepoutRestrictions { get; set; }
+
+    /// <summary>
     /// Whether this track is hidden from view.
     /// </summary>
     public bool IsHidden { get; set; }
