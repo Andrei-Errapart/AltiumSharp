@@ -883,7 +883,8 @@ public sealed class PcbLibReader
             out var layerXSizes, out var layerYSizes, out var internalLayerShapes,
             out var holeShapeByte, out var holeSlotLength, out var holeRotation,
             out var offsetX, out var offsetY, out var hasRoundedRectByte,
-            out var perLayerShapes, out var perLayerCornerRadii, out var hasSizeShapeBlock);
+            out var perLayerShapes, out var perLayerCornerRadii, out var hasSizeShapeBlock,
+            out var fullStackEntries);
 
         // Build the pad model
         var pad = PcbPad.Create()
@@ -937,6 +938,7 @@ public sealed class PcbLibReader
         pad.PerLayerShapes = perLayerShapes;
         pad.PerLayerCornerRadii = perLayerCornerRadii;
         pad.HasSizeShapeBlock = hasSizeShapeBlock;
+        pad.FullStackEntries.AddRange(fullStackEntries);
         return pad;
     }
 
@@ -1007,8 +1009,10 @@ public sealed class PcbLibReader
         out int[] layerXSizes, out int[] layerYSizes, out byte[] internalLayerShapes,
         out byte holeShapeByte, out int holeSlotLength, out double holeRotation,
         out int[] offsetX, out int[] offsetY, out byte hasRoundedRectByte,
-        out byte[] perLayerShapes, out byte[] perLayerCornerRadii, out bool hasSizeShapeBlock)
+        out byte[] perLayerShapes, out byte[] perLayerCornerRadii, out bool hasSizeShapeBlock,
+        out List<PadFullStackEntry> fullStackEntries)
     {
+        fullStackEntries = new List<PadFullStackEntry>();
         var sizeShapeBlockSize = reader.ReadInt32();
         var sanitizedSize = sizeShapeBlockSize & 0x00FFFFFF;
         hasSizeShapeBlock = sanitizedSize > 0;
@@ -1043,8 +1047,39 @@ public sealed class PcbLibReader
             for (var i = 0; i < 32; i++) perLayerCornerRadii[i] = reader.ReadByte();
 
             var ssRemaining = sanitizedSize - (reader.Position - ssStartPos);
-            if (ssRemaining > 0)
+            // Full-stack tail: [32 reserved][u32 count][u32 stride][count x stride-byte entries].
+            if (ssRemaining >= 40)
+            {
+                reader.Skip(32); // reserved (zeros)
+                var count = reader.ReadInt32();
+                var stride = reader.ReadInt32();
+                for (var i = 0; i < count; i++)
+                {
+                    if (stride < 15 || reader.Position - ssStartPos + stride > sanitizedSize)
+                        break;
+                    fullStackEntries.Add(new PadFullStackEntry
+                    {
+                        LayerCode = reader.ReadByte(),
+                        Flag1 = reader.ReadByte(),
+                        Flag2 = reader.ReadByte(),
+                        Flag3 = reader.ReadByte(),
+                        Flag4 = reader.ReadByte(),
+                        SizeX = reader.ReadInt32(),
+                        SizeY = reader.ReadInt32(),
+                        CornerPercent = reader.ReadByte(),
+                        Trailing = reader.ReadByte(),
+                    });
+                    if (stride > 15)
+                        reader.Skip(stride - 15);
+                }
+                var ssRemaining2 = sanitizedSize - (reader.Position - ssStartPos);
+                if (ssRemaining2 > 0)
+                    reader.Skip((int)ssRemaining2);
+            }
+            else if (ssRemaining > 0)
+            {
                 reader.Skip((int)ssRemaining);
+            }
         }
         else if (sanitizedSize > 0)
         {

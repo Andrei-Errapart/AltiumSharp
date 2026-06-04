@@ -464,6 +464,26 @@ public sealed class PcbLibWriter
             for (var i = 0; i < 32; i++) w.Write(pad.PerLayerShapes[i]);
             // 32 corner radius percentages (offset 564-595)
             for (var i = 0; i < 32; i++) w.Write(pad.PerLayerCornerRadii[i]);
+
+            // Full-stack tail: [32 reserved][u32 count][u32 stride=15][count x 15-byte entries].
+            if (pad.FullStackEntries.Count > 0)
+            {
+                w.Write(new byte[32]);
+                w.Write(pad.FullStackEntries.Count);
+                w.Write(15);
+                foreach (var e in pad.FullStackEntries)
+                {
+                    w.Write(e.LayerCode);
+                    w.Write(e.Flag1);
+                    w.Write(e.Flag2);
+                    w.Write(e.Flag3);
+                    w.Write(e.Flag4);
+                    w.Write(e.SizeX);
+                    w.Write(e.SizeY);
+                    w.Write(e.CornerPercent);
+                    w.Write(e.Trailing);
+                }
+            }
         });
     }
 

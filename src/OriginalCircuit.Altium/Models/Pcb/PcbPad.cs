@@ -24,6 +24,40 @@ public enum PadHoleType
 }
 
 /// <summary>
+/// A per-layer full-stack opening entry (15 bytes) appended to a full-stack pad's size/shape
+/// block. Models all bytes so the record round-trips without raw byte capture.
+/// </summary>
+public sealed class PadFullStackEntry
+{
+    /// <summary>Layer code this entry applies to.</summary>
+    public byte LayerCode { get; set; }
+
+    /// <summary>Four mode/enable flag bytes (exact semantics layer-stack dependent).</summary>
+    public byte Flag1 { get; set; }
+
+    /// <summary>Second flag byte.</summary>
+    public byte Flag2 { get; set; }
+
+    /// <summary>Third flag byte.</summary>
+    public byte Flag3 { get; set; }
+
+    /// <summary>Fourth flag byte.</summary>
+    public byte Flag4 { get; set; }
+
+    /// <summary>Opening size in X (raw internal units).</summary>
+    public int SizeX { get; set; }
+
+    /// <summary>Opening size in Y (raw internal units).</summary>
+    public int SizeY { get; set; }
+
+    /// <summary>Corner radius percentage (0-100).</summary>
+    public byte CornerPercent { get; set; }
+
+    /// <summary>Trailing reserved byte.</summary>
+    public byte Trailing { get; set; }
+}
+
+/// <summary>
 /// Represents a PCB pad.
 /// </summary>
 public sealed class PcbPad : IPcbPad
@@ -576,6 +610,13 @@ public sealed class PcbPad : IPcbPad
     /// than always emitting 202. Defaults to 202 for pads created from scratch.
     /// </summary>
     internal int Sr5Length { get; set; } = 202;
+
+    /// <summary>
+    /// Per-layer full-stack opening entries appended after the 596-byte size/shape block for
+    /// full-stack pads (e.g. rounded-rectangle SMD pads). Each entry carries a layer code, flags,
+    /// X/Y size and corner percentage. Empty for simple pads.
+    /// </summary>
+    public List<PadFullStackEntry> FullStackEntries { get; } = new();
 
     /// <inheritdoc />
     public CoordRect Bounds => CoordRect.FromCenter(Location, SizeTop.X, SizeTop.Y);
