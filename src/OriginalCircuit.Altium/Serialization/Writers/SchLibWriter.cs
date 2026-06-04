@@ -189,126 +189,59 @@ public sealed class SchLibWriter
         // Write component record (the root primitive)
         WriteComponentRecord(writer, component, ref index);
 
-        // Write pins
-        foreach (var pin in component.Pins)
+        if (component.ReadOrderedPrimitives.Count > 0)
         {
-            WritePinRecord(writer, (SchPin)pin, pinIndex, pinsFrac, pinsSymbolLineWidth);
-            pinIndex++;
-            index++;
+            // Reproduce the exact on-disk record order captured on read.
+            foreach (var prim in component.ReadOrderedPrimitives)
+            {
+                switch (prim)
+                {
+                    case SchPin pin: WritePinRecord(writer, pin, pinIndex, pinsFrac, pinsSymbolLineWidth); pinIndex++; index++; break;
+                    case SchLine line: WriteLineRecord(writer, line, ref index); break;
+                    case SchRectangle rect: WriteRectangleRecord(writer, rect, ref index); break;
+                    case SchLabel label: WriteLabelRecord(writer, label, ref index); break;
+                    case SchArc arc: WriteArcRecord(writer, arc, ref index); break;
+                    case SchPolygon polygon: WritePolygonRecord(writer, polygon, ref index); break;
+                    case SchPolyline polyline: WritePolylineRecord(writer, polyline, ref index); break;
+                    case SchWire wire: WriteWireRecord(writer, wire, ref index); break;
+                    case SchBezier bezier: WriteBezierRecord(writer, bezier, ref index); break;
+                    case SchEllipse ellipse: WriteEllipseRecord(writer, ellipse, ref index); break;
+                    case SchRoundedRectangle roundedRect: WriteRoundedRectangleRecord(writer, roundedRect, ref index); break;
+                    case SchPie pie: WritePieRecord(writer, pie, ref index); break;
+                    case SchEllipticalArc ellipticalArc: WriteEllipticalArcRecord(writer, ellipticalArc, ref index); break;
+                    case SchParameter param: WriteParameterRecord(writer, param, ref index); break;
+                    case SchNetLabel netLabel: WriteNetLabelRecord(writer, netLabel, ref index); break;
+                    case SchJunction junction: WriteJunctionRecord(writer, junction, ref index); break;
+                    case SchTextFrame textFrame: WriteTextFrameRecord(writer, textFrame, ref index); break;
+                    case SchImage image: WriteImageRecord(writer, image, ref index); break;
+                    case SchSymbol symbol: WriteSymbolRecord(writer, symbol, ref index); break;
+                    case SchPowerObject powerObj: WritePowerObjectRecord(writer, powerObj, ref index); break;
+                }
+            }
         }
-
-        // Write lines
-        foreach (var line in component.Lines)
+        else
         {
-            WriteLineRecord(writer, (SchLine)line, ref index);
-        }
-
-        // Write rectangles
-        foreach (var rect in component.Rectangles)
-        {
-            WriteRectangleRecord(writer, (SchRectangle)rect, ref index);
-        }
-
-        // Write labels
-        foreach (var label in component.Labels)
-        {
-            WriteLabelRecord(writer, (SchLabel)label, ref index);
-        }
-
-        // Write arcs
-        foreach (var arc in component.Arcs)
-        {
-            WriteArcRecord(writer, (SchArc)arc, ref index);
-        }
-
-        // Write polygons
-        foreach (var polygon in component.Polygons)
-        {
-            WritePolygonRecord(writer, (SchPolygon)polygon, ref index);
-        }
-
-        // Write polylines
-        foreach (var polyline in component.Polylines)
-        {
-            WritePolylineRecord(writer, (SchPolyline)polyline, ref index);
-        }
-
-        // Write wires
-        foreach (var wire in component.Wires)
-        {
-            WriteWireRecord(writer, (SchWire)wire, ref index);
-        }
-
-        // Write beziers
-        foreach (var bezier in component.Beziers)
-        {
-            WriteBezierRecord(writer, (SchBezier)bezier, ref index);
-        }
-
-        // Write ellipses
-        foreach (var ellipse in component.Ellipses)
-        {
-            WriteEllipseRecord(writer, (SchEllipse)ellipse, ref index);
-        }
-
-        // Write rounded rectangles
-        foreach (var roundedRect in component.RoundedRectangles)
-        {
-            WriteRoundedRectangleRecord(writer, (SchRoundedRectangle)roundedRect, ref index);
-        }
-
-        // Write pies
-        foreach (var pie in component.Pies)
-        {
-            WritePieRecord(writer, (SchPie)pie, ref index);
-        }
-
-        // Write elliptical arcs
-        foreach (var ellipticalArc in component.EllipticalArcs)
-        {
-            WriteEllipticalArcRecord(writer, (SchEllipticalArc)ellipticalArc, ref index);
-        }
-
-        // Write parameters
-        foreach (var param in component.Parameters)
-        {
-            WriteParameterRecord(writer, (SchParameter)param, ref index);
-        }
-
-        // Write net labels
-        foreach (var netLabel in component.NetLabels)
-        {
-            WriteNetLabelRecord(writer, (SchNetLabel)netLabel, ref index);
-        }
-
-        // Write junctions
-        foreach (var junction in component.Junctions)
-        {
-            WriteJunctionRecord(writer, (SchJunction)junction, ref index);
-        }
-
-        // Write text frames
-        foreach (var textFrame in component.TextFrames)
-        {
-            WriteTextFrameRecord(writer, (SchTextFrame)textFrame, ref index);
-        }
-
-        // Write images
-        foreach (var image in component.Images)
-        {
-            WriteImageRecord(writer, (SchImage)image, ref index);
-        }
-
-        // Write symbols
-        foreach (var symbol in component.Symbols)
-        {
-            WriteSymbolRecord(writer, (SchSymbol)symbol, ref index);
-        }
-
-        // Write power objects
-        foreach (var powerObj in component.PowerObjects)
-        {
-            WritePowerObjectRecord(writer, (SchPowerObject)powerObj, ref index);
+            // Components built from scratch: emit records grouped by type.
+            foreach (var pin in component.Pins) { WritePinRecord(writer, (SchPin)pin, pinIndex, pinsFrac, pinsSymbolLineWidth); pinIndex++; index++; }
+            foreach (var line in component.Lines) WriteLineRecord(writer, (SchLine)line, ref index);
+            foreach (var rect in component.Rectangles) WriteRectangleRecord(writer, (SchRectangle)rect, ref index);
+            foreach (var label in component.Labels) WriteLabelRecord(writer, (SchLabel)label, ref index);
+            foreach (var arc in component.Arcs) WriteArcRecord(writer, (SchArc)arc, ref index);
+            foreach (var polygon in component.Polygons) WritePolygonRecord(writer, (SchPolygon)polygon, ref index);
+            foreach (var polyline in component.Polylines) WritePolylineRecord(writer, (SchPolyline)polyline, ref index);
+            foreach (var wire in component.Wires) WriteWireRecord(writer, (SchWire)wire, ref index);
+            foreach (var bezier in component.Beziers) WriteBezierRecord(writer, (SchBezier)bezier, ref index);
+            foreach (var ellipse in component.Ellipses) WriteEllipseRecord(writer, (SchEllipse)ellipse, ref index);
+            foreach (var roundedRect in component.RoundedRectangles) WriteRoundedRectangleRecord(writer, (SchRoundedRectangle)roundedRect, ref index);
+            foreach (var pie in component.Pies) WritePieRecord(writer, (SchPie)pie, ref index);
+            foreach (var ellipticalArc in component.EllipticalArcs) WriteEllipticalArcRecord(writer, (SchEllipticalArc)ellipticalArc, ref index);
+            foreach (var param in component.Parameters) WriteParameterRecord(writer, (SchParameter)param, ref index);
+            foreach (var netLabel in component.NetLabels) WriteNetLabelRecord(writer, (SchNetLabel)netLabel, ref index);
+            foreach (var junction in component.Junctions) WriteJunctionRecord(writer, (SchJunction)junction, ref index);
+            foreach (var textFrame in component.TextFrames) WriteTextFrameRecord(writer, (SchTextFrame)textFrame, ref index);
+            foreach (var image in component.Images) WriteImageRecord(writer, (SchImage)image, ref index);
+            foreach (var symbol in component.Symbols) WriteSymbolRecord(writer, (SchSymbol)symbol, ref index);
+            foreach (var powerObj in component.PowerObjects) WritePowerObjectRecord(writer, (SchPowerObject)powerObj, ref index);
         }
 
         // Write implementation records (records 44-48) — Altium writes these at the end

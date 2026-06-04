@@ -7,6 +7,13 @@ namespace OriginalCircuit.Altium.Models.Sch;
 /// </summary>
 public sealed class SchComponent : ISchComponent
 {
+    /// <summary>
+    /// All child records in their original on-disk order (pins, graphics, parameters, etc.),
+    /// captured on read so the writer can reproduce the exact record sequence instead of grouping
+    /// by type. Empty for components built from scratch (the writer then emits by type).
+    /// </summary>
+    internal List<object> ReadOrderedPrimitives { get; } = new();
+
     private readonly List<SchPin> _pins = new();
     private readonly List<SchLine> _lines = new();
     private readonly List<SchRectangle> _rectangles = new();

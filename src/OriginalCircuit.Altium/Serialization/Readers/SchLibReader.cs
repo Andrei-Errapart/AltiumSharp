@@ -2125,6 +2125,10 @@ public sealed class SchLibReader
                 component.AddImplementation(implementation);
                 break;
         }
+
+        // Record the on-disk order so the writer can reproduce the exact record sequence.
+        if (primitive is not SchImplementation)
+            component.ReadOrderedPrimitives.Add(primitive);
     }
 
     /// <summary>
