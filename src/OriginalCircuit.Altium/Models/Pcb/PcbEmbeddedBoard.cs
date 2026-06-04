@@ -238,6 +238,12 @@ public sealed class PcbEmbeddedBoard
     public int TransmitParametersCount { get; set; }
 
     /// <summary>
+    /// The embedded board's parameter block as an ordered key/value list, serialized verbatim for
+    /// a byte-faithful round-trip; boards built from scratch fall back to the typed properties.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+
+    /// <summary>
     /// Whether this embedded board allows global editing.
     /// </summary>
     public bool AllowGlobalEdit { get; set; }

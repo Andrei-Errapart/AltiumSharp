@@ -779,11 +779,11 @@ public sealed class PcbDocReader
         while (reader.HasMore)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var parameters = PcbLibReader.ReadParameterBlock(reader);
+            var parameters = PcbLibReader.ReadParameterBlock(reader, out var rawBoard);
             if (parameters.Count == 0)
                 continue;
 
-            var board = new PcbEmbeddedBoard();
+            var board = new PcbEmbeddedBoard { RawParametersOrdered = PcbLibReader.ParseParametersOrdered(rawBoard) };
             ApplyEmbeddedBoardParameters(board, parameters);
             document.AddEmbeddedBoard(board);
         }

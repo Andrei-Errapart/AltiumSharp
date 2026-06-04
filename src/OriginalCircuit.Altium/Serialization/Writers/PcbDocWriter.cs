@@ -702,6 +702,16 @@ public sealed class PcbDocWriter
 
     private static void WriteEmbeddedBoardParameters(BinaryFormatWriter writer, PcbEmbeddedBoard board)
     {
+        // Round-trip: re-emit the original parameter block verbatim. New boards use typed fields.
+        if (board.RawParametersOrdered is { Count: > 0 } ordered)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var kvp in ordered)
+                sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+            writer.WriteCStringParameterBlockRaw(sb.ToString());
+            return;
+        }
+
         var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Boolean properties (written as present=TRUE/FALSE, matching real Altium format)
