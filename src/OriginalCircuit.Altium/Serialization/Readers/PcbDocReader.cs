@@ -270,9 +270,38 @@ public sealed class PcbDocReader
 
     private void ReadRules(CompoundFileAccessor accessor, PcbDocument document)
     {
-        ReadParameterBlockStorage(accessor, "Rules6", parameters =>
+        var storage = accessor.TryGetStorage("Rules6");
+        if (storage == null)
+            return;
+        var dataStream = PcbLibReader.GetChildStream(storage, "Data");
+        if (dataStream == null)
+            return;
+        var data = dataStream.GetData();
+
+        // Rules6 records use a 2-byte leader + 4-byte length + null-terminated text layout,
+        // unlike Nets6/Classes6 which omit the leader. The leader varies per record and must
+        // be preserved for round-trip.
+        var pos = 0;
+        while (pos + 6 <= data.Length)
         {
-            var rule = new PcbRule { Parameters = parameters };
+            var leader = (ushort)(data[pos] | (data[pos + 1] << 8));
+            var length = BitConverter.ToInt32(data, pos + 2);
+            pos += 6;
+            if (length <= 0 || pos + length > data.Length)
+                break;
+
+            var nul = Array.IndexOf(data, (byte)0, pos, length);
+            var textLen = nul >= 0 ? nul - pos : length;
+            var text = AltiumEncoding.Windows1252.GetString(data, pos, textLen);
+            pos += length;
+
+            var parameters = PcbLibReader.ParseParameters(text);
+            var rule = new PcbRule
+            {
+                Parameters = parameters,
+                RawLeader = leader,
+                RawParametersOrdered = PcbLibReader.ParseParametersOrdered(text),
+            };
             if (parameters.TryGetValue("NAME", out var name))
                 rule.Name = name;
             if (parameters.TryGetValue("RULEKIND", out var ruleKind))
@@ -291,7 +320,7 @@ public sealed class PcbDocReader
                 rule.Scope2Expression = scope2;
 
             document.AddRule(rule);
-        });
+        }
     }
 
     private void ReadClasses(CompoundFileAccessor accessor, PcbDocument document)

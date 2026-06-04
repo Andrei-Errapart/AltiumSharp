@@ -53,6 +53,19 @@ public sealed class PcbRule
     public Dictionary<string, string> Parameters { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// The 2-byte record leader preceding this rule in the Rules6 stream. Varies per record and
+    /// is preserved for round-trip fidelity. New rules default to 0.
+    /// </summary>
+    internal ushort RawLeader { get; set; }
+
+    /// <summary>
+    /// The rule's parameter block as an ordered key/value list, preserving key order, duplicates
+    /// and value formatting. Serialized verbatim for a byte-faithful round-trip; rules created
+    /// from scratch fall back to <see cref="ToParameters"/>.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+
+    /// <summary>
     /// Synchronizes typed properties back into the Parameters dictionary and returns it.
     /// </summary>
     public Dictionary<string, string> ToParameters()

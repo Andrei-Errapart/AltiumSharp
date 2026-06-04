@@ -162,11 +162,40 @@ public sealed class PcbDocWriter
         if (document.Rules.Count == 0)
             return;
 
-        var paramSets = new List<Dictionary<string, string>>();
-        foreach (var rule in document.Rules)
-            paramSets.Add(rule.ToParameters());
+        var storage = cf.RootStorage.AddStorage("Rules6");
+        PcbLibWriter.WriteStorageHeader(storage, document.Rules.Count);
+        var dataStream = storage.AddStream("Data");
 
-        WriteParameterBlockStorage(cf, "Rules6", paramSets);
+        using var ms = new MemoryStream();
+        foreach (var rule in document.Rules)
+        {
+            // Serialize the rule's parameter list (ordered + verbatim for round-trip; typed
+            // fallback for new rules), then frame it as [2-byte leader][4-byte length][text][null].
+            var sb = new System.Text.StringBuilder();
+            if (rule.RawParametersOrdered is { Count: > 0 } ordered)
+            {
+                foreach (var kvp in ordered)
+                    sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+            }
+            else
+            {
+                foreach (var kvp in rule.ToParameters())
+                    sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+            }
+
+            var textBytes = AltiumEncoding.Windows1252.GetBytes(sb.ToString());
+            var length = textBytes.Length + 1; // include the trailing null
+            ms.WriteByte((byte)(rule.RawLeader & 0xFF));
+            ms.WriteByte((byte)((rule.RawLeader >> 8) & 0xFF));
+            ms.WriteByte((byte)(length & 0xFF));
+            ms.WriteByte((byte)((length >> 8) & 0xFF));
+            ms.WriteByte((byte)((length >> 16) & 0xFF));
+            ms.WriteByte((byte)((length >> 24) & 0xFF));
+            ms.Write(textBytes, 0, textBytes.Length);
+            ms.WriteByte(0);
+        }
+
+        dataStream.SetData(ms.ToArray());
     }
 
     private static void WriteClasses(CompoundFile cf, PcbDocument document)
