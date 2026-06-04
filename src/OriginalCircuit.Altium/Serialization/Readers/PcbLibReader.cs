@@ -1149,91 +1149,81 @@ public sealed class PcbLibReader
         if (sanitizedSize <= 0)
             return null;
 
-        var startPos = reader.Position;
+        // Read the entire SubRecord 1 into a buffer and parse by absolute offset
+        // (the Altium text layout is fixed: geometry, font, text-box, barcode block, tail).
+        var sr1 = reader.ReadBytes(sanitizedSize);
 
-        ReadCommonPrimitiveData(reader, out var layer, out var flags);
-
-        var corner1 = ReadCoordPoint(reader);
-        var height = reader.ReadInt32();
-        var strokeFont = reader.ReadInt16();
-        var rotation = reader.ReadDouble();
-        var mirrored = reader.ReadByte() != 0;
-        var strokeWidth = reader.ReadInt32();
-
-        // Extended text fields (record size >= 123)
-        var textKind = PcbTextKind.Stroke;
-        var fontBold = false;
-        var fontItalic = false;
-        string? fontName = null;
-        int barcodeLRMargin = 0;
-        int barcodeTBMargin = 0;
-        var fontInverted = false;
-        int fontInvertedBorder = 0;
-        int wideStringIndex = -1;
-        var fontInvertedRect = false;
-        int fontInvertedRectWidth = 0;
-        int fontInvertedRectHeight = 0;
-        byte fontInvertedRectJustification = 0;
-        int fontInvertedRectTextOffset = 0;
-        short reservedExt1 = 0;
-        byte reservedExt2 = 0;
-        int reservedExt3 = 0;
-        int reservedExt4 = 0;
-        byte reservedExt5 = 0;
-        byte reservedExt6 = 0;
-        int reservedExt7 = 0;
-        short reservedExt8 = 0;
-        int reservedExt9 = 1;
-        int reservedExt10 = 0;
-        int reservedExt11 = 0;
-
-        if (sanitizedSize >= 123)
+        bool Has(int off, int width) => off >= 0 && off + width <= sr1.Length;
+        byte B(int off) => Has(off, 1) ? sr1[off] : (byte)0;
+        short I16(int off) => Has(off, 2) ? (short)(sr1[off] | (sr1[off + 1] << 8)) : (short)0;
+        int I32(int off) => Has(off, 4) ? BitConverter.ToInt32(sr1, off) : 0;
+        double Dbl(int off) => Has(off, 8) ? BitConverter.ToDouble(sr1, off) : 0.0;
+        string Utf16(int off, int byteLen)
         {
-            reservedExt1 = reader.ReadInt16();
-            reservedExt2 = reader.ReadByte();
-            textKind = (PcbTextKind)reader.ReadByte();
-            fontBold = reader.ReadByte() != 0;
-            fontItalic = reader.ReadByte() != 0;
-            fontName = reader.ReadFontName(); // 64 bytes fixed
-            barcodeLRMargin = reader.ReadInt32();
-            barcodeTBMargin = reader.ReadInt32();
-            reservedExt3 = reader.ReadInt32();
-            reservedExt4 = reader.ReadInt32();
-            reservedExt5 = reader.ReadByte();
-            reservedExt6 = reader.ReadByte();
-            reservedExt7 = reader.ReadInt32();
-            reservedExt8 = reader.ReadInt16();
-            reservedExt9 = reader.ReadInt32();
-            reservedExt10 = reader.ReadInt32();
-            fontInverted = reader.ReadByte() != 0;
-            fontInvertedBorder = reader.ReadInt32();
-            wideStringIndex = reader.ReadInt32();
-            reservedExt11 = reader.ReadInt32();
-            fontInvertedRect = reader.ReadByte() != 0;
-            fontInvertedRectWidth = reader.ReadInt32();
-            fontInvertedRectHeight = reader.ReadInt32();
-            fontInvertedRectJustification = reader.ReadByte();
-            fontInvertedRectTextOffset = reader.ReadInt32();
+            if (!Has(off, byteLen)) return string.Empty;
+            var s = System.Text.Encoding.Unicode.GetString(sr1, off, byteLen);
+            var nul = s.IndexOf('\0');
+            return nul >= 0 ? s.Substring(0, nul) : s;
         }
 
-        // Skip any trailing data beyond what we understand
-        var consumed = reader.Position - startPos;
-        var remaining = sanitizedSize - consumed;
-        if (remaining > 0)
-            reader.Skip((int)remaining);
+        var layer = B(0);
+        var flags = (ushort)(B(1) | (B(2) << 8));
+        var x = I32(13);
+        var y = I32(17);
+        var height = I32(21);
+        var strokeFont = I16(25);
+        var rotation = Dbl(27);
+        var mirrored = B(35) != 0;
+        var strokeWidth = I32(36);
+        var isComment = B(40) != 0;
+        var isDesignator = B(41) != 0;
+        var charSet = B(42);
+        var fontTypeAt43 = B(43);
+        var fontBold = B(44) != 0;
+        var fontItalic = B(45) != 0;
+        var fontName = Utf16(46, 64);
+        var isInverted = B(110) != 0;
+        var marginBorderWidth = I32(111);
+        var wideStringIndex = I32(115);
+        var textUnionIndex = I32(119);
+        var useInvertedRect = B(123) != 0;
+        var textboxWidth = I32(124);
+        var textboxHeight = I32(128);
+        var textboxJustification = B(132);
+        var textOffsetWidth = I32(133);
+        // Barcode block (offsets 137-229)
+        var bcFullWidth = I32(137);
+        var bcFullHeight = I32(141);
+        var bcXMargin = I32(145);
+        var bcYMargin = I32(149);
+        var bcMinWidth = I32(153);
+        var bcKind = B(157);
+        var bcRenderMode = B(158);
+        var bcInverted = B(159) != 0;
+        var bcFontType = B(160); // bc[23]: authoritative text kind when barcode block present
+        var bcFontName = Utf16(161, 64);
+        var bcShowText = B(225) != 0;
+        // Frame tail (offsets 230-251)
+        var isFrame = B(230) != 0;
+        var isOffsetBorder = B(231) != 0;
+        var isJustificationValid = B(240) != 0;
+        var advanceSnapping = B(241) != 0;
+        var snapPointX = I32(244);
+        var snapPointY = I32(248);
 
-        // Read ASCII text
+        // Read ASCII text (SubRecord 2)
         var asciiText = reader.ReadStringBlock();
-
         var text = asciiText;
         if (wideStringIndex >= 0 && wideStringIndex < wideStrings.Count)
             text = wideStrings[wideStringIndex];
-
         if (string.IsNullOrEmpty(text))
             return null;
 
+        // The barcode block's font-type byte (bc[23]) overrides the offset-43 value when present.
+        var textKind = (PcbTextKind)(Has(160, 1) ? bcFontType : fontTypeAt43);
+
         var result = PcbText.Create(text)
-            .At(corner1.X, corner1.Y)
+            .At(Coord.FromRaw(x), Coord.FromRaw(y))
             .Height(Coord.FromRaw(height))
             .StrokeWidth(Coord.FromRaw(strokeWidth))
             .Rotation(rotation)
@@ -1244,19 +1234,37 @@ public sealed class PcbLibReader
         result.StrokeFont = (PcbStrokeFont)strokeFont;
         result.TextKind = textKind;
         result.IsTrueType = textKind == PcbTextKind.TrueType;
+        result.IsComment = isComment;
+        result.IsDesignator = isDesignator;
+        result.CharSet = charSet;
         result.FontBold = fontBold;
         result.FontItalic = fontItalic;
         result.FontName = fontName;
-        result.IsInverted = fontInverted;
-        result.InvertedBorder = Coord.FromRaw(fontInvertedBorder);
-        result.UseInvertedRectangle = fontInvertedRect;
-        result.InvertedRectWidth = Coord.FromRaw(fontInvertedRectWidth);
-        result.InvertedRectHeight = Coord.FromRaw(fontInvertedRectHeight);
-        result.InvertedRectJustification = (TextJustification)fontInvertedRectJustification;
-        result.InvertedRectTextOffset = Coord.FromRaw(fontInvertedRectTextOffset);
-        result.BarcodeLRMargin = Coord.FromRaw(barcodeLRMargin);
-        result.BarcodeTBMargin = Coord.FromRaw(barcodeTBMargin);
+        result.IsInverted = isInverted;
+        result.InvertedBorder = Coord.FromRaw(marginBorderWidth);
         result.WideStringIndex = wideStringIndex;
+        result.UnionIndex = textUnionIndex;
+        result.UseInvertedRectangle = useInvertedRect;
+        result.InvertedRectWidth = Coord.FromRaw(textboxWidth);
+        result.InvertedRectHeight = Coord.FromRaw(textboxHeight);
+        result.InvertedRectJustification = (TextJustification)textboxJustification;
+        result.InvertedRectTextOffset = Coord.FromRaw(textOffsetWidth);
+        result.BarCodeFullWidth = Coord.FromRaw(bcFullWidth);
+        result.BarCodeFullHeight = Coord.FromRaw(bcFullHeight);
+        result.BarCodeXMargin = Coord.FromRaw(bcXMargin);
+        result.BarCodeYMargin = Coord.FromRaw(bcYMargin);
+        result.BarCodeMinWidth = Coord.FromRaw(bcMinWidth);
+        result.BarCodeKind = bcKind;
+        result.BarCodeRenderMode = bcRenderMode;
+        result.BarCodeInverted = bcInverted;
+        result.BarCodeFontName = bcFontName;
+        result.BarCodeShowText = bcShowText;
+        result.IsFrame = isFrame;
+        result.IsOffsetBorder = isOffsetBorder;
+        result.IsJustificationValid = isJustificationValid;
+        result.AdvanceSnapping = advanceSnapping;
+        result.SnapPointX = Coord.FromRaw(snapPointX);
+        result.SnapPointY = Coord.FromRaw(snapPointY);
 
         // Decode flags
         PcbBinaryConstants.DecodeFlags(flags, out var isLocked, out var isTentingTop, out var isTentingBottom, out var isKeepout);

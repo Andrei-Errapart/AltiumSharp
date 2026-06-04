@@ -565,43 +565,98 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(text.IsLocked, text.IsTentingTop,
                 text.IsTentingBottom, text.IsKeepout);
-            WriteCommonPrimitiveData(w, text.Layer, flags);
-            w.WriteCoordPoint(text.Location);
-            w.WriteCoord(text.Height);
-            w.Write((short)text.StrokeFont);
-            w.Write(text.Rotation);
-            w.Write(text.IsMirrored);
-            w.WriteCoord(text.StrokeWidth);
-
-            // Extended data
-            w.Write((short)0); // ReservedExt1
-            w.Write((byte)0); // ReservedExt2
-            w.Write((byte)text.TextKind);
-            w.Write(text.FontBold);
-            w.Write(text.FontItalic);
-            w.WriteFontName(text.FontName ?? "Arial");
-            w.WriteCoord(text.BarcodeLRMargin);
-            w.WriteCoord(text.BarcodeTBMargin);
-            w.Write(0); // ReservedExt3
-            w.Write(0); // ReservedExt4
-            w.Write((byte)0); // ReservedExt5
-            w.Write((byte)0); // ReservedExt6
-            w.Write(0); // ReservedExt7
-            w.Write((short)0); // ReservedExt8
-            w.Write(1); // ReservedExt9 (usually 1)
-            w.Write(0); // ReservedExt10
-            w.Write(text.IsInverted);
-            w.WriteCoord(text.InvertedBorder);
-            w.Write(wideStringIndex); // wide strings index
-            w.Write(0); // ReservedExt11
-            w.Write(text.UseInvertedRectangle);
-            w.WriteCoord(text.InvertedRectWidth);
-            w.WriteCoord(text.InvertedRectHeight);
-            w.Write((byte)text.InvertedRectJustification);
-            w.WriteCoord(text.InvertedRectTextOffset);
+            WriteCommonPrimitiveData(w, text.Layer, flags); // offsets 0-12
+            // Offsets 13-251: geometry, font, text-box, barcode block and frame tail built
+            // from a fixed template with the typed/semantic fields overlaid at their offsets.
+            w.Write(BuildTextExtended(text, wideStringIndex));
         });
 
         writer.WriteStringBlock(text.Text);
+    }
+
+    // Canonical 252-byte text SubRecord-1 (offsets 0-251), captured from a standard Altium
+    // text record. BuildTextExtended overlays the typed fields and returns offsets 13-251
+    // (the common header 0-12 is written separately by WriteCommonPrimitiveData).
+    private static readonly byte[] TextSr1Template =
+    {
+        0x21, 0x0C, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, // 0
+        0x00, 0x50, 0x8E, 0xF4, 0xFF, 0x80, 0x1A, 0x06, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 16
+        0x80, 0x46, 0x40, 0x00, 0x40, 0x9C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x41, 0x00, // 32
+        0x72, 0x00, 0x69, 0x00, 0x61, 0x00, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 48
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 64
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 80
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 96
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xCE, 0xE5, 0x29, 0x00, // 112
+        0x7F, 0x52, 0x07, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0xA0, 0x37, 0xA0, 0x00, 0x20, 0x0B, 0x20, // 128
+        0x00, 0x40, 0x0D, 0x03, 0x00, 0x40, 0x0D, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, // 144
+        0x00, 0x41, 0x00, 0x72, 0x00, 0x69, 0x00, 0x61, 0x00, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 160
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 176
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 192
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 208
+        0x00, 0x01, 0x06, 0x00, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x80, // 224
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0x8E, 0xF4, 0xFF,                         // 240
+    };
+
+    /// <summary>
+    /// Builds the text SubRecord-1 extended body (offsets 13-251) by overlaying the typed
+    /// fields onto the canonical template.
+    /// </summary>
+    private static byte[] BuildTextExtended(PcbText text, int wideStringIndex)
+    {
+        var b = (byte[])TextSr1Template.Clone();
+        void PutI32(int off, int v) => BitConverter.GetBytes(v).CopyTo(b, off);
+        void PutI16(int off, short v) => BitConverter.GetBytes(v).CopyTo(b, off);
+        void PutDbl(int off, double v) => BitConverter.GetBytes(v).CopyTo(b, off);
+        void PutFont(int off, string? s)
+        {
+            Array.Clear(b, off, 64);
+            if (string.IsNullOrEmpty(s)) return;
+            var bytes = System.Text.Encoding.Unicode.GetBytes(s);
+            Array.Copy(bytes, 0, b, off, Math.Min(bytes.Length, 62)); // leave a UTF-16 null terminator
+        }
+
+        PutI32(13, text.Location.X.ToRaw());
+        PutI32(17, text.Location.Y.ToRaw());
+        PutI32(21, text.Height.ToRaw());
+        PutI16(25, (short)text.StrokeFont);
+        PutDbl(27, text.Rotation);
+        b[35] = (byte)(text.IsMirrored ? 1 : 0);
+        PutI32(36, text.StrokeWidth.ToRaw());
+        b[40] = (byte)(text.IsComment ? 1 : 0);
+        b[41] = (byte)(text.IsDesignator ? 1 : 0);
+        b[42] = (byte)text.CharSet;
+        b[43] = (byte)text.TextKind;
+        b[44] = (byte)(text.FontBold ? 1 : 0);
+        b[45] = (byte)(text.FontItalic ? 1 : 0);
+        PutFont(46, text.FontName);
+        b[110] = (byte)(text.IsInverted ? 1 : 0);
+        PutI32(111, text.InvertedBorder.ToRaw());
+        PutI32(115, wideStringIndex);
+        PutI32(119, text.UnionIndex);
+        b[123] = (byte)(text.UseInvertedRectangle ? 1 : 0);
+        PutI32(124, text.InvertedRectWidth.ToRaw());
+        PutI32(128, text.InvertedRectHeight.ToRaw());
+        b[132] = (byte)text.InvertedRectJustification;
+        PutI32(133, text.InvertedRectTextOffset.ToRaw());
+        PutI32(137, text.BarCodeFullWidth.ToRaw());
+        PutI32(141, text.BarCodeFullHeight.ToRaw());
+        PutI32(145, text.BarCodeXMargin.ToRaw());
+        PutI32(149, text.BarCodeYMargin.ToRaw());
+        PutI32(153, text.BarCodeMinWidth.ToRaw());
+        b[157] = (byte)text.BarCodeKind;
+        b[158] = (byte)text.BarCodeRenderMode;
+        b[159] = (byte)(text.BarCodeInverted ? 1 : 0);
+        b[160] = (byte)text.TextKind; // bc[23]: authoritative text kind
+        PutFont(161, text.BarCodeFontName);
+        b[225] = (byte)(text.BarCodeShowText ? 1 : 0);
+        b[230] = (byte)(text.IsFrame ? 1 : 0);
+        b[231] = (byte)(text.IsOffsetBorder ? 1 : 0);
+        b[240] = (byte)(text.IsJustificationValid ? 1 : 0);
+        b[241] = (byte)(text.AdvanceSnapping ? 1 : 0);
+        PutI32(244, text.SnapPointX.ToRaw());
+        PutI32(248, text.SnapPointY.ToRaw());
+
+        return b[13..];
     }
 
     internal static void WriteFill(BinaryFormatWriter writer, PcbFill fill)

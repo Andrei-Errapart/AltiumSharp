@@ -471,6 +471,21 @@ public sealed class PcbText : IPcbText
     public bool AdvanceSnapping { get; set; }
 
     /// <summary>
+    /// Whether the text is rendered with a frame (text box).
+    /// </summary>
+    public bool IsFrame { get; set; }
+
+    /// <summary>
+    /// Text border spacing mode: false = margin, true = offset.
+    /// </summary>
+    public bool IsOffsetBorder { get; set; }
+
+    /// <summary>
+    /// Whether the text-box justification value is valid.
+    /// </summary>
+    public bool IsJustificationValid { get; set; }
+
+    /// <summary>
     /// Border space type.
     /// </summary>
     public int BorderSpaceType { get; set; }
