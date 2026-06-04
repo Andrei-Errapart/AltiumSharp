@@ -221,11 +221,11 @@ public sealed class PcbDocReader
 
         while (reader.HasMore)
         {
-            var parameters = PcbLibReader.ReadParameterBlock(reader);
+            var parameters = PcbLibReader.ReadParameterBlock(reader, out var rawNet);
             if (parameters.Count == 0)
                 continue;
 
-            var net = new PcbNet();
+            var net = new PcbNet { RawParametersOrdered = PcbLibReader.ParseParametersOrdered(rawNet) };
             if (parameters.TryGetValue("NAME", out var name))
                 net.Name = name;
 
@@ -233,7 +233,8 @@ public sealed class PcbDocReader
         }
     }
 
-    private void ReadParameterBlockStorage(CompoundFileAccessor accessor, string storageName, Action<Dictionary<string, string>> addItem)
+    private void ReadParameterBlockStorage(CompoundFileAccessor accessor, string storageName,
+        Action<Dictionary<string, string>, List<KeyValuePair<string, string>>> addItem)
     {
         var storage = accessor.TryGetStorage(storageName);
         if (storage == null)
@@ -254,11 +255,11 @@ public sealed class PcbDocReader
 
             while (reader.HasMore)
             {
-                var parameters = PcbLibReader.ReadParameterBlock(reader);
+                var parameters = PcbLibReader.ReadParameterBlock(reader, out var raw);
                 if (parameters.Count == 0)
                     continue;
 
-                addItem(parameters);
+                addItem(parameters, PcbLibReader.ParseParametersOrdered(raw));
             }
         }
         catch (Exception ex) when (ex is EndOfStreamException or InvalidDataException or FormatException or OverflowException)
@@ -325,9 +326,9 @@ public sealed class PcbDocReader
 
     private void ReadClasses(CompoundFileAccessor accessor, PcbDocument document)
     {
-        ReadParameterBlockStorage(accessor, "Classes6", parameters =>
+        ReadParameterBlockStorage(accessor, "Classes6", (parameters, ordered) =>
         {
-            var objectClass = new PcbObjectClass { Parameters = parameters };
+            var objectClass = new PcbObjectClass { Parameters = parameters, RawParametersOrdered = ordered };
             if (parameters.TryGetValue("NAME", out var name))
                 objectClass.Name = name;
             if (parameters.TryGetValue("SUPERCLASS", out var superClass))
@@ -355,9 +356,9 @@ public sealed class PcbDocReader
 
     private void ReadDifferentialPairs(CompoundFileAccessor accessor, PcbDocument document)
     {
-        ReadParameterBlockStorage(accessor, "DifferentialPairs6", parameters =>
+        ReadParameterBlockStorage(accessor, "DifferentialPairs6", (parameters, ordered) =>
         {
-            var pair = new PcbDifferentialPair { Parameters = parameters };
+            var pair = new PcbDifferentialPair { Parameters = parameters, RawParametersOrdered = ordered };
             if (parameters.TryGetValue("NAME", out var name))
                 pair.Name = name;
             if (parameters.TryGetValue("POSITIVENETNAME", out var posNet))
@@ -375,9 +376,9 @@ public sealed class PcbDocReader
 
     private void ReadRooms(CompoundFileAccessor accessor, PcbDocument document)
     {
-        ReadParameterBlockStorage(accessor, "Rooms6", parameters =>
+        ReadParameterBlockStorage(accessor, "Rooms6", (parameters, ordered) =>
         {
-            var room = new PcbRoom { Parameters = parameters };
+            var room = new PcbRoom { Parameters = parameters, RawParametersOrdered = ordered };
             if (parameters.TryGetValue("NAME", out var name))
                 room.Name = name;
             if (parameters.TryGetValue("UNIQUEID", out var uniqueId))

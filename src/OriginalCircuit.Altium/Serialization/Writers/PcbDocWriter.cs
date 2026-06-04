@@ -125,11 +125,18 @@ public sealed class PcbDocWriter
 
         foreach (var net in document.Nets)
         {
-            var parameters = new Dictionary<string, string>
+            if (net.RawParametersOrdered is { Count: > 0 } ordered)
             {
-                ["NAME"] = net.Name
-            };
-            writer.WriteCStringParameterBlock(parameters);
+                // Re-emit the full net parameter block verbatim (color, layer, visibility, etc.).
+                var sb = new System.Text.StringBuilder();
+                foreach (var kvp in ordered)
+                    sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+                writer.WriteCStringParameterBlockRaw(sb.ToString());
+            }
+            else
+            {
+                writer.WriteCStringParameterBlock(new Dictionary<string, string> { ["NAME"] = net.Name });
+            }
         }
 
         writer.Flush();
@@ -203,11 +210,10 @@ public sealed class PcbDocWriter
         if (document.Classes.Count == 0)
             return;
 
-        var paramSets = new List<Dictionary<string, string>>();
+        var texts = new List<string>();
         foreach (var objectClass in document.Classes)
-            paramSets.Add(objectClass.ToParameters());
-
-        WriteParameterBlockStorage(cf, "Classes6", paramSets);
+            texts.Add(BuildParamText(objectClass.RawParametersOrdered, objectClass.ToParameters()));
+        WriteParameterStringStorage(cf, "Classes6", texts);
     }
 
     private static void WriteDifferentialPairs(CompoundFile cf, PcbDocument document)
@@ -215,11 +221,10 @@ public sealed class PcbDocWriter
         if (document.DifferentialPairs.Count == 0)
             return;
 
-        var paramSets = new List<Dictionary<string, string>>();
+        var texts = new List<string>();
         foreach (var pair in document.DifferentialPairs)
-            paramSets.Add(pair.ToParameters());
-
-        WriteParameterBlockStorage(cf, "DifferentialPairs6", paramSets);
+            texts.Add(BuildParamText(pair.RawParametersOrdered, pair.ToParameters()));
+        WriteParameterStringStorage(cf, "DifferentialPairs6", texts);
     }
 
     private static void WriteRooms(CompoundFile cf, PcbDocument document)
@@ -227,11 +232,51 @@ public sealed class PcbDocWriter
         if (document.Rooms.Count == 0)
             return;
 
-        var paramSets = new List<Dictionary<string, string>>();
+        var texts = new List<string>();
         foreach (var room in document.Rooms)
-            paramSets.Add(room.ToParameters());
+            texts.Add(BuildParamText(room.RawParametersOrdered, room.ToParameters()));
+        WriteParameterStringStorage(cf, "Rooms6", texts);
+    }
 
-        WriteParameterBlockStorage(cf, "Rooms6", paramSets);
+    /// <summary>
+    /// Builds a pipe-delimited parameter string, preferring the ordered list (verbatim round-trip)
+    /// and falling back to the typed dictionary for items created from scratch.
+    /// </summary>
+    private static string BuildParamText(List<KeyValuePair<string, string>>? ordered, Dictionary<string, string> fallback)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (ordered is { Count: > 0 })
+        {
+            foreach (var kvp in ordered)
+                sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+        }
+        else
+        {
+            foreach (var kvp in fallback)
+                sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Writes a list of pre-formatted parameter strings as a Header + Data storage, each framed
+    /// as a length-prefixed C-string block.
+    /// </summary>
+    private static void WriteParameterStringStorage(CompoundFile cf, string storageName, List<string> texts)
+    {
+        if (texts.Count == 0)
+            return;
+
+        var storage = cf.RootStorage.AddStorage(storageName);
+        PcbLibWriter.WriteStorageHeader(storage, texts.Count);
+        var dataStream = storage.AddStream("Data");
+
+        using var ms = new MemoryStream();
+        using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
+        foreach (var text in texts)
+            writer.WriteCStringParameterBlockRaw(text);
+        writer.Flush();
+        dataStream.SetData(ms.ToArray());
     }
 
     private static void WriteArcs(CompoundFile cf, PcbDocument document)

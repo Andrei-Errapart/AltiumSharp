@@ -22,6 +22,12 @@ public sealed class PcbRoom
     public Dictionary<string, string> Parameters { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// The room's parameter block as an ordered key/value list, serialized verbatim for a
+    /// byte-faithful round-trip.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+
+    /// <summary>
     /// Synchronizes typed properties back into the Parameters dictionary and returns it.
     /// </summary>
     public Dictionary<string, string> ToParameters()

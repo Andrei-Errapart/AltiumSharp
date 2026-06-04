@@ -47,6 +47,12 @@ public sealed class PcbObjectClass
     public Dictionary<string, string> Parameters { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// The class's parameter block as an ordered key/value list, preserving order, duplicates and
+    /// the original member-key spelling (M{n}). Serialized verbatim for a byte-faithful round-trip.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+
+    /// <summary>
     /// Synchronizes typed properties back into the Parameters dictionary and returns it.
     /// </summary>
     public Dictionary<string, string> ToParameters()
