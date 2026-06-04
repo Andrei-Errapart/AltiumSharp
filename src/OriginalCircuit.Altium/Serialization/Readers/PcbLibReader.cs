@@ -1023,21 +1023,21 @@ public sealed class PcbLibReader
         if (sanitizedSize <= 0)
             return null;
 
-        var startPos = reader.Position;
+        // Read the entire SubRecord 1 into a buffer and parse by absolute offset.
+        var sr1 = reader.ReadBytes(sanitizedSize);
 
-        ReadCommonPrimitiveData(reader, out var layer, out var flags);
+        bool Has(int off, int width) => off >= 0 && off + width <= sr1.Length;
+        byte B(int off) => Has(off, 1) ? sr1[off] : (byte)0;
+        int I32(int off, int dflt = 0) => Has(off, 4) ? BitConverter.ToInt32(sr1, off) : dflt;
 
-        var location = ReadCoordPoint(reader);
-        var diameter = Coord.FromRaw(reader.ReadInt32());
-        var holeSize = Coord.FromRaw(reader.ReadInt32());
-        var fromLayer = reader.ReadByte();
-        var toLayer = reader.ReadByte();
+        var layer = B(0);
+        var flags = (ushort)(B(1) | (B(2) << 8));
 
         var via = PcbVia.Create()
-            .At(location.X, location.Y)
-            .Diameter(diameter)
-            .HoleSize(holeSize)
-            .Layers(fromLayer, toLayer)
+            .At(Coord.FromRaw(I32(13)), Coord.FromRaw(I32(17)))
+            .Diameter(Coord.FromRaw(I32(21)))
+            .HoleSize(Coord.FromRaw(I32(25)))
+            .Layers(B(29), B(30))
             .Build();
 
         PcbBinaryConstants.DecodeFlags(flags, out var isLocked, out var isTentingTop, out var isTentingBottom, out var isKeepout);
@@ -1047,42 +1047,24 @@ public sealed class PcbLibReader
         via.IsTentingTop = isTentingTop;
         via.IsTentingBottom = isTentingBottom;
 
-        // Read remaining via fields
-        var consumed = reader.Position - startPos;
-        if (consumed < sanitizedSize)
-        {
-            reader.Skip(1); // reserved padding byte (0)
-            via.ThermalReliefAirGap = Coord.FromRaw(reader.ReadInt32());
-            via.ThermalReliefConductors = reader.ReadByte();
-            reader.Skip(1); // reserved padding byte (0)
-            via.ThermalReliefConductorsWidth = Coord.FromRaw(reader.ReadInt32());
-            via.PowerPlaneClearance = Coord.FromRaw(reader.ReadInt32());
-            via.PowerPlaneReliefExpansion = Coord.FromRaw(reader.ReadInt32());
-            reader.Skip(4); // reserved int (0)
-            via.SolderMaskExpansion = Coord.FromRaw(reader.ReadInt32());
-
-            // 8 bytes of post-solder-mask flags (skip)
-            reader.Skip(8);
-            var solderMaskManualByte = reader.ReadByte();
-            via.SolderMaskExpansionManual = solderMaskManualByte == 2;
-            reader.Skip(1); // reserved byte (usually 1)
-            reader.Skip(2); // reserved short (0)
-            reader.Skip(4); // reserved int (0)
-            via.Mode = reader.ReadByte(); // diameter stack mode
-
-            // 32 diameter values
-            for (var i = 0; i < 32; i++)
-                via.Diameters[i] = Coord.FromRaw(reader.ReadInt32());
-
-            reader.Skip(2); // reserved short (15)
-            reader.Skip(4); // reserved int (259)
-
-            // Skip any extra bytes beyond what we understand
-            consumed = reader.Position - startPos;
-            var remaining = sanitizedSize - consumed;
-            if (remaining > 0)
-                reader.Skip((int)remaining);
-        }
+        via.PowerPlaneConnectStyle = B(31);              // 31
+        via.ThermalReliefAirGap = Coord.FromRaw(I32(32)); // 32-35
+        via.ThermalReliefConductors = B(36);             // 36
+        via.ThermalReliefConductorsWidth = Coord.FromRaw(I32(38)); // 38-41
+        via.PowerPlaneReliefExpansion = Coord.FromRaw(I32(42));    // 42-45
+        via.PowerPlaneClearance = Coord.FromRaw(I32(46));          // 46-49
+        via.PasteMaskExpansion = Coord.FromRaw(I32(50));           // 50-53
+        via.SolderMaskExpansion = Coord.FromRaw(I32(54));          // 54-57 (front)
+        var solderMaskMode = B(66);                                // 66
+        via.SolderMaskExpansionMode = solderMaskMode;
+        via.SolderMaskExpansionManual = solderMaskMode == 2;
+        via.Mode = B(74);                                          // 74
+        for (var i = 0; i < 32; i++)
+            via.Diameters[i] = Coord.FromRaw(I32(75 + i * 4));     // 75-202
+        via.SolderMaskExpansionFromHoleEdge = B(258) != 0;        // 258
+        via.HolePositiveTolerance = Coord.FromRaw(I32(291, int.MaxValue)); // 291-294
+        via.HoleNegativeTolerance = Coord.FromRaw(I32(295, int.MaxValue)); // 295-298
+        via.DrillLayerPairType = B(312);                          // 312
 
         return via;
     }

@@ -152,19 +152,24 @@ public sealed class PcbVia : IPcbVia
     public bool SolderMaskExpansionManual { get; set; }
 
     /// <summary>
+    /// Solder mask expansion mode (0 = None, 1 = From rule, 2 = Manual). Defaults to From rule.
+    /// </summary>
+    public int SolderMaskExpansionMode { get; set; } = 1;
+
+    /// <summary>
     /// Drill layer pair type (0=Through, 1=BlindBuriedStart, 2=BlindBuriedMid, 3=BlindBuriedEnd).
     /// </summary>
     public int DrillLayerPairType { get; set; }
 
     /// <summary>
-    /// Hole positive tolerance.
+    /// Hole positive (upper) drill tolerance. Defaults to the "unset" sentinel (0x7FFFFFFF).
     /// </summary>
-    public Coord HolePositiveTolerance { get; set; }
+    public Coord HolePositiveTolerance { get; set; } = Coord.FromRaw(int.MaxValue);
 
     /// <summary>
-    /// Hole negative tolerance.
+    /// Hole negative (lower) drill tolerance. Defaults to the "unset" sentinel (0x7FFFFFFF).
     /// </summary>
-    public Coord HoleNegativeTolerance { get; set; }
+    public Coord HoleNegativeTolerance { get; set; } = Coord.FromRaw(int.MaxValue);
 
     /// <summary>
     /// Whether this is a free primitive (not owned by a component).
