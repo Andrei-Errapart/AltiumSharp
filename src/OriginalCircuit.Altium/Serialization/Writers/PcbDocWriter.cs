@@ -413,6 +413,17 @@ public sealed class PcbDocWriter
 
     private static void WritePolygonParameters(BinaryFormatWriter writer, PcbPolygon polygon)
     {
+        // Round-trip: re-emit the original polygon parameter block verbatim (preserves the
+        // outline/arc vertex keys, key order and formatting). New polygons use typed fields.
+        if (polygon.RawParametersOrdered is { Count: > 0 } ordered)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var kvp in ordered)
+                sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+            writer.WriteCStringParameterBlockRaw(sb.ToString());
+            return;
+        }
+
         var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Merge AdditionalParameters first (typed properties override)

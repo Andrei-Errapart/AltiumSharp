@@ -351,6 +351,13 @@ public sealed class PcbPolygon
     public Dictionary<string, string>? AdditionalParameters { get; set; }
 
     /// <summary>
+    /// The polygon's parameter block as an ordered key/value list (including the outline/arc
+    /// vertex keys). Serialized verbatim for a byte-faithful round-trip; polygons built from
+    /// scratch fall back to the typed properties.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+
+    /// <summary>
     /// Adds a vertex to the polygon outline.
     /// </summary>
     public void AddVertex(CoordPoint point) => _vertices.Add(point);

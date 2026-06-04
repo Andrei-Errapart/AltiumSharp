@@ -524,11 +524,11 @@ public sealed class PcbDocReader
         while (reader.HasMore)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var parameters = PcbLibReader.ReadParameterBlock(reader);
+            var parameters = PcbLibReader.ReadParameterBlock(reader, out var rawPolygon);
             if (parameters.Count == 0)
                 continue;
 
-            var polygon = new PcbPolygon();
+            var polygon = new PcbPolygon { RawParametersOrdered = PcbLibReader.ParseParametersOrdered(rawPolygon) };
             ApplyPolygonParameters(polygon, parameters);
             document.AddPolygon(polygon);
         }
