@@ -197,9 +197,12 @@ public sealed class PcbDocReader
         using var ms = new MemoryStream(data);
         using var reader = new BinaryFormatReader(ms, leaveOpen: true);
 
-        var parameters = PcbLibReader.ReadParameterBlock(reader);
+        var parameters = PcbLibReader.ReadParameterBlock(reader, out var rawBoard);
         if (parameters.Count > 0)
+        {
             document.BoardParameters = parameters;
+            document.BoardParametersOrdered = PcbLibReader.ParseParametersOrdered(rawBoard);
+        }
     }
 
     private static void ReadNets(CompoundFileAccessor accessor, PcbDocument document)

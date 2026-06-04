@@ -105,7 +105,17 @@ public sealed class PcbDocWriter
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
-        writer.WriteCStringParameterBlock(document.BoardParameters);
+        if (document.BoardParametersOrdered is { Count: > 0 } ordered)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var kvp in ordered)
+                sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+            writer.WriteCStringParameterBlockRaw(sb.ToString());
+        }
+        else
+        {
+            writer.WriteCStringParameterBlock(document.BoardParameters);
+        }
 
         writer.Flush();
         dataStream.SetData(ms.ToArray());

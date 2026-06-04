@@ -101,6 +101,13 @@ public sealed class PcbDocument : IPcbDocument
     /// </summary>
     public Dictionary<string, string>? BoardParameters { get; set; }
 
+    /// <summary>
+    /// Board-level parameters as an ordered key/value list, preserving key order and duplicate
+    /// keys (the block contains repeated RECORD=Board markers that delimit layer-stack
+    /// sub-records). Serialized verbatim for a byte-faithful round-trip.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? BoardParametersOrdered { get; set; }
+
     private PcbLayerStack? _layerStackCache;
 
     /// <summary>
