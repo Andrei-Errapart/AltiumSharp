@@ -256,9 +256,12 @@ public sealed class PcbLibReader
         using var ms = new MemoryStream(data);
         using var reader = new BinaryFormatReader(ms, leaveOpen: true);
 
-        // Read library parameters (header info) into dictionary
-        var libraryParams = ReadParameterBlock(reader);
+        // Read library parameters (header info). The header is an ordered parameter list that
+        // contains duplicate keys (repeated RECORD=Board markers), so capture the ordered form
+        // for faithful round-trip in addition to the flattened dictionary view.
+        var libraryParams = ReadParameterBlock(reader, out var rawLibraryParams);
         library.LibraryParameters = libraryParams;
+        library.LibraryParametersOrdered = ParseParametersOrdered(rawLibraryParams);
 
         // Read footprint count
         var footprintCount = reader.ReadUInt32();
@@ -604,6 +607,51 @@ public sealed class PcbLibReader
             }
 
             result[key] = value;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Parses a pipe-delimited parameter string into an ordered list, preserving key order
+    /// and duplicate keys (unlike <see cref="ParseParameters"/> which flattens into a map).
+    /// </summary>
+    internal static List<KeyValuePair<string, string>> ParseParametersOrdered(string paramString)
+    {
+        var result = new List<KeyValuePair<string, string>>();
+        if (string.IsNullOrEmpty(paramString))
+            return result;
+
+        var span = paramString.AsSpan();
+        var start = 0;
+        while (start < span.Length)
+        {
+            if (span[start] == '|')
+                start++;
+            if (start >= span.Length)
+                break;
+
+            var equalsIndex = span.Slice(start).IndexOf('=');
+            if (equalsIndex < 0)
+                break;
+
+            var key = span.Slice(start, equalsIndex).ToString();
+            start += equalsIndex + 1;
+
+            var pipeIndex = span.Slice(start).IndexOf('|');
+            string value;
+            if (pipeIndex < 0)
+            {
+                value = span.Slice(start).ToString();
+                start = span.Length;
+            }
+            else
+            {
+                value = span.Slice(start, pipeIndex).ToString();
+                start += pipeIndex;
+            }
+
+            result.Add(new KeyValuePair<string, string>(key, value));
         }
 
         return result;

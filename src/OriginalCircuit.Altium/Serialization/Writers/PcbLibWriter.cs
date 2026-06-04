@@ -169,7 +169,17 @@ public sealed class PcbLibWriter
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
         // Generate library parameters from dictionary or defaults
-        if (library.LibraryParameters != null && library.LibraryParameters.Count > 0)
+        if (library.LibraryParametersOrdered is { Count: > 0 } ordered)
+        {
+            // The header is an ordered parameter list with duplicate RECORD=Board markers;
+            // serialize it verbatim from the ordered model (no WEIGHT key is injected — the
+            // PcbLib library header does not carry one; the footprint count follows separately).
+            var sb = new System.Text.StringBuilder();
+            foreach (var kvp in ordered)
+                sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+            writer.WriteCStringParameterBlockRaw(sb.ToString());
+        }
+        else if (library.LibraryParameters != null && library.LibraryParameters.Count > 0)
         {
             var headerParams = new Dictionary<string, string>(library.LibraryParameters, StringComparer.OrdinalIgnoreCase);
             headerParams["WEIGHT"] = library.Components.Count.ToString();
