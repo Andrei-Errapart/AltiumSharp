@@ -167,19 +167,26 @@ public sealed class PcbDocReader
             return result;
 
         var data = dataStream.GetData();
-        using var ms = new MemoryStream(data);
-        using var reader = new BinaryFormatReader(ms, leaveOpen: true);
 
-        var parameters = PcbLibReader.ReadParameterBlock(reader);
-
-        for (var i = 0; i < parameters.Count; i++)
+        // WideStrings6 is a sequence of [u32 text_index][u32 byte_len][UTF-16LE string incl. null].
+        var pos = 0;
+        while (pos + 8 <= data.Length)
         {
-            var key = $"ENCODEDTEXT{i}";
-            if (!parameters.TryGetValue(key, out var encodedText))
+            var index = BitConverter.ToInt32(data, pos);
+            var byteLen = BitConverter.ToInt32(data, pos + 4);
+            pos += 8;
+            if (byteLen < 0 || pos + byteLen > data.Length)
                 break;
-
-            var text = PcbLibReader.DecodeWideString(encodedText);
-            result.Add(text);
+            var s = System.Text.Encoding.Unicode.GetString(data, pos, byteLen);
+            pos += byteLen;
+            var nul = s.IndexOf('\0');
+            if (nul >= 0)
+                s = s.Substring(0, nul);
+            if (index < 0)
+                continue;
+            while (result.Count <= index)
+                result.Add(string.Empty);
+            result[index] = s;
         }
 
         return result;

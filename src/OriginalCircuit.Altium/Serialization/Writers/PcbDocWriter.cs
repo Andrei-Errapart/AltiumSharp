@@ -780,30 +780,28 @@ public sealed class PcbDocWriter
             }
         }
 
-        // Always write WideStrings6 if there are any texts (Altium expects it)
-        if (document.Texts.Count == 0 && !hasWideStrings)
+        _ = hasWideStrings;
+        // Altium always writes WideStrings6 when the document has text.
+        if (document.Texts.Count == 0 && !document.PresentStorages.Contains("WideStrings6"))
             return;
 
         var storage = cf.RootStorage.AddStorage("WideStrings6");
-        PcbLibWriter.WriteStorageHeader(storage, 0);
+        PcbLibWriter.WriteStorageHeader(storage, document.Texts.Count);
 
         var dataStream = storage.AddStream("Data");
         using var ms = new MemoryStream();
-        using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
-        var parameters = new Dictionary<string, string>();
+        // Each text is stored as [u32 text_index][u32 byte_len][UTF-16LE string incl. null].
         var textIndex = 0;
-
         foreach (var text in document.Texts)
         {
-            var encoded = string.Join(",", text.Text.Select(c => ((int)c).ToString()));
-            parameters[$"ENCODEDTEXT{textIndex}"] = encoded;
+            var utf16 = System.Text.Encoding.Unicode.GetBytes((text.Text ?? string.Empty) + "\0");
+            ms.Write(BitConverter.GetBytes(textIndex), 0, 4);
+            ms.Write(BitConverter.GetBytes(utf16.Length), 0, 4);
+            ms.Write(utf16, 0, utf16.Length);
             textIndex++;
         }
 
-        writer.WriteCStringParameterBlock(parameters);
-
-        writer.Flush();
         dataStream.SetData(ms.ToArray());
     }
 
