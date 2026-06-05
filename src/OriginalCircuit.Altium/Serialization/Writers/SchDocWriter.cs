@@ -72,6 +72,52 @@ public sealed class SchDocWriter
         index++;
     }
 
+    private static void WriteNoteRecord(BinaryFormatWriter writer, SchNote note, ref int index)
+    {
+        var parameters = new Dictionary<string, string> { ["RECORD"] = "209" };
+        if (note.IsNotAccessible) parameters["IsNotAccesible"] = "T";
+        if (note.IndexInSheet != 0) parameters["IndexInSheet"] = note.IndexInSheet.ToString();
+        if (note.OwnerPartId != 0) parameters["OwnerPartId"] = note.OwnerPartId.ToString();
+        SchLibWriter.AddCoordParam(parameters, "Location.X", note.Corner1.X);
+        SchLibWriter.AddCoordParam(parameters, "Location.Y", note.Corner1.Y);
+        SchLibWriter.AddCoordParam(parameters, "Corner.X", note.Corner2.X);
+        SchLibWriter.AddCoordParam(parameters, "Corner.Y", note.Corner2.Y);
+        if (note.Color != 0) parameters["Color"] = note.Color.ToString();
+        if (note.AreaColor != 0) parameters["AreaColor"] = note.AreaColor.ToString();
+        if (note.TextColor != 0) parameters["TextColor"] = note.TextColor.ToString();
+        parameters["Text"] = note.Text;
+        parameters["FontID"] = note.FontId.ToString();
+        if (note.Alignment != 0) parameters["Alignment"] = note.Alignment.ToString();
+        if (note.WordWrap) parameters["WordWrap"] = "T";
+        if (note.ClipToRect) parameters["ClipToRect"] = "T";
+        if (!string.IsNullOrEmpty(note.Author)) parameters["Author"] = note.Author;
+        if (!string.IsNullOrEmpty(note.UniqueId)) parameters["UniqueID"] = note.UniqueId;
+
+        writer.WriteCStringParameterBlock(parameters);
+        index++;
+    }
+
+    private static void WriteHyperlinkRecord(BinaryFormatWriter writer, SchHyperlink hyperlink, ref int index)
+    {
+        var parameters = new Dictionary<string, string> { ["RECORD"] = "226" };
+        if (hyperlink.IsNotAccessible) parameters["IsNotAccesible"] = "T";
+        if (hyperlink.IndexInSheet != 0) parameters["IndexInSheet"] = hyperlink.IndexInSheet.ToString();
+        if (hyperlink.OwnerPartId != 0) parameters["OwnerPartId"] = hyperlink.OwnerPartId.ToString();
+        SchLibWriter.AddCoordParam(parameters, "Location.X", hyperlink.Location.X);
+        SchLibWriter.AddCoordParam(parameters, "Location.Y", hyperlink.Location.Y);
+        if (hyperlink.Color != 0) parameters["Color"] = hyperlink.Color.ToString();
+        parameters["Text"] = hyperlink.Text;
+        if (!string.IsNullOrEmpty(hyperlink.Url)) parameters["URL"] = hyperlink.Url;
+        parameters["FontID"] = hyperlink.FontId.ToString();
+        if (hyperlink.Orientation != 0) parameters["Orientation"] = hyperlink.Orientation.ToString();
+        if (hyperlink.Justification != 0) parameters["Justification"] = hyperlink.Justification.ToString();
+        if (hyperlink.AreaColor != 0) parameters["AreaColor"] = hyperlink.AreaColor.ToString();
+        if (!string.IsNullOrEmpty(hyperlink.UniqueId)) parameters["UniqueID"] = hyperlink.UniqueId;
+
+        writer.WriteCStringParameterBlock(parameters);
+        index++;
+    }
+
     private static string BuildOrderedParamString(List<KeyValuePair<string, string>> ordered)
     {
         var sb = new System.Text.StringBuilder();
@@ -389,6 +435,12 @@ public sealed class SchDocWriter
 
         foreach (var template in document.Templates)
             WriteTemplateRecord(writer, template, ref index);
+
+        foreach (var note in document.Notes)
+            WriteNoteRecord(writer, note, ref index);
+
+        foreach (var hyperlink in document.Hyperlinks)
+            WriteHyperlinkRecord(writer, hyperlink, ref index);
 
         // Write opaque (unmodeled) records for round-trip fidelity
         foreach (var record in document.OpaqueRecords)

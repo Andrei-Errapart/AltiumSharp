@@ -488,6 +488,54 @@ public sealed class SchDocRoundTripTests
         Assert.True(template.IsNotAccessible);
     }
 
+    [Fact]
+    public void FromScratch_Note_RoundTrips()
+    {
+        var doc = new SchDocument();
+        doc.AddPrimitive(new SchNote
+        {
+            Text = "Design note: rev B",
+            Author = "Mark",
+            Corner1 = new CoordPoint(Coord.FromMils(100), Coord.FromMils(200)),
+            Corner2 = new CoordPoint(Coord.FromMils(400), Coord.FromMils(300)),
+            Color = 255,
+        });
+
+        using var ms = new MemoryStream();
+        new SchDocWriter().Write(doc, ms);
+        ms.Position = 0;
+        var rt = (SchDocument)new SchDocReader().Read(ms);
+
+        var note = Assert.Single(rt.Notes);
+        Assert.Equal("Design note: rev B", note.Text);
+        Assert.Equal("Mark", note.Author);
+        Assert.Equal(Coord.FromMils(100).ToRaw(), note.Corner1.X.ToRaw());
+        Assert.Equal(Coord.FromMils(400).ToRaw(), note.Corner2.X.ToRaw());
+    }
+
+    [Fact]
+    public void FromScratch_Hyperlink_RoundTrips()
+    {
+        var doc = new SchDocument();
+        doc.AddPrimitive(new SchHyperlink
+        {
+            Text = "Datasheet",
+            Url = "https://example.com/datasheet.pdf",
+            Location = new CoordPoint(Coord.FromMils(500), Coord.FromMils(600)),
+            Color = 128,
+        });
+
+        using var ms = new MemoryStream();
+        new SchDocWriter().Write(doc, ms);
+        ms.Position = 0;
+        var rt = (SchDocument)new SchDocReader().Read(ms);
+
+        var hyperlink = Assert.Single(rt.Hyperlinks);
+        Assert.Equal("Datasheet", hyperlink.Text);
+        Assert.Equal("https://example.com/datasheet.pdf", hyperlink.Url);
+        Assert.Equal(Coord.FromMils(500).ToRaw(), hyperlink.Location.X.ToRaw());
+    }
+
     [SkippableFact]
     public void WriteThenRead_RealFiles_PreservesComponentProperties()
     {

@@ -52,7 +52,9 @@ internal enum SchRecordType
     MapDefinerList = 46,
     MapDefiner = 47,
     ImplementationParameters = 48,
-    Blanket = 225
+    Note = 209,
+    Blanket = 225,
+    Hyperlink = 226
 }
 
 /// <summary>

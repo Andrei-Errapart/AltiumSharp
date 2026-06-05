@@ -380,7 +380,54 @@ public sealed class SchDocReader
             SchRecordType.MapDefiner => CreateMapDefiner(parameters),
             SchRecordType.ImplementationParameters => "ImplementationParameters", // Empty container
             SchRecordType.Template => CreateTemplate(paramCollection),
+            SchRecordType.Note => CreateNote(paramCollection),
+            SchRecordType.Hyperlink => CreateHyperlink(paramCollection),
             _ => null
+        };
+    }
+
+    private static SchNote CreateNote(ParameterCollection p)
+    {
+        var dto = Dto.Sch.SchNoteDto.FromParameters(p);
+        return new SchNote
+        {
+            Text = dto.Text ?? string.Empty,
+            Author = dto.Author ?? string.Empty,
+            Corner1 = new CoordPoint(CoordFromDxp(dto.LocationX, dto.LocationXFrac), CoordFromDxp(dto.LocationY, dto.LocationYFrac)),
+            Corner2 = new CoordPoint(CoordFromDxp(dto.CornerX, dto.CornerXFrac), CoordFromDxp(dto.CornerY, dto.CornerYFrac)),
+            Color = dto.Color,
+            AreaColor = dto.AreaColor,
+            TextColor = dto.TextColor,
+            FontId = dto.FontId,
+            Alignment = dto.Alignment,
+            WordWrap = dto.WordWrap,
+            ClipToRect = dto.ClipToRect,
+            OwnerIndex = dto.OwnerIndex,
+            OwnerPartId = dto.OwnerPartId,
+            IndexInSheet = dto.IndexInSheet,
+            IsNotAccessible = dto.IsNotAccessible,
+            UniqueId = dto.UniqueId,
+        };
+    }
+
+    private static SchHyperlink CreateHyperlink(ParameterCollection p)
+    {
+        var dto = Dto.Sch.SchHyperlinkDto.FromParameters(p);
+        return new SchHyperlink
+        {
+            Text = dto.Text ?? string.Empty,
+            Url = dto.Url ?? string.Empty,
+            Location = new CoordPoint(CoordFromDxp(dto.LocationX, dto.LocationXFrac), CoordFromDxp(dto.LocationY, dto.LocationYFrac)),
+            Color = dto.Color,
+            FontId = dto.FontId,
+            Orientation = dto.Orientation,
+            Justification = dto.Justification,
+            AreaColor = dto.AreaColor,
+            OwnerIndex = dto.OwnerIndex,
+            OwnerPartId = dto.OwnerPartId,
+            IndexInSheet = dto.IndexInSheet,
+            IsNotAccessible = dto.IsNotAccessible,
+            UniqueId = dto.UniqueId,
         };
     }
 
