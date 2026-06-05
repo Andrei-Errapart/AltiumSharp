@@ -182,14 +182,14 @@ public sealed class PcbTrack : IPcbTrack
     public bool Moveable { get; set; }
 
     /// <summary>
-    /// Net index (0 = no net). Stored in binary as a 2-byte value at offset 33.
+    /// Net index into the board's net list (0xFFFF = no net).
     /// </summary>
-    public ushort NetIndex { get; set; }
+    public ushort NetIndex { get; set; } = 0xFFFF;
 
     /// <summary>
-    /// Component index (0 = not in component). Stored in binary at offset 35.
+    /// Component index into the board's component list (-1 = not part of a component).
     /// </summary>
-    public byte ComponentIndex { get; set; }
+    public int ComponentIndex { get; set; } = -1;
 
     /// <inheritdoc />
     public CoordRect Bounds

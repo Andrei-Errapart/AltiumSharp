@@ -17,6 +17,12 @@ public sealed class PcbRegion : IPcbRegion
     /// </summary>
     public int Layer { get; set; }
 
+    /// <summary>Net index into the board's net list (0xFFFF = no net).</summary>
+    public ushort NetIndex { get; set; } = 0xFFFF;
+
+    /// <summary>Component index into the board's component list (-1 = not part of a component).</summary>
+    public int ComponentIndex { get; set; } = -1;
+
     /// <summary>
     /// Kind of region (0=Copper, 1=Cutout, etc.).
     /// </summary>

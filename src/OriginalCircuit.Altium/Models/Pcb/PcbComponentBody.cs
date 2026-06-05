@@ -22,6 +22,12 @@ public sealed class PcbComponentBody : IPcbComponentBody
     /// </summary>
     public int Layer { get; set; } = 57;
 
+    /// <summary>Net index into the board's net list (0xFFFF = no net).</summary>
+    public ushort NetIndex { get; set; } = 0xFFFF;
+
+    /// <summary>Component index into the board's component list (-1 = not part of a component).</summary>
+    public int ComponentIndex { get; set; } = -1;
+
     /// <summary>
     /// Body name/identifier.
     /// </summary>

@@ -139,6 +139,11 @@ public sealed class PcbPad : IPcbPad
     public int ComponentIndex { get; set; } = -1;
 
     /// <summary>
+    /// Net index into the board's net list (0xFFFF = no net).
+    /// </summary>
+    public ushort NetIndex { get; set; } = 0xFFFF;
+
+    /// <summary>
     /// Net name this pad is connected to.
     /// </summary>
     public string? Net { get; set; }

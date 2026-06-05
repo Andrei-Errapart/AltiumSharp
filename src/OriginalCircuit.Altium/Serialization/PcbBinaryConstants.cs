@@ -8,6 +8,9 @@ internal static class PcbBinaryConstants
     /// <summary>Bit 2: Unlocked flag (inverted — 0 means locked).</summary>
     internal const ushort FlagUnlocked = 0x04;
 
+    /// <summary>Bit 3: set on every primitive Altium saves (observed invariant across the corpus).</summary>
+    internal const ushort FlagSaved = 0x08;
+
     /// <summary>Bit 5: Tenting top.</summary>
     internal const ushort FlagTentingTop = 0x20;
 

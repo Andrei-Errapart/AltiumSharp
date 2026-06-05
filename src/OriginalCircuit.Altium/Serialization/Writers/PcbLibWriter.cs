@@ -356,11 +356,15 @@ public sealed class PcbLibWriter
         dataStream.SetData(ms.ToArray());
     }
 
-    internal static void WriteCommonPrimitiveData(BinaryFormatWriter writer, int layer, ushort flags = 0)
+    internal static void WriteCommonPrimitiveData(BinaryFormatWriter writer, int layer, ushort flags = 0,
+        ushort netIndex = 0xFFFF, int componentIndex = -1)
     {
         writer.Write((byte)layer);
         writer.Write(flags);
-        writer.WriteFill(0xFF, 10); // 10 bytes of 0xFF
+        writer.Write(netIndex);                                                       // net index (0xFFFF = none)
+        writer.Write((ushort)0xFFFF);                                                  // reserved
+        writer.Write(componentIndex < 0 ? (ushort)0xFFFF : (ushort)componentIndex);    // component index (0xFFFF = none)
+        writer.Write(0xFFFFFFFFu);                                                     // reserved
     }
 
     /// <summary>
@@ -369,7 +373,7 @@ public sealed class PcbLibWriter
     internal static ushort EncodeFlags(bool isLocked, bool isTentingTop,
         bool isTentingBottom, bool isKeepout)
     {
-        ushort flags = 0;
+        ushort flags = PcbBinaryConstants.FlagSaved; // bit 3: always set on saved primitives
         if (!isLocked)
             flags |= PcbBinaryConstants.FlagUnlocked;
         if (isTentingTop)
@@ -415,7 +419,7 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(arc.IsLocked, arc.IsTentingTop,
                 arc.IsTentingBottom, arc.IsKeepout);
-            WriteCommonPrimitiveData(w, arc.Layer, flags); // 0-12
+            WriteCommonPrimitiveData(w, arc.Layer, flags, arc.NetIndex, arc.ComponentIndex); // 0-12
             w.WriteCoordPoint(arc.Center);                 // 13-20
             w.WriteCoord(arc.Radius);                      // 21-24
             w.Write(arc.StartAngle);                       // 25-32
@@ -444,7 +448,7 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(pad.IsLocked, pad.IsTentingTop,
                 pad.IsTentingBottom, pad.IsKeepout);
-            WriteCommonPrimitiveData(w, pad.Layer, flags);
+            WriteCommonPrimitiveData(w, pad.Layer, flags, pad.NetIndex, pad.ComponentIndex);
             w.WriteCoordPoint(pad.Location);
             w.WriteCoordPoint(pad.SizeTop);
             w.WriteCoordPoint(pad.SizeMiddle);
@@ -588,7 +592,7 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(via.IsLocked, via.IsTentingTop,
                 via.IsTentingBottom, via.IsKeepout);
-            WriteCommonPrimitiveData(w, via.Layer, flags); // offsets 0-12
+            WriteCommonPrimitiveData(w, via.Layer, flags, via.NetIndex, via.ComponentIndex); // offsets 0-12
             // Offsets 13-320: full 321-byte via record built from a template with the typed
             // fields overlaid (geometry, layers, thermal relief, mask expansions, per-layer
             // diameters, drill tolerances). Reserved/cache/identity regions come from template.
@@ -667,7 +671,7 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(track.IsLocked, track.IsTentingTop,
                 track.IsTentingBottom, track.IsKeepout);
-            WriteCommonPrimitiveData(w, track.Layer, flags); // 0-12
+            WriteCommonPrimitiveData(w, track.Layer, flags, track.NetIndex, track.ComponentIndex); // 0-12
             w.WriteCoordPoint(track.Start);                  // 13-20
             w.WriteCoordPoint(track.End);                    // 21-28
             w.WriteCoord(track.Width);                       // 29-32
@@ -687,7 +691,7 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(text.IsLocked, text.IsTentingTop,
                 text.IsTentingBottom, text.IsKeepout);
-            WriteCommonPrimitiveData(w, text.Layer, flags); // offsets 0-12
+            WriteCommonPrimitiveData(w, text.Layer, flags, text.NetIndex, text.ComponentIndex); // offsets 0-12
             // Offsets 13-251: geometry, font, text-box, barcode block and frame tail built
             // from a fixed template with the typed/semantic fields overlaid at their offsets.
             w.Write(BuildTextExtended(text, wideStringIndex));
@@ -787,7 +791,7 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(fill.IsLocked, fill.IsTentingTop,
                 fill.IsTentingBottom, fill.IsKeepout);
-            WriteCommonPrimitiveData(w, fill.Layer, flags); // 0-12
+            WriteCommonPrimitiveData(w, fill.Layer, flags, fill.NetIndex, fill.ComponentIndex); // 0-12
             w.WriteCoordPoint(fill.Corner1);                // 13-20
             w.WriteCoordPoint(fill.Corner2);                // 21-28
             w.Write(fill.Rotation);                         // 29-36
@@ -806,7 +810,7 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(region.IsLocked, region.IsTentingTop,
                 region.IsTentingBottom, region.IsKeepout);
-            WriteCommonPrimitiveData(w, region.Layer, flags);
+            WriteCommonPrimitiveData(w, region.Layer, flags, region.NetIndex, region.ComponentIndex);
 
             // Header: reserved byte @13 + hole_count uint16 @14-15 + 2 reserved bytes @16-17.
             var holes = region.Holes;
@@ -876,7 +880,7 @@ public sealed class PcbLibWriter
             var flags = EncodeFlags(body.IsLocked, body.IsTentingTop,
                 body.IsTentingBottom, body.IsKeepout);
             var binaryLayer = LayerNameToByte(body.LayerName);
-            WriteCommonPrimitiveData(w, binaryLayer, flags);
+            WriteCommonPrimitiveData(w, binaryLayer, flags, body.NetIndex, body.ComponentIndex);
 
             // Structure: uint32 prefix + byte prefix + nested parameter block + outline vertices (doubles)
             w.Write((uint)0); // reserved prefix 1

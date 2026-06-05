@@ -184,9 +184,14 @@ public sealed class PcbFill : IPcbFill
     public bool IsRedundant { get; set; }
 
     /// <summary>
-    /// Net index (0 = no net).
+    /// Net index into the board's net list (0xFFFF = no net).
     /// </summary>
-    public ushort NetIndex { get; set; }
+    public ushort NetIndex { get; set; } = 0xFFFF;
+
+    /// <summary>
+    /// Component index into the board's component list (-1 = not part of a component).
+    /// </summary>
+    public int ComponentIndex { get; set; } = -1;
 
     /// <inheritdoc />
     public CoordRect Bounds => new(Corner1, Corner2);

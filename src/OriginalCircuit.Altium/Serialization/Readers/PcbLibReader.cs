@@ -781,12 +781,16 @@ public sealed class PcbLibReader
     }
 
     internal static void ReadCommonPrimitiveData(BinaryFormatReader reader, out byte layer, out ushort flags, out int componentIndex)
+        => ReadCommonPrimitiveData(reader, out layer, out flags, out componentIndex, out _);
+
+    internal static void ReadCommonPrimitiveData(BinaryFormatReader reader, out byte layer, out ushort flags, out int componentIndex, out ushort netIndex)
     {
         layer = reader.ReadByte();
         flags = reader.ReadUInt16();
 
         // 10 bytes: uint16 netIndex, uint16 reserved, uint16 componentIndex, uint32 reserved
-        reader.Skip(4); // net index + reserved
+        netIndex = reader.ReadUInt16(); // net index (0xFFFF = no net)
+        reader.Skip(2); // reserved
         componentIndex = reader.ReadUInt16(); // component index (0xFFFF = free primitive)
         if (componentIndex == 0xFFFF)
             componentIndex = -1;
@@ -813,6 +817,7 @@ public sealed class PcbLibReader
         byte B(int off) => Has(off, 1) ? sr[off] : (byte)0;
         int I32(int off) => Has(off, 4) ? BitConverter.ToInt32(sr, off) : 0;
         double Dbl(int off) => Has(off, 8) ? BitConverter.ToDouble(sr, off) : 0.0;
+        ushort U16(int off) => Has(off, 2) ? BitConverter.ToUInt16(sr, off) : (ushort)0xFFFF;
 
         var layer = B(0);
         var flags = (ushort)(B(1) | (B(2) << 8));
@@ -825,6 +830,9 @@ public sealed class PcbLibReader
             .Layer(layer)
             .Build();
 
+        arc.NetIndex = U16(3);                                  // 3-4 net index
+        var arcComp = U16(7);                                   // 7-8 component index
+        arc.ComponentIndex = arcComp == 0xFFFF ? -1 : arcComp;
         arc.SolderMaskExpansion = Coord.FromRaw(I32(47)); // 47-50
         arc.KeepoutRestrictions = B(56);                  // 56
 
@@ -856,7 +864,7 @@ public sealed class PcbLibReader
             return null;
 
         var startPos = reader.Position;
-        ReadCommonPrimitiveData(reader, out var layer, out var flags, out var componentIndex);
+        ReadCommonPrimitiveData(reader, out var layer, out var flags, out var componentIndex, out var netIndex);
 
         // Read main block fields
         var location = ReadCoordPoint(reader);
@@ -900,6 +908,7 @@ public sealed class PcbLibReader
             .Build();
 
         pad.ComponentIndex = componentIndex;
+        pad.NetIndex = netIndex;
         pad.PadSubrecord2 = subrecord2;
         pad.PadNetString = netString;
         pad.Sr5Length = sanitizedSize;
@@ -1112,6 +1121,7 @@ public sealed class PcbLibReader
         bool Has(int off, int width) => off >= 0 && off + width <= sr1.Length;
         byte B(int off) => Has(off, 1) ? sr1[off] : (byte)0;
         int I32(int off, int dflt = 0) => Has(off, 4) ? BitConverter.ToInt32(sr1, off) : dflt;
+        ushort U16(int off) => Has(off, 2) ? BitConverter.ToUInt16(sr1, off) : (ushort)0xFFFF;
 
         var layer = B(0);
         var flags = (ushort)(B(1) | (B(2) << 8));
@@ -1123,6 +1133,9 @@ public sealed class PcbLibReader
             .Layers(B(29), B(30))
             .Build();
 
+        via.NetIndex = U16(3);                                  // 3-4 net index
+        var viaComp = U16(7);                                   // 7-8 component index
+        via.ComponentIndex = viaComp == 0xFFFF ? -1 : viaComp;
         PcbBinaryConstants.DecodeFlags(flags, out var isLocked, out var isTentingTop, out var isTentingBottom, out var isKeepout);
         via.IsLocked = isLocked;
         via.Layer = layer;
@@ -1164,6 +1177,7 @@ public sealed class PcbLibReader
         bool Has(int off, int width) => off >= 0 && off + width <= sr.Length;
         byte B(int off) => Has(off, 1) ? sr[off] : (byte)0;
         int I32(int off) => Has(off, 4) ? BitConverter.ToInt32(sr, off) : 0;
+        ushort U16(int off) => Has(off, 2) ? BitConverter.ToUInt16(sr, off) : (ushort)0xFFFF;
 
         var layer = B(0);
         var flags = (ushort)(B(1) | (B(2) << 8));
@@ -1174,6 +1188,10 @@ public sealed class PcbLibReader
             .Width(Coord.FromRaw(I32(29)))
             .Layer(layer)
             .Build();
+
+        track.NetIndex = U16(3);                                  // 3-4 net index
+        var trackComp = U16(7);                                   // 7-8 component index
+        track.ComponentIndex = trackComp == 0xFFFF ? -1 : trackComp;
 
         track.SolderMaskExpansion = Coord.FromRaw(I32(35)); // 35-38
         track.KeepoutRestrictions = B(45);                  // 45
@@ -1203,6 +1221,7 @@ public sealed class PcbLibReader
         bool Has(int off, int width) => off >= 0 && off + width <= sr1.Length;
         byte B(int off) => Has(off, 1) ? sr1[off] : (byte)0;
         short I16(int off) => Has(off, 2) ? (short)(sr1[off] | (sr1[off + 1] << 8)) : (short)0;
+        ushort U16(int off) => Has(off, 2) ? (ushort)(sr1[off] | (sr1[off + 1] << 8)) : (ushort)0xFFFF;
         int I32(int off) => Has(off, 4) ? BitConverter.ToInt32(sr1, off) : 0;
         double Dbl(int off) => Has(off, 8) ? BitConverter.ToDouble(sr1, off) : 0.0;
         string Utf16(int off, int byteLen)
@@ -1280,6 +1299,9 @@ public sealed class PcbLibReader
 
         result.StrokeFont = (PcbStrokeFont)strokeFont;
         result.TextKind = textKind;
+        result.NetIndex = U16(3);                                   // 3-4 net index
+        var textComp = U16(7);                                      // 7-8 component index
+        result.ComponentIndex = textComp == 0xFFFF ? -1 : textComp;
         result.IsTrueType = textKind == PcbTextKind.TrueType;
         result.IsComment = isComment;
         result.IsDesignator = isDesignator;
@@ -1336,6 +1358,7 @@ public sealed class PcbLibReader
         byte B(int off) => Has(off, 1) ? sr[off] : (byte)0;
         int I32(int off) => Has(off, 4) ? BitConverter.ToInt32(sr, off) : 0;
         double Dbl(int off) => Has(off, 8) ? BitConverter.ToDouble(sr, off) : 0.0;
+        ushort U16(int off) => Has(off, 2) ? BitConverter.ToUInt16(sr, off) : (ushort)0xFFFF;
 
         var layer = B(0);
         var flags = (ushort)(B(1) | (B(2) << 8));
@@ -1347,6 +1370,9 @@ public sealed class PcbLibReader
             .OnLayer(layer)
             .Build();
 
+        fill.NetIndex = U16(3);                                  // 3-4 net index
+        var fillComp = U16(7);                                   // 7-8 component index
+        fill.ComponentIndex = fillComp == 0xFFFF ? -1 : fillComp;
         fill.SolderMaskExpansion = Coord.FromRaw(I32(37)); // 37-40
         fill.KeepoutRestrictions = B(46);                  // 46
 
@@ -1370,7 +1396,7 @@ public sealed class PcbLibReader
 
         var startPos = reader.Position;
 
-        ReadCommonPrimitiveData(reader, out var layer, out var flags);
+        ReadCommonPrimitiveData(reader, out var layer, out var flags, out var componentIndex, out var netIndex);
 
         // Header: reserved byte @13 + hole_count uint16 @14-15 + 2 reserved bytes @16-17,
         // then the nested parameter block and the geometry.
@@ -1426,6 +1452,8 @@ public sealed class PcbLibReader
 
         var result = region.Build();
         result.RawParametersOrdered = orderedRegionParams;
+        result.ComponentIndex = componentIndex;
+        result.NetIndex = netIndex;
         result.Holes = holes;
 
         // Decode flags
@@ -1460,7 +1488,7 @@ public sealed class PcbLibReader
 
         var startPos = reader.Position;
 
-        ReadCommonPrimitiveData(reader, out var layer, out var flags);
+        ReadCommonPrimitiveData(reader, out var layer, out var flags, out var componentIndex, out var netIndex);
 
         // Structure: uint32 prefix + byte prefix + nested parameter block + outline vertices
         reader.Skip(4); // reserved uint32 prefix
@@ -1490,6 +1518,8 @@ public sealed class PcbLibReader
 
         var result = body.Build();
         result.RawParametersOrdered = orderedBodyParams;
+        result.ComponentIndex = componentIndex;
+        result.NetIndex = netIndex;
 
         // Decode flags
         PcbBinaryConstants.DecodeFlags(flags, out var isLocked, out var isTentingTop, out var isTentingBottom, out var isKeepout);

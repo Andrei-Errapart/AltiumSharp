@@ -13,6 +13,12 @@ public sealed class PcbVia : IPcbVia
     /// <inheritdoc />
     public Coord Diameter { get; set; }
 
+    /// <summary>Net index into the board's net list (0xFFFF = no net).</summary>
+    public ushort NetIndex { get; set; } = 0xFFFF;
+
+    /// <summary>Component index into the board's component list (-1 = not part of a component).</summary>
+    public int ComponentIndex { get; set; } = -1;
+
     /// <inheritdoc />
     public Coord HoleSize { get; set; }
 
