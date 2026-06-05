@@ -107,7 +107,7 @@ public sealed class PcbDocWriter
             return;
 
         var storage = cf.RootStorage.AddStorage("Board6");
-        PcbLibWriter.WriteStorageHeader(storage, 0);
+        PcbLibWriter.WriteStorageHeader(storage, 1); // Board6 always holds exactly one board record
 
         var dataStream = storage.AddStream("Data");
         using var ms = new MemoryStream();
