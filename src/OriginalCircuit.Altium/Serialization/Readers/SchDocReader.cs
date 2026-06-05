@@ -382,7 +382,25 @@ public sealed class SchDocReader
             SchRecordType.Template => CreateTemplate(paramCollection),
             SchRecordType.Note => CreateNote(paramCollection),
             SchRecordType.Hyperlink => CreateHyperlink(paramCollection),
+            SchRecordType.CompileMask => CreateCompileMask(paramCollection),
             _ => null
+        };
+    }
+
+    private static SchCompileMask CreateCompileMask(ParameterCollection p)
+    {
+        var dto = Dto.Sch.SchCompileMaskDto.FromParameters(p);
+        return new SchCompileMask
+        {
+            Corner1 = new CoordPoint(CoordFromDxp(dto.LocationX, dto.LocationXFrac), CoordFromDxp(dto.LocationY, dto.LocationYFrac)),
+            Corner2 = new CoordPoint(CoordFromDxp(dto.CornerX, dto.CornerXFrac), CoordFromDxp(dto.CornerY, dto.CornerYFrac)),
+            Color = dto.Color,
+            AreaColor = dto.AreaColor,
+            OwnerIndex = dto.OwnerIndex,
+            OwnerPartId = dto.OwnerPartId,
+            IndexInSheet = dto.IndexInSheet,
+            IsNotAccessible = dto.IsNotAccessible,
+            UniqueId = dto.UniqueId,
         };
     }
 

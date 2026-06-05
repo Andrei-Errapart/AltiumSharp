@@ -53,6 +53,7 @@ internal enum SchRecordType
     MapDefiner = 47,
     ImplementationParameters = 48,
     Note = 209,
+    CompileMask = 211,
     Blanket = 225,
     Hyperlink = 226
 }

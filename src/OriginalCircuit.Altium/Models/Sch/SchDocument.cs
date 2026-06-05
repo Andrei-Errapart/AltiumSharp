@@ -21,6 +21,7 @@ public sealed class SchDocument : ISchDocument
     private readonly List<SchTemplate> _templates = new();
     private readonly List<SchNote> _notes = new();
     private readonly List<SchHyperlink> _hyperlinks = new();
+    private readonly List<SchCompileMask> _compileMasks = new();
     private readonly List<SchNetLabel> _netLabels = new();
     private readonly List<SchJunction> _junctions = new();
     private readonly List<SchPowerObject> _powerObjects = new();
@@ -102,6 +103,9 @@ public sealed class SchDocument : ISchDocument
 
     /// <summary>Hyperlinks (record type 226) on this document.</summary>
     public IReadOnlyList<SchHyperlink> Hyperlinks => _hyperlinks;
+
+    /// <summary>Compile masks (record type 211) on this document.</summary>
+    public IReadOnlyList<SchCompileMask> CompileMasks => _compileMasks;
 
     /// <inheritdoc />
     public IReadOnlyList<ISchNetLabel> NetLabels => _netLabels;
@@ -366,6 +370,7 @@ public sealed class SchDocument : ISchDocument
             case SchTemplate template: _templates.Add(template); break;
             case SchNote note: _notes.Add(note); break;
             case SchHyperlink hyperlink: _hyperlinks.Add(hyperlink); break;
+            case SchCompileMask compileMask: _compileMasks.Add(compileMask); break;
         }
     }
 

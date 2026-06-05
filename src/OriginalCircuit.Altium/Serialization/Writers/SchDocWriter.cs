@@ -72,6 +72,24 @@ public sealed class SchDocWriter
         index++;
     }
 
+    private static void WriteCompileMaskRecord(BinaryFormatWriter writer, SchCompileMask mask, ref int index)
+    {
+        var parameters = new Dictionary<string, string> { ["RECORD"] = "211" };
+        if (mask.IsNotAccessible) parameters["IsNotAccesible"] = "T";
+        if (mask.IndexInSheet != 0) parameters["IndexInSheet"] = mask.IndexInSheet.ToString();
+        if (mask.OwnerPartId != 0) parameters["OwnerPartId"] = mask.OwnerPartId.ToString();
+        SchLibWriter.AddCoordParam(parameters, "Location.X", mask.Corner1.X);
+        SchLibWriter.AddCoordParam(parameters, "Location.Y", mask.Corner1.Y);
+        SchLibWriter.AddCoordParam(parameters, "Corner.X", mask.Corner2.X);
+        SchLibWriter.AddCoordParam(parameters, "Corner.Y", mask.Corner2.Y);
+        if (mask.Color != 0) parameters["Color"] = mask.Color.ToString();
+        if (mask.AreaColor != 0) parameters["AreaColor"] = mask.AreaColor.ToString();
+        if (!string.IsNullOrEmpty(mask.UniqueId)) parameters["UniqueID"] = mask.UniqueId;
+
+        writer.WriteCStringParameterBlock(parameters);
+        index++;
+    }
+
     private static void WriteNoteRecord(BinaryFormatWriter writer, SchNote note, ref int index)
     {
         var parameters = new Dictionary<string, string> { ["RECORD"] = "209" };
@@ -441,6 +459,9 @@ public sealed class SchDocWriter
 
         foreach (var hyperlink in document.Hyperlinks)
             WriteHyperlinkRecord(writer, hyperlink, ref index);
+
+        foreach (var compileMask in document.CompileMasks)
+            WriteCompileMaskRecord(writer, compileMask, ref index);
 
         // Write opaque (unmodeled) records for round-trip fidelity
         foreach (var record in document.OpaqueRecords)

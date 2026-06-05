@@ -536,6 +536,28 @@ public sealed class SchDocRoundTripTests
         Assert.Equal(Coord.FromMils(500).ToRaw(), hyperlink.Location.X.ToRaw());
     }
 
+    [Fact]
+    public void FromScratch_CompileMask_RoundTrips()
+    {
+        var doc = new SchDocument();
+        doc.AddPrimitive(new SchCompileMask
+        {
+            Corner1 = new CoordPoint(Coord.FromMils(100), Coord.FromMils(100)),
+            Corner2 = new CoordPoint(Coord.FromMils(500), Coord.FromMils(400)),
+            AreaColor = 0xC0C0C0,
+        });
+
+        using var ms = new MemoryStream();
+        new SchDocWriter().Write(doc, ms);
+        ms.Position = 0;
+        var rt = (SchDocument)new SchDocReader().Read(ms);
+
+        var mask = Assert.Single(rt.CompileMasks);
+        Assert.Equal(Coord.FromMils(100).ToRaw(), mask.Corner1.X.ToRaw());
+        Assert.Equal(Coord.FromMils(500).ToRaw(), mask.Corner2.X.ToRaw());
+        Assert.Equal(0xC0C0C0, mask.AreaColor);
+    }
+
     [SkippableFact]
     public void WriteThenRead_RealFiles_PreservesComponentProperties()
     {
