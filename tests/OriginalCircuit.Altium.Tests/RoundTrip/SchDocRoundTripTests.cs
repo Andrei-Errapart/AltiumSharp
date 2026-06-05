@@ -558,6 +558,71 @@ public sealed class SchDocRoundTripTests
         Assert.Equal(0xC0C0C0, mask.AreaColor);
     }
 
+    [Fact]
+    public void FromScratch_Harness_RoundTrips()
+    {
+        var doc = new SchDocument();
+        doc.AddPrimitive(new SchHarnessConnector
+        {
+            Corner1 = new CoordPoint(Coord.FromMils(100), Coord.FromMils(100)),
+            Corner2 = new CoordPoint(Coord.FromMils(300), Coord.FromMils(400)),
+            Color = 128,
+            AreaColor = 0xFFFFFF,
+        });
+        doc.AddPrimitive(new SchHarnessEntry
+        {
+            Text = "GND",
+            Side = 1,
+            DistanceFromTop = Coord.FromMils(50),
+            TextColor = 255,
+        });
+        doc.AddPrimitive(new SchHarnessType
+        {
+            Text = "PowerHarness",
+            Location = new CoordPoint(Coord.FromMils(110), Coord.FromMils(390)),
+            Color = 64,
+        });
+
+        using var ms = new MemoryStream();
+        new SchDocWriter().Write(doc, ms);
+        ms.Position = 0;
+        var rt = (SchDocument)new SchDocReader().Read(ms);
+
+        var connector = Assert.Single(rt.HarnessConnectors);
+        Assert.Equal(Coord.FromMils(300).ToRaw(), connector.Corner2.X.ToRaw());
+
+        var entry = Assert.Single(rt.HarnessEntries);
+        Assert.Equal("GND", entry.Text);
+        Assert.Equal(1, entry.Side);
+        Assert.Equal(Coord.FromMils(50).ToRaw(), entry.DistanceFromTop.ToRaw());
+
+        var harnessType = Assert.Single(rt.HarnessTypes);
+        Assert.Equal("PowerHarness", harnessType.Text);
+        Assert.Equal(Coord.FromMils(110).ToRaw(), harnessType.Location.X.ToRaw());
+    }
+
+    [Fact]
+    public void FromScratch_SignalHarness_RoundTrips()
+    {
+        var doc = new SchDocument();
+        var harness = new SchSignalHarness { Color = 200, LineWidth = 1 };
+        harness.Vertices.Add(new CoordPoint(Coord.FromMils(100), Coord.FromMils(100)));
+        harness.Vertices.Add(new CoordPoint(Coord.FromMils(300), Coord.FromMils(100)));
+        harness.Vertices.Add(new CoordPoint(Coord.FromMils(300), Coord.FromMils(400)));
+        doc.AddPrimitive(harness);
+
+        using var ms = new MemoryStream();
+        new SchDocWriter().Write(doc, ms);
+        ms.Position = 0;
+        var rt = (SchDocument)new SchDocReader().Read(ms);
+
+        var rtHarness = Assert.Single(rt.SignalHarnesses);
+        Assert.Equal(3, rtHarness.Vertices.Count);
+        Assert.Equal(Coord.FromMils(300).ToRaw(), rtHarness.Vertices[2].X.ToRaw());
+        Assert.Equal(Coord.FromMils(400).ToRaw(), rtHarness.Vertices[2].Y.ToRaw());
+        Assert.Equal(200, rtHarness.Color);
+    }
+
     [SkippableFact]
     public void WriteThenRead_RealFiles_PreservesComponentProperties()
     {

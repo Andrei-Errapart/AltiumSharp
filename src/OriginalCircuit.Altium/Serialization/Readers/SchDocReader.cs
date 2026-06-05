@@ -383,7 +383,90 @@ public sealed class SchDocReader
             SchRecordType.Note => CreateNote(paramCollection),
             SchRecordType.Hyperlink => CreateHyperlink(paramCollection),
             SchRecordType.CompileMask => CreateCompileMask(paramCollection),
+            SchRecordType.HarnessConnector => CreateHarnessConnector(paramCollection),
+            SchRecordType.HarnessEntry => CreateHarnessEntry(paramCollection),
+            SchRecordType.HarnessType => CreateHarnessType(paramCollection),
+            SchRecordType.SignalHarness => CreateSignalHarness(parameters, paramCollection),
             _ => null
+        };
+    }
+
+    private static SchSignalHarness CreateSignalHarness(Dictionary<string, string> parameters, ParameterCollection p)
+    {
+        var dto = Dto.Sch.SchSignalHarnessDto.FromParameters(p);
+        var harness = new SchSignalHarness
+        {
+            Color = dto.Color,
+            LineWidth = dto.LineWidth,
+            OwnerIndex = dto.OwnerIndex,
+            OwnerPartId = dto.OwnerPartId,
+            IndexInSheet = dto.IndexInSheet,
+            IsNotAccessible = dto.IsNotAccessible,
+            UniqueId = dto.UniqueId,
+        };
+        for (var i = 1; i <= dto.LocationCount; i++)
+        {
+            Coord x = default, y = default;
+            var hasX = parameters.TryGetValue($"X{i}", out var xStr) && TryParseCoord(xStr, out x);
+            var hasY = parameters.TryGetValue($"Y{i}", out var yStr) && TryParseCoord(yStr, out y);
+            if (hasX || hasY)
+                harness.Vertices.Add(new CoordPoint(hasX ? x : default, hasY ? y : default));
+        }
+        return harness;
+    }
+
+    private static SchHarnessConnector CreateHarnessConnector(ParameterCollection p)
+    {
+        var dto = Dto.Sch.SchHarnessConnectorDto.FromParameters(p);
+        return new SchHarnessConnector
+        {
+            Corner1 = new CoordPoint(CoordFromDxp(dto.LocationX, dto.LocationXFrac), CoordFromDxp(dto.LocationY, dto.LocationYFrac)),
+            Corner2 = new CoordPoint(CoordFromDxp(dto.CornerX, dto.CornerXFrac), CoordFromDxp(dto.CornerY, dto.CornerYFrac)),
+            Color = dto.Color,
+            AreaColor = dto.AreaColor,
+            OwnerIndex = dto.OwnerIndex,
+            OwnerPartId = dto.OwnerPartId,
+            IndexInSheet = dto.IndexInSheet,
+            IsNotAccessible = dto.IsNotAccessible,
+            UniqueId = dto.UniqueId,
+        };
+    }
+
+    private static SchHarnessEntry CreateHarnessEntry(ParameterCollection p)
+    {
+        var dto = Dto.Sch.SchHarnessEntryDto.FromParameters(p);
+        return new SchHarnessEntry
+        {
+            Text = dto.Text ?? string.Empty,
+            Side = dto.Side,
+            DistanceFromTop = CoordFromDxp(dto.DistanceFromTop, dto.DistanceFromTopFrac),
+            Color = dto.Color,
+            AreaColor = dto.AreaColor,
+            TextColor = dto.TextColor,
+            TextFontId = dto.TextFontId,
+            OwnerIndex = dto.OwnerIndex,
+            OwnerPartId = dto.OwnerPartId,
+            IndexInSheet = dto.IndexInSheet,
+            IsNotAccessible = dto.IsNotAccessible,
+            UniqueId = dto.UniqueId,
+        };
+    }
+
+    private static SchHarnessType CreateHarnessType(ParameterCollection p)
+    {
+        var dto = Dto.Sch.SchHarnessTypeDto.FromParameters(p);
+        return new SchHarnessType
+        {
+            Text = dto.Text ?? string.Empty,
+            Location = new CoordPoint(CoordFromDxp(dto.LocationX, dto.LocationXFrac), CoordFromDxp(dto.LocationY, dto.LocationYFrac)),
+            Color = dto.Color,
+            TextColor = dto.TextColor,
+            FontId = dto.FontId,
+            OwnerIndex = dto.OwnerIndex,
+            OwnerPartId = dto.OwnerPartId,
+            IndexInSheet = dto.IndexInSheet,
+            IsNotAccessible = dto.IsNotAccessible,
+            UniqueId = dto.UniqueId,
         };
     }
 

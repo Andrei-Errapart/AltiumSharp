@@ -22,6 +22,10 @@ public sealed class SchDocument : ISchDocument
     private readonly List<SchNote> _notes = new();
     private readonly List<SchHyperlink> _hyperlinks = new();
     private readonly List<SchCompileMask> _compileMasks = new();
+    private readonly List<SchHarnessConnector> _harnessConnectors = new();
+    private readonly List<SchHarnessEntry> _harnessEntries = new();
+    private readonly List<SchHarnessType> _harnessTypes = new();
+    private readonly List<SchSignalHarness> _signalHarnesses = new();
     private readonly List<SchNetLabel> _netLabels = new();
     private readonly List<SchJunction> _junctions = new();
     private readonly List<SchPowerObject> _powerObjects = new();
@@ -106,6 +110,18 @@ public sealed class SchDocument : ISchDocument
 
     /// <summary>Compile masks (record type 211) on this document.</summary>
     public IReadOnlyList<SchCompileMask> CompileMasks => _compileMasks;
+
+    /// <summary>Harness connectors (record type 215) on this document.</summary>
+    public IReadOnlyList<SchHarnessConnector> HarnessConnectors => _harnessConnectors;
+
+    /// <summary>Harness entries (record type 216) on this document; reference a connector by owner index.</summary>
+    public IReadOnlyList<SchHarnessEntry> HarnessEntries => _harnessEntries;
+
+    /// <summary>Harness type labels (record type 217) on this document; reference a connector by owner index.</summary>
+    public IReadOnlyList<SchHarnessType> HarnessTypes => _harnessTypes;
+
+    /// <summary>Signal harnesses (record type 218): the bundle wires connecting harness connectors.</summary>
+    public IReadOnlyList<SchSignalHarness> SignalHarnesses => _signalHarnesses;
 
     /// <inheritdoc />
     public IReadOnlyList<ISchNetLabel> NetLabels => _netLabels;
@@ -371,6 +387,10 @@ public sealed class SchDocument : ISchDocument
             case SchNote note: _notes.Add(note); break;
             case SchHyperlink hyperlink: _hyperlinks.Add(hyperlink); break;
             case SchCompileMask compileMask: _compileMasks.Add(compileMask); break;
+            case SchHarnessConnector harnessConnector: _harnessConnectors.Add(harnessConnector); break;
+            case SchHarnessEntry harnessEntry: _harnessEntries.Add(harnessEntry); break;
+            case SchHarnessType harnessType: _harnessTypes.Add(harnessType); break;
+            case SchSignalHarness signalHarness: _signalHarnesses.Add(signalHarness); break;
         }
     }
 

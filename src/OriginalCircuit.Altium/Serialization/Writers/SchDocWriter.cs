@@ -72,6 +72,90 @@ public sealed class SchDocWriter
         index++;
     }
 
+    private static void WriteSignalHarnessRecord(BinaryFormatWriter writer, SchSignalHarness harness, ref int index)
+    {
+        var parameters = new Dictionary<string, string>
+        {
+            ["RECORD"] = "218",
+            ["LOCATIONCOUNT"] = harness.Vertices.Count.ToString(),
+        };
+        if (harness.OwnerIndex >= 0) parameters["OWNERINDEX"] = harness.OwnerIndex.ToString();
+        for (var i = 0; i < harness.Vertices.Count; i++)
+        {
+            parameters[$"X{i + 1}"] = SchLibWriter.CoordToSchematicUnits(harness.Vertices[i].X);
+            parameters[$"Y{i + 1}"] = SchLibWriter.CoordToSchematicUnits(harness.Vertices[i].Y);
+        }
+        if (harness.Color != 0) parameters["Color"] = harness.Color.ToString();
+        if (harness.LineWidth != 0) parameters["LineWidth"] = harness.LineWidth.ToString();
+        if (harness.IsNotAccessible) parameters["IsNotAccesible"] = "T";
+        if (harness.IndexInSheet != 0) parameters["IndexInSheet"] = harness.IndexInSheet.ToString();
+        if (harness.OwnerPartId != 0) parameters["OwnerPartId"] = harness.OwnerPartId.ToString();
+        if (!string.IsNullOrEmpty(harness.UniqueId)) parameters["UniqueID"] = harness.UniqueId;
+
+        writer.WriteCStringParameterBlock(parameters);
+        index++;
+    }
+
+    private static void WriteHarnessConnectorRecord(BinaryFormatWriter writer, SchHarnessConnector c, ref int index)
+    {
+        var parameters = new Dictionary<string, string> { ["RECORD"] = "215" };
+        if (c.OwnerIndex >= 0) parameters["OWNERINDEX"] = c.OwnerIndex.ToString();
+        if (c.IsNotAccessible) parameters["IsNotAccesible"] = "T";
+        if (c.IndexInSheet != 0) parameters["IndexInSheet"] = c.IndexInSheet.ToString();
+        if (c.OwnerPartId != 0) parameters["OwnerPartId"] = c.OwnerPartId.ToString();
+        SchLibWriter.AddCoordParam(parameters, "Location.X", c.Corner1.X);
+        SchLibWriter.AddCoordParam(parameters, "Location.Y", c.Corner1.Y);
+        SchLibWriter.AddCoordParam(parameters, "Corner.X", c.Corner2.X);
+        SchLibWriter.AddCoordParam(parameters, "Corner.Y", c.Corner2.Y);
+        if (c.Color != 0) parameters["Color"] = c.Color.ToString();
+        if (c.AreaColor != 0) parameters["AreaColor"] = c.AreaColor.ToString();
+        if (!string.IsNullOrEmpty(c.UniqueId)) parameters["UniqueID"] = c.UniqueId;
+
+        writer.WriteCStringParameterBlock(parameters);
+        index++;
+    }
+
+    private static void WriteHarnessEntryRecord(BinaryFormatWriter writer, SchHarnessEntry e, ref int index)
+    {
+        var parameters = new Dictionary<string, string> { ["RECORD"] = "216" };
+        if (e.OwnerIndex >= 0) parameters["OWNERINDEX"] = e.OwnerIndex.ToString();
+        if (e.IsNotAccessible) parameters["IsNotAccesible"] = "T";
+        if (e.IndexInSheet != 0) parameters["IndexInSheet"] = e.IndexInSheet.ToString();
+        if (e.OwnerPartId != 0) parameters["OwnerPartId"] = e.OwnerPartId.ToString();
+        if (e.Side != 0) parameters["Side"] = e.Side.ToString();
+        var dftRaw = e.DistanceFromTop.ToRaw();
+        if (dftRaw / 100_000 != 0) parameters["DistanceFromTop"] = (dftRaw / 100_000).ToString();
+        if (dftRaw % 100_000 != 0) parameters["DistanceFromTop_Frac1"] = (dftRaw % 100_000).ToString();
+        parameters["Text"] = e.Text;
+        if (e.Color != 0) parameters["Color"] = e.Color.ToString();
+        if (e.AreaColor != 0) parameters["AreaColor"] = e.AreaColor.ToString();
+        if (e.TextColor != 0) parameters["TextColor"] = e.TextColor.ToString();
+        if (e.TextFontId != 0) parameters["TextFontID"] = e.TextFontId.ToString();
+        if (!string.IsNullOrEmpty(e.UniqueId)) parameters["UniqueID"] = e.UniqueId;
+
+        writer.WriteCStringParameterBlock(parameters);
+        index++;
+    }
+
+    private static void WriteHarnessTypeRecord(BinaryFormatWriter writer, SchHarnessType t, ref int index)
+    {
+        var parameters = new Dictionary<string, string> { ["RECORD"] = "217" };
+        if (t.OwnerIndex >= 0) parameters["OWNERINDEX"] = t.OwnerIndex.ToString();
+        if (t.IsNotAccessible) parameters["IsNotAccesible"] = "T";
+        if (t.IndexInSheet != 0) parameters["IndexInSheet"] = t.IndexInSheet.ToString();
+        if (t.OwnerPartId != 0) parameters["OwnerPartId"] = t.OwnerPartId.ToString();
+        SchLibWriter.AddCoordParam(parameters, "Location.X", t.Location.X);
+        SchLibWriter.AddCoordParam(parameters, "Location.Y", t.Location.Y);
+        parameters["Text"] = t.Text;
+        if (t.Color != 0) parameters["Color"] = t.Color.ToString();
+        if (t.TextColor != 0) parameters["TextColor"] = t.TextColor.ToString();
+        parameters["FontID"] = t.FontId.ToString();
+        if (!string.IsNullOrEmpty(t.UniqueId)) parameters["UniqueID"] = t.UniqueId;
+
+        writer.WriteCStringParameterBlock(parameters);
+        index++;
+    }
+
     private static void WriteCompileMaskRecord(BinaryFormatWriter writer, SchCompileMask mask, ref int index)
     {
         var parameters = new Dictionary<string, string> { ["RECORD"] = "211" };
@@ -462,6 +546,18 @@ public sealed class SchDocWriter
 
         foreach (var compileMask in document.CompileMasks)
             WriteCompileMaskRecord(writer, compileMask, ref index);
+
+        foreach (var harnessConnector in document.HarnessConnectors)
+            WriteHarnessConnectorRecord(writer, harnessConnector, ref index);
+
+        foreach (var harnessEntry in document.HarnessEntries)
+            WriteHarnessEntryRecord(writer, harnessEntry, ref index);
+
+        foreach (var harnessType in document.HarnessTypes)
+            WriteHarnessTypeRecord(writer, harnessType, ref index);
+
+        foreach (var signalHarness in document.SignalHarnesses)
+            WriteSignalHarnessRecord(writer, signalHarness, ref index);
 
         // Write opaque (unmodeled) records for round-trip fidelity
         foreach (var record in document.OpaqueRecords)

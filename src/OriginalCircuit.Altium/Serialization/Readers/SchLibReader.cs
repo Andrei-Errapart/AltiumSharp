@@ -54,6 +54,10 @@ internal enum SchRecordType
     ImplementationParameters = 48,
     Note = 209,
     CompileMask = 211,
+    HarnessConnector = 215,
+    HarnessEntry = 216,
+    HarnessType = 217,
+    SignalHarness = 218,
     Blanket = 225,
     Hyperlink = 226
 }
