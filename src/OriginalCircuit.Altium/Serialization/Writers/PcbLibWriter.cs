@@ -381,6 +381,34 @@ public sealed class PcbLibWriter
         return flags;
     }
 
+    /// <summary>
+    /// Derives the "v7 saved layer id" (uint32) from the Altium layer number. This redundant field
+    /// is written into primitive tails and must match the primitive's layer. Encoding (verified
+    /// against the corpus and altium_monkey's PcbV7LayerPartition):
+    /// 0x0100_0000+layer (signal 1-32), 0x0101_0000+(layer-38) (internal plane 39-54),
+    /// 0x0102_0000+(layer-56) (mechanical 57-72), 0x0103_0000+partition (special layers).
+    /// </summary>
+    internal static uint V7LayerId(int layer)
+    {
+        if (layer >= 1 && layer <= 32) return 0x01000000u + (uint)layer;          // signal (top/mid/bottom)
+        if (layer >= 39 && layer <= 54) return 0x01010000u + (uint)(layer - 38);  // internal plane 1-16
+        if (layer >= 57 && layer <= 72) return 0x01020000u + (uint)(layer - 56);  // mechanical 1-16
+        return layer switch                                                       // special (0x0103 partition)
+        {
+            33 => 0x01030006u, // top overlay
+            34 => 0x01030007u, // bottom overlay
+            35 => 0x01030008u, // top paste
+            36 => 0x01030009u, // bottom paste
+            37 => 0x0103000Au, // top solder
+            38 => 0x0103000Bu, // bottom solder
+            55 => 0x0103000Cu, // drill guide
+            56 => 0x0103000Du, // keepout
+            73 => 0x0103000Eu, // drill drawing
+            74 => 0x0103000Fu, // multi-layer
+            _ => 0x0103000Fu,  // fallback: multi-layer
+        };
+    }
+
     internal static void WriteArc(BinaryFormatWriter writer, PcbArc arc)
     {
         writer.WriteBlock(w =>
@@ -397,7 +425,7 @@ public sealed class PcbLibWriter
             w.Write((short)0);                              // 45-46 subpoly index
             w.WriteCoord(arc.SolderMaskExpansion);          // 47-50 solder mask expansion
             w.Write((byte)0);                               // 51 paste mask expansion
-            w.Write(new byte[] { 0x01, 0x00, 0x00, 0x01 }); // 52-55 v7 layer id
+            w.Write(V7LayerId(arc.Layer));                  // 52-55 v7 layer id (derived from layer)
             w.Write((byte)arc.KeepoutRestrictions);         // 56 keepout restrictions
             w.Write(new byte[3]);                           // 57-59 reserved
         });
@@ -647,7 +675,7 @@ public sealed class PcbLibWriter
             w.Write((short)0);                              // 33-34 subpoly index
             w.WriteCoord(track.SolderMaskExpansion);        // 35-38 solder mask expansion
             w.Write((short)0);                              // 39-40 paste mask expansion
-            w.Write(new byte[] { 0x0D, 0x00, 0x03, 0x01 }); // 41-44 v7 layer id
+            w.Write(V7LayerId(track.Layer));                // 41-44 v7 layer id (derived from layer)
             w.Write((byte)track.KeepoutRestrictions);       // 45 keepout restrictions
             w.Write(new byte[3]);                           // 46-48 reserved
         });
@@ -766,7 +794,7 @@ public sealed class PcbLibWriter
             // Extended tail (offsets 37-49)
             w.WriteCoord(fill.SolderMaskExpansion);         // 37-40 solder mask expansion
             w.Write((byte)0);                               // 41 paste mask expansion
-            w.Write(new byte[] { 0x01, 0x00, 0x00, 0x01 }); // 42-45 v7 layer id
+            w.Write(V7LayerId(fill.Layer));                 // 42-45 v7 layer id (derived from layer)
             w.Write((byte)fill.KeepoutRestrictions);        // 46 keepout restrictions
             w.Write(new byte[3]);                           // 47-49 reserved
         });
