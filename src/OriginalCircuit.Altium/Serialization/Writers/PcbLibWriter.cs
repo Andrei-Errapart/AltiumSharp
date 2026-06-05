@@ -394,7 +394,8 @@ public sealed class PcbLibWriter
     /// </summary>
     internal static uint V7LayerId(int layer)
     {
-        if (layer >= 1 && layer <= 32) return 0x01000000u + (uint)layer;          // signal (top/mid/bottom)
+        if (layer == 32) return 0x0100FFFFu;                                      // bottom signal layer (sentinel)
+        if (layer >= 1 && layer <= 31) return 0x01000000u + (uint)layer;          // signal (top/mid)
         if (layer >= 39 && layer <= 54) return 0x01010000u + (uint)(layer - 38);  // internal plane 1-16
         if (layer >= 57 && layer <= 72) return 0x01020000u + (uint)(layer - 56);  // mechanical 1-16
         return layer switch                                                       // special (0x0103 partition)
