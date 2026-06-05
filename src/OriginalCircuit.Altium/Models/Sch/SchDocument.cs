@@ -18,6 +18,7 @@ public sealed class SchDocument : ISchDocument
 
     private readonly List<SchComponent> _components = new();
     private readonly List<SchWire> _wires = new();
+    private readonly List<SchTemplate> _templates = new();
     private readonly List<SchNetLabel> _netLabels = new();
     private readonly List<SchJunction> _junctions = new();
     private readonly List<SchPowerObject> _powerObjects = new();
@@ -90,6 +91,9 @@ public sealed class SchDocument : ISchDocument
 
     /// <inheritdoc />
     public IReadOnlyList<ISchWire> Wires => _wires;
+
+    /// <summary>Sheet-template references (record type 39) applied to this document.</summary>
+    public IReadOnlyList<SchTemplate> Templates => _templates;
 
     /// <inheritdoc />
     public IReadOnlyList<ISchNetLabel> NetLabels => _netLabels;
@@ -351,6 +355,7 @@ public sealed class SchDocument : ISchDocument
             case SchBlanket blanket: _blankets.Add(blanket); break;
             case SchParameterSet parameterSet: _parameterSets.Add(parameterSet); break;
             case SchComponent comp: _components.Add(comp); break;
+            case SchTemplate template: _templates.Add(template); break;
         }
     }
 

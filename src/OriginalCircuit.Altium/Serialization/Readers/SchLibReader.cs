@@ -44,6 +44,7 @@ internal enum SchRecordType
     Image = 30,
     Designator = 34,
     BusEntry = 37,
+    Template = 39,
     Parameter = 41,
     ParameterSet = 43,
     ImplementationList = 44,
@@ -955,7 +956,21 @@ public sealed class SchLibReader
             SchRecordType.MapDefinerList => "MapDefinerList", // Container marker
             SchRecordType.MapDefiner => CreateMapDefiner(parameters),
             SchRecordType.ImplementationParameters => "ImplementationParameters", // Empty container
+            SchRecordType.Template => CreateTemplate(parameters),
             _ => null // Other primitives not yet implemented
+        };
+    }
+
+    private static SchTemplate CreateTemplate(Dictionary<string, string> parameters)
+    {
+        var dto = SchTemplateDto.FromParameters(ToParameterCollection(parameters));
+        return new SchTemplate
+        {
+            FileName = dto.FileName,
+            IsNotAccessible = dto.IsNotAccessible,
+            OwnerPartId = dto.OwnerPartId,
+            OwnerIndex = dto.OwnerIndex,
+            IndexInSheet = dto.IndexInSheet,
         };
     }
 

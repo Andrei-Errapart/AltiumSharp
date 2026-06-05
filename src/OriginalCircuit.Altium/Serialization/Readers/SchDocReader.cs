@@ -379,7 +379,21 @@ public sealed class SchDocReader
             SchRecordType.MapDefinerList => "MapDefinerList", // Container marker
             SchRecordType.MapDefiner => CreateMapDefiner(parameters),
             SchRecordType.ImplementationParameters => "ImplementationParameters", // Empty container
+            SchRecordType.Template => CreateTemplate(paramCollection),
             _ => null
+        };
+    }
+
+    private static SchTemplate CreateTemplate(ParameterCollection paramCollection)
+    {
+        var dto = Dto.Sch.SchTemplateDto.FromParameters(paramCollection);
+        return new SchTemplate
+        {
+            FileName = dto.FileName,
+            IsNotAccessible = dto.IsNotAccessible,
+            OwnerPartId = dto.OwnerPartId,
+            OwnerIndex = dto.OwnerIndex,
+            IndexInSheet = dto.IndexInSheet,
         };
     }
 

@@ -447,6 +447,48 @@ public sealed class SchDocRoundTripTests
     }
 
     [SkippableFact]
+    public void ReadRealFile_ParsesSheetTemplateRecord()
+    {
+        var testDataPath = GetTestDataPath();
+        var filePath = Path.Combine(testDataPath, "USB Power.SchDoc");
+        if (!File.Exists(filePath)) { Skip.If(true, "Test data not available"); return; }
+
+        var doc = (SchDocument)new SchDocReader().Read(File.OpenRead(filePath));
+
+        // USB Power.SchDoc references the A4.SchDot sheet template (record type 39).
+        var template = Assert.Single(doc.Templates);
+        Assert.Contains("A4.SchDot", template.FileName);
+
+        // The template survives a round-trip through the typed model.
+        using var ms = new MemoryStream();
+        new SchDocWriter().Write(doc, ms);
+        ms.Position = 0;
+        var rt = (SchDocument)new SchDocReader().Read(ms);
+        var rtTemplate = Assert.Single(rt.Templates);
+        Assert.Equal(template.FileName, rtTemplate.FileName);
+    }
+
+    [Fact]
+    public void FromScratch_Template_RoundTrips()
+    {
+        var doc = new SchDocument();
+        doc.AddPrimitive(new SchTemplate
+        {
+            FileName = @"C:\Templates\A4.SchDot",
+            IsNotAccessible = true,
+        });
+
+        using var ms = new MemoryStream();
+        new SchDocWriter().Write(doc, ms);
+        ms.Position = 0;
+        var rt = (SchDocument)new SchDocReader().Read(ms);
+
+        var template = Assert.Single(rt.Templates);
+        Assert.Equal(@"C:\Templates\A4.SchDot", template.FileName);
+        Assert.True(template.IsNotAccessible);
+    }
+
+    [SkippableFact]
     public void WriteThenRead_RealFiles_PreservesComponentProperties()
     {
         var testDataPath = GetTestDataPath();

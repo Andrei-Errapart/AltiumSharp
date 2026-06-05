@@ -58,6 +58,20 @@ public sealed class SchDocWriter
         cf.Save(stream);
     }
 
+    private static void WriteTemplateRecord(BinaryFormatWriter writer, SchTemplate template, ref int index)
+    {
+        var parameters = new Dictionary<string, string>
+        {
+            ["RECORD"] = "39",
+        };
+        if (template.IsNotAccessible) parameters["IsNotAccesible"] = "T";
+        parameters["OwnerPartId"] = template.OwnerPartId.ToString();
+        if (!string.IsNullOrEmpty(template.FileName)) parameters["FileName"] = template.FileName;
+
+        writer.WriteCStringParameterBlock(parameters);
+        index++;
+    }
+
     private static string BuildOrderedParamString(List<KeyValuePair<string, string>> ordered)
     {
         var sb = new System.Text.StringBuilder();
@@ -372,6 +386,9 @@ public sealed class SchDocWriter
             foreach (var param in blanket.Parameters)
                 SchLibWriter.WriteParameterRecord(writer, param, ref index, blanketIndex);
         }
+
+        foreach (var template in document.Templates)
+            WriteTemplateRecord(writer, template, ref index);
 
         // Write opaque (unmodeled) records for round-trip fidelity
         foreach (var record in document.OpaqueRecords)
