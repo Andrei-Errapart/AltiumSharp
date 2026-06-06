@@ -754,7 +754,11 @@ public sealed class PcbLibWriter
         b[40] = (byte)(text.IsComment ? 1 : 0);
         b[41] = (byte)(text.IsDesignator ? 1 : 0);
         b[42] = (byte)text.CharSet;
-        b[43] = (byte)text.TextKind;
+        // Offset 43 is the BASE font type (0=stroke, 1=TrueType). For a barcode the kind (2)
+        // lives only at offset 160 (b[160]); offset 43 stays the underlying font.
+        b[43] = text.TextKind == PcbTextKind.BarCode
+            ? (byte)(text.IsTrueType ? 1 : 0)
+            : (byte)text.TextKind;
         b[44] = (byte)(text.FontBold ? 1 : 0);
         b[45] = (byte)(text.FontItalic ? 1 : 0);
         PutFont(46, text.FontName);
