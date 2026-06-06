@@ -460,8 +460,8 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Corner.Y", line.End.Y);
         parameters["LineWidth"] = LineWidthToIndex(line.Width).ToString();
         AddNonZero(parameters, "LineStyle", line.LineStyle);
-        AddNonZero(parameters, "LineStyleExt", line.LineStyle); // Altium writes both
         AddNonZero(parameters, "Color", line.Color);
+        AddNonZero(parameters, "LineStyleExt", line.LineStyle); // Altium writes both, LineStyleExt after Color
         AddNonZero(parameters, "AreaColor", line.AreaColor);
         AddUniqueId(parameters, line.UniqueId);
 
@@ -484,9 +484,8 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.Y", rect.Corner1.Y);
         AddCoordParam(parameters, "Corner.X", rect.Corner2.X);
         AddCoordParam(parameters, "Corner.Y", rect.Corner2.Y);
+        AddNonZero(parameters, "LineStyleExt", rect.LineStyle); // rectangles store the style in LineStyleExt only, before LineWidth
         parameters["LineWidth"] = LineWidthToIndex(rect.LineWidth).ToString();
-        AddNonZero(parameters, "LineStyle", rect.LineStyle);
-        AddNonZero(parameters, "LineStyleExt", rect.LineStyle); // Altium writes both
         AddNonZero(parameters, "Color", rect.Color);
         AddNonZero(parameters, "AreaColor", rect.FillColor); // omitted when 0
         AddBool(parameters, "IsSolid", rect.IsFilled);
@@ -511,9 +510,9 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.X", label.Location.X);
         AddCoordParam(parameters, "Location.Y", label.Location.Y);
         AddNonZero(parameters, "Justification", (int)label.Justification);
+        AddNonZero(parameters, "Color", label.Color); // Color precedes FontID
         parameters["FontID"] = label.FontId.ToString();
         parameters["Text"] = label.Text;
-        AddNonZero(parameters, "Color", label.Color);
         AddNonZero(parameters, "AreaColor", label.AreaColor);
         AddBool(parameters, "IsHidden", label.IsHidden);
         AddBool(parameters, "IsMirrored", label.IsMirrored);
@@ -590,12 +589,14 @@ public sealed class SchLibWriter
             polyline.OwnerPartId, polyline.OwnerPartDisplayMode, polyline.GraphicallyLocked,
             polyline.Disabled, polyline.Dimmed, polyline.UniqueId, ownerIndex);
 
+        // Altium order: LineWidth, LineStyle, StartLineShape, EndLineShape, LineShapeSize, Color, LineStyleExt
         parameters["LineWidth"] = polyline.LineWidth.ToString();
-        AddNonZero(parameters, "Color", polyline.Color);
-        AddNonZero(parameters, "LineShapeSize", polyline.LineShapeSize);
+        AddNonZero(parameters, "LineStyle", (int)polyline.LineStyle);
         AddNonZero(parameters, "StartLineShape", polyline.StartLineShape);
         AddNonZero(parameters, "EndLineShape", polyline.EndLineShape);
-        AddNonZero(parameters, "LineStyle", (int)polyline.LineStyle);
+        AddNonZero(parameters, "LineShapeSize", polyline.LineShapeSize);
+        AddNonZero(parameters, "Color", polyline.Color);
+        AddNonZero(parameters, "LineStyleExt", (int)polyline.LineStyle); // Altium writes both
         AddBool(parameters, "Transparent", polyline.IsTransparent);
         AddNonZero(parameters, "AreaColor", polyline.AreaColor);
         AddBool(parameters, "IsSolid", polyline.IsSolid);
@@ -758,9 +759,12 @@ public sealed class SchLibWriter
             ["RECORD"] = recordType,
         };
 
+        // Parameters owned by a pin (or other primitive) carry that owner's record index;
+        // component-level parameters (Designator/Comment) have OwnerIndex 0 and omit it.
+        var effectiveOwnerIndex = ownerIndex >= 0 ? ownerIndex : (param.OwnerIndex > 0 ? param.OwnerIndex : -1);
         AddCommonProperties(parameters, param.OwnerIndex, param.IsNotAccessible, param.IndexInSheet,
             param.OwnerPartId, param.OwnerPartDisplayMode, param.GraphicallyLocked,
-            param.Disabled, param.Dimmed, param.UniqueId, ownerIndex);
+            param.Disabled, param.Dimmed, param.UniqueId, effectiveOwnerIndex);
 
         AddCoordParam(parameters, "Location.X", param.Location.X);
         AddCoordParam(parameters, "Location.Y", param.Location.Y);
@@ -898,20 +902,23 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.Y", textFrame.Corner1.Y);
         AddCoordParam(parameters, "Corner.X", textFrame.Corner2.X);
         AddCoordParam(parameters, "Corner.Y", textFrame.Corner2.Y);
+        // Altium order: [Color] AreaColor [TextColor] FontID [LineWidth LineStyle] ShowBorder
+        // [Orientation] Alignment WordWrap ClipToRect Text TextMargin[_Frac]
         AddNonZero(parameters, "Color", textFrame.BorderColor);
         parameters["AreaColor"] = textFrame.FillColor.ToString();
         AddNonZero(parameters, "TextColor", textFrame.TextColor);
-        AddNonZero(parameters, "TextMargin", textFrame.TextMargin);
         parameters["FontID"] = textFrame.FontId.ToString();
         AddNonZero(parameters, "LineWidth", textFrame.LineWidth); // omitted when 0
         AddNonZero(parameters, "LineStyle", textFrame.LineStyle);
-        AddBool(parameters, "Transparent", textFrame.IsTransparent);
-        parameters["Text"] = textFrame.Text;
+        AddBool(parameters, "ShowBorder", textFrame.ShowBorder);
         AddNonZero(parameters, "Orientation", textFrame.Orientation);
         AddNonZero(parameters, "Alignment", (int)textFrame.Alignment);
-        AddBool(parameters, "ShowBorder", textFrame.ShowBorder);
         AddBool(parameters, "WordWrap", textFrame.WordWrap);
         AddBool(parameters, "ClipToRect", textFrame.ClipToRect);
+        parameters["Text"] = textFrame.Text;
+        AddNonZero(parameters, "TextMargin", textFrame.TextMargin);
+        AddNonZero(parameters, "TextMargin_Frac", textFrame.TextMarginFrac);
+        AddBool(parameters, "Transparent", textFrame.IsTransparent);
         AddBool(parameters, "IsSolid", textFrame.IsFilled);
         AddUniqueId(parameters, textFrame.UniqueId);
 
@@ -1551,6 +1558,7 @@ public sealed class SchLibWriter
     internal static int LineWidthToIndex(Coord width)
     {
         var mils = width.ToMils();
+        if (mils >= 5.0) return 3; // Largest (6 mil)
         if (mils >= 3.0) return 2; // Large (4 mil)
         if (mils >= 1.5) return 1; // Medium (2 mil)
         return 0; // Small (1 mil)

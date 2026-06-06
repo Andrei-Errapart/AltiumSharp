@@ -122,6 +122,13 @@ internal sealed partial record SchRectangleDto
     public int LineStyle { get; init; }
 
     /// <summary>
+    /// Gets or sets the extended line style. Altium stores the rectangle's line style here
+    /// (LINESTYLEEXT) rather than in LINESTYLE, which is omitted for rectangles.
+    /// </summary>
+    [AltiumParameter("LINESTYLEEXT")]
+    public int LineStyleExt { get; init; }
+
+    /// <summary>
     /// Gets or sets whether the fill is transparent.
     /// </summary>
     [AltiumParameter("TRANSPARENT")]

@@ -117,6 +117,12 @@ internal sealed partial record SchTextFrameDto
     public int TextMargin { get; init; }
 
     /// <summary>
+    /// Gets or sets the fractional part of the text margin.
+    /// </summary>
+    [AltiumParameter("TEXTMARGIN_FRAC")]
+    public int TextMarginFrac { get; init; }
+
+    /// <summary>
     /// Gets or sets the line width (0=Small, 1=Medium, 2=Large).
     /// </summary>
     [AltiumParameter("LINEWIDTH")]

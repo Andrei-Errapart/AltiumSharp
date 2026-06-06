@@ -82,6 +82,11 @@ public sealed class SchTextFrame : ISchTextFrame
     public int TextMargin { get; set; }
 
     /// <summary>
+    /// Fractional (sub-DXP) part of the text margin, preserved for byte-faithful round-trip.
+    /// </summary>
+    internal int TextMarginFrac { get; set; }
+
+    /// <summary>
     /// Index of the owning record in the schematic hierarchy.
     /// </summary>
     public int OwnerIndex { get; set; }

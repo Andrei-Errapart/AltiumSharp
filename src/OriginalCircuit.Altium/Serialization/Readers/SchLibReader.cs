@@ -1184,7 +1184,7 @@ public sealed class SchLibReader
             LineWidth = LineWidthFromIndex(dto.LineWidth),
             IsFilled = dto.IsSolid,
             IsTransparent = dto.Transparent,
-            LineStyle = dto.LineStyle,
+            LineStyle = dto.LineStyleExt != 0 ? dto.LineStyleExt : dto.LineStyle,
             Color = dto.Color,
             FillColor = dto.AreaColor,
             OwnerIndex = dto.OwnerIndex,
@@ -1470,8 +1470,8 @@ public sealed class SchLibReader
         {
             Corner1 = new CoordPoint(CoordFromDxp(dto.LocationX, dto.LocationXFrac), CoordFromDxp(dto.LocationY, dto.LocationYFrac)),
             Corner2 = new CoordPoint(CoordFromDxp(dto.CornerX, dto.CornerXFrac), CoordFromDxp(dto.CornerY, dto.CornerYFrac)),
-            CornerRadiusX = CoordFromDxp(dto.CornerXRadius),
-            CornerRadiusY = CoordFromDxp(dto.CornerYRadius),
+            CornerRadiusX = CoordFromDxp(dto.CornerXRadius, dto.CornerXRadiusFrac),
+            CornerRadiusY = CoordFromDxp(dto.CornerYRadius, dto.CornerYRadiusFrac),
             LineWidth = dto.LineWidth,
             LineStyle = dto.LineStyle,
             Color = dto.Color,
@@ -1632,6 +1632,7 @@ public sealed class SchLibReader
             LineWidth = dto.LineWidth,
             LineStyle = dto.LineStyle,
             TextMargin = dto.TextMargin,
+            TextMarginFrac = dto.TextMarginFrac,
             IsFilled = dto.IsSolid,
             IsTransparent = dto.Transparent,
             ShowBorder = dto.ShowBorder,
@@ -2185,9 +2186,10 @@ public sealed class SchLibReader
     // These correspond to Small (0), Medium (1), Large (2) line styles
     private static readonly Coord[] LineWidths =
     {
-        Coord.FromMils(1),   // Small
-        Coord.FromMils(2),   // Medium
-        Coord.FromMils(4)    // Large
+        Coord.FromMils(1),   // 0 = Small
+        Coord.FromMils(2),   // 1 = Medium
+        Coord.FromMils(4),   // 2 = Large
+        Coord.FromMils(6)    // 3 = Largest
     };
 
     private static Coord LineWidthFromIndex(int index)

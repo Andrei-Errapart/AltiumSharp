@@ -106,6 +106,18 @@ internal sealed partial record SchRoundedRectangleDto
     public int CornerYRadius { get; init; }
 
     /// <summary>
+    /// Gets or sets the fractional part of the horizontal corner radius.
+    /// </summary>
+    [AltiumParameter("CORNERXRADIUS_FRAC")]
+    public int CornerXRadiusFrac { get; init; }
+
+    /// <summary>
+    /// Gets or sets the fractional part of the vertical corner radius.
+    /// </summary>
+    [AltiumParameter("CORNERYRADIUS_FRAC")]
+    public int CornerYRadiusFrac { get; init; }
+
+    /// <summary>
     /// Gets or sets the line color as a Win32 color value.
     /// </summary>
     [AltiumParameter("COLOR")]
