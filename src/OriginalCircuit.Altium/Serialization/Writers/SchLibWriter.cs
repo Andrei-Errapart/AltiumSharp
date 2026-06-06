@@ -76,36 +76,31 @@ public sealed class SchLibWriter
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
-        // Re-emit the full header parameter list (font table, UniqueID, SheetStyle, MBCS flags,
-        // etc.) preserved from the source file, updating only Weight to the component count.
-        // New libraries with no captured header fall back to the minimal HEADER + Weight block.
+        // Re-emit the full header parameter list verbatim (font table, UniqueID, SheetStyle, MBCS
+        // flags, etc.). Weight is PRESERVED — it is a record-count metric, not the component count.
+        // Real Altium FileHeaders end at this param block; the reader enumerates components via the
+        // CompCount/LibRefN parameters, so no component count+names tail is appended.
         if (library.HeaderParameters is { Count: > 0 } headerParams)
         {
             var sb = new System.Text.StringBuilder();
             foreach (var kvp in headerParams)
-            {
-                sb.Append('|').Append(kvp.Key).Append('=');
-                sb.Append(string.Equals(kvp.Key, "Weight", StringComparison.OrdinalIgnoreCase)
-                    ? library.Components.Count.ToString()
-                    : kvp.Value);
-            }
+                sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
             writer.WriteCStringParameterBlockRaw(sb.ToString());
         }
         else
         {
+            // From-scratch libraries have no captured CompCount/LibRefN, so append the component
+            // count + name string blocks, which the reader reads when the stream has trailing data.
             var defaults = new Dictionary<string, string>
             {
                 ["HEADER"] = "Protel for Windows - Schematic Library Editor Binary File Version 5.0",
                 ["Weight"] = library.Components.Count.ToString()
             };
             writer.WriteCStringParameterBlock(defaults);
-        }
 
-        // Write component count and names
-        writer.Write(library.Components.Count);
-        foreach (var component in library.Components)
-        {
-            writer.WriteStringBlock(component.Name);
+            writer.Write(library.Components.Count);
+            foreach (var component in library.Components)
+                writer.WriteStringBlock(component.Name);
         }
 
         writer.Flush();
@@ -1485,11 +1480,11 @@ public sealed class SchLibWriter
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
-        var parameters = new Dictionary<string, string>
-        {
-            ["HEADER"] = "Icon storage",
-            ["WEIGHT"] = embeddedImages.Count.ToString()
-        };
+        // Header param block: "|HEADER=Icon storage" with "|Weight=N" only when images are present
+        // (Altium omits Weight entirely when the storage is empty; the key is "Weight", not "WEIGHT").
+        var parameters = new Dictionary<string, string> { ["HEADER"] = "Icon storage" };
+        if (embeddedImages.Count > 0)
+            parameters["Weight"] = embeddedImages.Count.ToString();
         writer.WriteCStringParameterBlock(parameters);
 
         // Write each embedded image as a compressed storage entry
