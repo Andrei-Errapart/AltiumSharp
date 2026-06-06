@@ -1292,7 +1292,7 @@ public sealed class SchLibReader
             Coord x = default, y = default;
             var hasX = parameters.TryGetValue($"X{i}", out var xStr) && TryParseCoord(xStr, out x);
             var hasY = parameters.TryGetValue($"Y{i}", out var yStr) && TryParseCoord(yStr, out y);
-            if (hasX || hasY)
+            if (hasX || hasY || i <= vertexCount)
             {
                 if (i == 1)
                     polyline.From(hasX ? x : default, hasY ? y : default);
