@@ -357,12 +357,12 @@ public sealed class PcbLibWriter
     }
 
     internal static void WriteCommonPrimitiveData(BinaryFormatWriter writer, int layer, ushort flags = 0,
-        ushort netIndex = 0xFFFF, int componentIndex = -1)
+        ushort netIndex = 0xFFFF, int componentIndex = -1, ushort polygonIndex = 0xFFFF)
     {
         writer.Write((byte)layer);
         writer.Write(flags);
         writer.Write(netIndex);                                                       // net index (0xFFFF = none)
-        writer.Write((ushort)0xFFFF);                                                  // reserved
+        writer.Write(polygonIndex);                                                    // polygon index (0xFFFF = none, 0 for regions)
         writer.Write(componentIndex < 0 ? (ushort)0xFFFF : (ushort)componentIndex);    // component index (0xFFFF = none)
         writer.Write(0xFFFFFFFFu);                                                     // reserved
     }
@@ -813,7 +813,7 @@ public sealed class PcbLibWriter
         {
             var flags = EncodeFlags(region.IsLocked, region.IsTentingTop,
                 region.IsTentingBottom, region.IsKeepout);
-            WriteCommonPrimitiveData(w, region.Layer, flags, region.NetIndex, region.ComponentIndex);
+            WriteCommonPrimitiveData(w, region.Layer, flags, region.NetIndex, region.ComponentIndex, region.PolygonIndex);
 
             // Header: reserved byte @13 + hole_count uint16 @14-15 + 2 reserved bytes @16-17.
             var holes = region.Holes;

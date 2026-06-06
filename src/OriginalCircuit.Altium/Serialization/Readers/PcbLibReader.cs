@@ -784,13 +784,16 @@ public sealed class PcbLibReader
         => ReadCommonPrimitiveData(reader, out layer, out flags, out componentIndex, out _);
 
     internal static void ReadCommonPrimitiveData(BinaryFormatReader reader, out byte layer, out ushort flags, out int componentIndex, out ushort netIndex)
+        => ReadCommonPrimitiveData(reader, out layer, out flags, out componentIndex, out netIndex, out _);
+
+    internal static void ReadCommonPrimitiveData(BinaryFormatReader reader, out byte layer, out ushort flags, out int componentIndex, out ushort netIndex, out ushort polygonIndex)
     {
         layer = reader.ReadByte();
         flags = reader.ReadUInt16();
 
-        // 10 bytes: uint16 netIndex, uint16 reserved, uint16 componentIndex, uint32 reserved
+        // 10 bytes: uint16 netIndex, uint16 polygonIndex, uint16 componentIndex, uint32 reserved
         netIndex = reader.ReadUInt16(); // net index (0xFFFF = no net)
-        reader.Skip(2); // reserved
+        polygonIndex = reader.ReadUInt16(); // polygon index (0xFFFF = none, 0 for regions)
         componentIndex = reader.ReadUInt16(); // component index (0xFFFF = free primitive)
         if (componentIndex == 0xFFFF)
             componentIndex = -1;
@@ -1396,7 +1399,7 @@ public sealed class PcbLibReader
 
         var startPos = reader.Position;
 
-        ReadCommonPrimitiveData(reader, out var layer, out var flags, out var componentIndex, out var netIndex);
+        ReadCommonPrimitiveData(reader, out var layer, out var flags, out var componentIndex, out var netIndex, out var polygonIndex);
 
         // Header: reserved byte @13 + hole_count uint16 @14-15 + 2 reserved bytes @16-17,
         // then the nested parameter block and the geometry.
@@ -1454,6 +1457,7 @@ public sealed class PcbLibReader
         result.RawParametersOrdered = orderedRegionParams;
         result.ComponentIndex = componentIndex;
         result.NetIndex = netIndex;
+        result.PolygonIndex = polygonIndex;
         result.Holes = holes;
 
         // Decode flags

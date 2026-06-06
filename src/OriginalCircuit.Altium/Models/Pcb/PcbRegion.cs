@@ -20,6 +20,9 @@ public sealed class PcbRegion : IPcbRegion
     /// <summary>Net index into the board's net list (0xFFFF = no net).</summary>
     public ushort NetIndex { get; set; } = 0xFFFF;
 
+    /// <summary>Polygon index this region belongs to (0xFFFF = none; regions in the corpus use 0).</summary>
+    public ushort PolygonIndex { get; set; } = 0xFFFF;
+
     /// <summary>Component index into the board's component list (-1 = not part of a component).</summary>
     public int ComponentIndex { get; set; } = -1;
 
