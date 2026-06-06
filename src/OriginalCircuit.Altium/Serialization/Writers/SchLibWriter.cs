@@ -570,8 +570,7 @@ public sealed class SchLibWriter
         for (var i = 0; i < polygon.Vertices.Count; i++)
         {
             var v = polygon.Vertices[i];
-            parameters[$"X{i + 1}"] = CoordToSchematicUnits(v.X);
-            parameters[$"Y{i + 1}"] = CoordToSchematicUnits(v.Y);
+            AddSchVertex(parameters, i + 1, v.X, v.Y);
         }
         AddUniqueId(parameters, polygon.UniqueId);
 
@@ -604,8 +603,7 @@ public sealed class SchLibWriter
         for (var i = 0; i < polyline.Vertices.Count; i++)
         {
             var v = polyline.Vertices[i];
-            parameters[$"X{i + 1}"] = CoordToSchematicUnits(v.X);
-            parameters[$"Y{i + 1}"] = CoordToSchematicUnits(v.Y);
+            AddSchVertex(parameters, i + 1, v.X, v.Y);
         }
         AddUniqueId(parameters, polyline.UniqueId);
 
@@ -632,8 +630,7 @@ public sealed class SchLibWriter
         for (var i = 0; i < bezier.ControlPoints.Count; i++)
         {
             var cp = bezier.ControlPoints[i];
-            parameters[$"X{i + 1}"] = CoordToSchematicUnits(cp.X);
-            parameters[$"Y{i + 1}"] = CoordToSchematicUnits(cp.Y);
+            AddSchVertex(parameters, i + 1, cp.X, cp.Y);
         }
         AddUniqueId(parameters, bezier.UniqueId);
 
@@ -1517,6 +1514,18 @@ public sealed class SchLibWriter
     /// </summary>
     internal static string CoordToSchematicUnits(Coord coord) =>
         (coord.ToRaw() / 1000).ToString();
+
+    /// <summary>
+    /// Writes a vertex's X{n}/Y{n} parameters, omitting either when its schematic-unit value is 0
+    /// (Altium does not emit zero-valued vertex coordinates).
+    /// </summary>
+    private static void AddSchVertex(Dictionary<string, string> parameters, int index, Coord x, Coord y)
+    {
+        var sx = CoordToSchematicUnits(x);
+        var sy = CoordToSchematicUnits(y);
+        if (sx != "0") parameters[$"X{index}"] = sx;
+        if (sy != "0") parameters[$"Y{index}"] = sy;
+    }
 
     /// <summary>
     /// Adds a coordinate parameter in DXP units with optional _FRAC suffix.
