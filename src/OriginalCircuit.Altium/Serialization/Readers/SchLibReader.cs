@@ -1116,7 +1116,7 @@ public sealed class SchLibReader
         pin.Color = dto.Color;
         pin.AreaColor = dto.AreaColor;
         pin.DefaultValue = dto.DefaultValue;
-        pin.IsHidden = dto.IsHidden;
+        pin.IsHidden = dto.IsHidden || (cong & 0x04) != 0; // hidden flag lives in the conglomerate for binary pins
         pin.DesignatorCustomColor = dto.DesignatorCustomColor;
         pin.DesignatorCustomPositionMargin = dto.DesignatorCustomPositionMargin;
         pin.DesignatorCustomPositionRotationAnchor = dto.DesignatorCustomPositionRotationAnchor;
