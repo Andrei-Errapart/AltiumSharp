@@ -71,19 +71,13 @@ public sealed class PcbLibWriter
         writer.Write(versionText.Length);
         writer.WritePascalShortString(versionText);
 
-        // String 1: Format version double (5.01) + 2 padding bytes
-        writer.Write((byte)10); // length prefix
-        writer.Write(5.01d);    // version double (8 bytes)
-        writer.Write((short)0); // 2 padding bytes
+        // Weight/version double (5.01), written directly after the version string (no length prefix).
+        writer.Write(5.01d);
 
-        // String 2: Empty placeholder
-        writer.Write((byte)0);
-
-        // String 3: 8-character unique library identifier
+        // 8-character unique library identifier as a string block: [4-byte char count][pascal-string].
         var uniqueId = library.UniqueId ?? "AAAAAAAA";
-        var idBytes = System.Text.Encoding.ASCII.GetBytes(uniqueId);
-        writer.Write((byte)idBytes.Length);
-        writer.Write(idBytes);
+        writer.Write(uniqueId.Length);
+        writer.WritePascalShortString(uniqueId);
 
         writer.Flush();
         headerStream.SetData(ms.ToArray());
