@@ -509,6 +509,7 @@ public sealed class SchLibWriter
 
         AddCoordParam(parameters, "Location.X", label.Location.X);
         AddCoordParam(parameters, "Location.Y", label.Location.Y);
+        AddNonZero(parameters, "Orientation", (int)(label.Rotation / 90) % 4); // Orientation precedes Justification
         AddNonZero(parameters, "Justification", (int)label.Justification);
         AddNonZero(parameters, "Color", label.Color); // Color precedes FontID
         parameters["FontID"] = label.FontId.ToString();
@@ -516,7 +517,6 @@ public sealed class SchLibWriter
         AddNonZero(parameters, "AreaColor", label.AreaColor);
         AddBool(parameters, "IsHidden", label.IsHidden);
         AddBool(parameters, "IsMirrored", label.IsMirrored);
-        AddNonZero(parameters, "Orientation", (int)(label.Rotation / 90) % 4);
         AddUniqueId(parameters, label.UniqueId);
 
         writer.WriteCStringParameterBlock(parameters);
@@ -589,14 +589,14 @@ public sealed class SchLibWriter
             polyline.OwnerPartId, polyline.OwnerPartDisplayMode, polyline.GraphicallyLocked,
             polyline.Disabled, polyline.Dimmed, polyline.UniqueId, ownerIndex);
 
-        // Altium order: LineWidth, LineStyle, StartLineShape, EndLineShape, LineShapeSize, Color, LineStyleExt
+        // Altium order: LineWidth, LineStyle, StartLineShape, EndLineShape, LineShapeSize, Color,
+        // [Transparent, AreaColor, IsSolid], LocationCount, vertices, then LineStyleExt at the end.
         parameters["LineWidth"] = polyline.LineWidth.ToString();
         AddNonZero(parameters, "LineStyle", (int)polyline.LineStyle);
         AddNonZero(parameters, "StartLineShape", polyline.StartLineShape);
         AddNonZero(parameters, "EndLineShape", polyline.EndLineShape);
         AddNonZero(parameters, "LineShapeSize", polyline.LineShapeSize);
         AddNonZero(parameters, "Color", polyline.Color);
-        AddNonZero(parameters, "LineStyleExt", (int)polyline.LineStyle); // Altium writes both
         AddBool(parameters, "Transparent", polyline.IsTransparent);
         AddNonZero(parameters, "AreaColor", polyline.AreaColor);
         AddBool(parameters, "IsSolid", polyline.IsSolid);
@@ -607,6 +607,7 @@ public sealed class SchLibWriter
             var v = polyline.Vertices[i];
             AddSchVertex(parameters, i + 1, v.X, v.Y);
         }
+        AddNonZero(parameters, "LineStyleExt", (int)polyline.LineStyle); // LineStyleExt follows the vertices
         AddUniqueId(parameters, polyline.UniqueId);
 
         writer.WriteCStringParameterBlock(parameters);
