@@ -486,8 +486,9 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Corner.Y", rect.Corner2.Y);
         parameters["LineWidth"] = LineWidthToIndex(rect.LineWidth).ToString();
         AddNonZero(parameters, "LineStyle", rect.LineStyle);
+        AddNonZero(parameters, "LineStyleExt", rect.LineStyle); // Altium writes both
         AddNonZero(parameters, "Color", rect.Color);
-        parameters["AreaColor"] = rect.FillColor.ToString();
+        AddNonZero(parameters, "AreaColor", rect.FillColor); // omitted when 0
         AddBool(parameters, "IsSolid", rect.IsFilled);
         AddBool(parameters, "Transparent", rect.IsTransparent);
         AddUniqueId(parameters, rect.UniqueId);
@@ -902,7 +903,7 @@ public sealed class SchLibWriter
         AddNonZero(parameters, "TextColor", textFrame.TextColor);
         AddNonZero(parameters, "TextMargin", textFrame.TextMargin);
         parameters["FontID"] = textFrame.FontId.ToString();
-        parameters["LineWidth"] = textFrame.LineWidth.ToString();
+        AddNonZero(parameters, "LineWidth", textFrame.LineWidth); // omitted when 0
         AddNonZero(parameters, "LineStyle", textFrame.LineStyle);
         AddBool(parameters, "Transparent", textFrame.IsTransparent);
         parameters["Text"] = textFrame.Text;
