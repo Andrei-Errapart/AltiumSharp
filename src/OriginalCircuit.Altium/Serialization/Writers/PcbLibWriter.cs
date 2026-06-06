@@ -573,6 +573,7 @@ public sealed class PcbLibWriter
         ext[101 - PadExtendedStart] = (byte)pad.PasteMaskExpansionMode;  // 101
         ext[102 - PadExtendedStart] = (byte)pad.SolderMaskExpansionMode; // 102
         PutI16(110, (short)pad.JumperID);                                // 110-111
+        PutI32(114, unchecked((int)V7LayerId(pad.Layer)));               // 114-117 v7 layer id (derived)
         PutI32(162, pad.HolePositiveTolerance.ToRaw());                  // 162-165
         PutI32(166, pad.HoleNegativeTolerance.ToRaw());                  // 166-169
 
@@ -749,6 +750,7 @@ public sealed class PcbLibWriter
         PutDbl(27, text.Rotation);
         b[35] = (byte)(text.IsMirrored ? 1 : 0);
         PutI32(36, text.StrokeWidth.ToRaw());
+        if (b.Length >= 230) PutI32(226, unchecked((int)V7LayerId(text.Layer))); // 226-229 v7 layer id (derived)
         b[40] = (byte)(text.IsComment ? 1 : 0);
         b[41] = (byte)(text.IsDesignator ? 1 : 0);
         b[42] = (byte)text.CharSet;
