@@ -1454,8 +1454,8 @@ public sealed class SchLibWriter
         var nameBytes = AltiumEncoding.Windows1252.GetBytes(name);
         var blockSize = 1 + 1 + nameBytes.Length + 4 + compressed.Length;
 
-        // Write block
-        writer.Write(blockSize);
+        // The size is a 3-byte little-endian value; the high byte is a flag set to 0x01 by Altium.
+        writer.Write(blockSize | 0x01000000);
         writer.Write((byte)0xD0);
         writer.Write((byte)nameBytes.Length);
         writer.Write(nameBytes);

@@ -218,13 +218,12 @@ internal sealed class BinaryFormatWriter : IDisposable
     /// </summary>
     public void WriteUnicodeParameterBlock(Dictionary<string, string> parameters)
     {
-        WriteBlock(w =>
-        {
-            var paramString = ParametersToString(parameters);
-            var bytes = Encoding.Unicode.GetBytes(paramString);
-            w.Write((byte)Math.Min(bytes.Length / 2, 255)); // Length in characters
-            w.Write(bytes);
-        });
+        // Altium format: Int32 byte-count followed by the UTF-16LE parameter string (no char-count
+        // prefix). The reader reads exactly byte-count bytes from offset 4.
+        var paramString = ParametersToString(parameters);
+        var bytes = Encoding.Unicode.GetBytes(paramString);
+        _writer.Write(bytes.Length);
+        _writer.Write(bytes);
     }
 
     /// <summary>
