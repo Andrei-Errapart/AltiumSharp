@@ -35,6 +35,12 @@ public sealed class PcbComponentRenderer
     public PcbViewSide ViewSide { get; set; } = PcbViewSide.Top;
 
     /// <summary>
+    /// Optional per-layer visibility predicate. When set, a layer is drawn only if this returns
+    /// <c>true</c> (in addition to view-side culling). Null draws every non-culled layer.
+    /// </summary>
+    public Func<int, bool>? LayerFilter { get; set; }
+
+    /// <summary>
     /// Initializes a new instance of <see cref="PcbComponentRenderer"/> with the specified coordinate transform.
     /// </summary>
     /// <param name="transform">The coordinate transform used to map world coordinates to screen coordinates.</param>
@@ -48,12 +54,16 @@ public sealed class PcbComponentRenderer
     private static bool IsBottomSideLayer(int layer) => layer is 32 or 34 or 36 or 38;
     private static bool IsTopSideLayer(int layer) => layer is 1 or 33 or 35 or 37;
 
-    private bool IsLayerVisible(int layer) => ViewSide switch
+    private bool IsLayerVisible(int layer)
     {
-        PcbViewSide.Top => !IsBottomSideLayer(layer),
-        PcbViewSide.Bottom => !IsTopSideLayer(layer),
-        _ => true,
-    };
+        if (LayerFilter is not null && !LayerFilter(layer)) return false;
+        return ViewSide switch
+        {
+            PcbViewSide.Top => !IsBottomSideLayer(layer),
+            PcbViewSide.Bottom => !IsTopSideLayer(layer),
+            _ => true,
+        };
+    }
 
     // A component's designator/comment text is shown only when the component enables that field
     // (Altium's NameOn/CommentOn). Free text, and text not flagged as designator/comment, always shows.
@@ -108,6 +118,11 @@ public sealed class PcbComponentRenderer
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(context);
 
+        // Bottom view: mirror the board horizontally so it reads as if flipped over (and bottom-side
+        // text comes out the right way round). Top-side layers are culled by IsLayerVisible.
+        bool flipped = ViewSide == PcbViewSide.Bottom;
+        if (flipped) { context.SaveState(); ApplyHorizontalFlip(context); }
+
         // Substrate: fill the physical board outline first so the board area reads clearly against
         // the canvas; every layer then draws on top of it.
         RenderBoardFill(context, document.GetBoardOutline());
@@ -128,6 +143,18 @@ public sealed class PcbComponentRenderer
         // referenced board's full content would require resolving and loading the external PcbDoc.
         foreach (var board in document.EmbeddedBoards)
             RenderEmbeddedBoard(context, board);
+
+        if (flipped) context.RestoreState();
+    }
+
+    // Mirror about the canvas vertical centre-line; used for the flipped bottom view. The board is
+    // centred by AutoZoom, so mirroring about the canvas centre keeps it in place.
+    private void ApplyHorizontalFlip(IRenderContext context)
+    {
+        double cx = _transform.ScreenWidth / 2.0;
+        context.Translate(cx, 0);
+        context.Scale(-1, 1);
+        context.Translate(-cx, 0);
     }
 
     // Black PCB substrate. Drawn under everything so copper/silk/mask read like a real board and

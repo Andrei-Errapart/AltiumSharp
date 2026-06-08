@@ -47,10 +47,12 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
     }
 
     /// <summary>Renders a whole PCB document (board) to PNG.</summary>
+    /// <param name="settings">Optional view-side and layer-visibility settings; null renders a top view with every layer.</param>
     public ValueTask RenderAsync(
         PcbDocument document,
         Stream output,
         RenderOptions? options = null,
+        PcbRenderSettings? settings = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -58,8 +60,19 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
 
         options ??= new RenderOptions();
         RenderTo(output, options, document.Bounds, 0.95,
-            (transform, context) => new PcbComponentRenderer(transform).Render(document, context));
+            (transform, context) => CreatePcbRenderer(transform, settings).Render(document, context));
         return ValueTask.CompletedTask;
+    }
+
+    private static PcbComponentRenderer CreatePcbRenderer(CoordTransform transform, PcbRenderSettings? settings)
+    {
+        var renderer = new PcbComponentRenderer(transform);
+        if (settings is not null)
+        {
+            renderer.ViewSide = settings.ViewSide;
+            renderer.LayerFilter = settings.IsLayerAllowed;
+        }
+        return renderer;
     }
 
     /// <summary>Renders a whole schematic document (sheet) to PNG.</summary>
@@ -122,15 +135,17 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
     }
 
     /// <summary>Renders a whole PCB document (board) to a PNG file.</summary>
+    /// <param name="settings">Optional view-side and layer-visibility settings; null renders a top view with every layer.</param>
     public async ValueTask RenderAsync(
         PcbDocument document,
         string path,
         RenderOptions? options = null,
+        PcbRenderSettings? settings = null,
         CancellationToken cancellationToken = default)
     {
         await using var stream = new FileStream(
             path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
-        await RenderAsync(document, stream, options, cancellationToken);
+        await RenderAsync(document, stream, options, settings, cancellationToken);
     }
 
     /// <summary>Renders a whole schematic document (sheet) to a PNG file.</summary>

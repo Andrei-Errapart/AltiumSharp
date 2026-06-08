@@ -46,10 +46,12 @@ public sealed class SvgRenderer : IRenderer
     }
 
     /// <summary>Renders a whole PCB document (board) to SVG.</summary>
+    /// <param name="settings">Optional view-side and layer-visibility settings; null renders a top view with every layer.</param>
     public ValueTask RenderAsync(
         PcbDocument document,
         Stream output,
         RenderOptions? options = null,
+        PcbRenderSettings? settings = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -57,8 +59,19 @@ public sealed class SvgRenderer : IRenderer
 
         options ??= new RenderOptions();
         RenderTo(output, options, document.Bounds, 0.95,
-            (transform, ctx) => new PcbComponentRenderer(transform).Render(document, ctx));
+            (transform, ctx) => CreatePcbRenderer(transform, settings).Render(document, ctx));
         return ValueTask.CompletedTask;
+    }
+
+    private static PcbComponentRenderer CreatePcbRenderer(CoordTransform transform, PcbRenderSettings? settings)
+    {
+        var renderer = new PcbComponentRenderer(transform);
+        if (settings is not null)
+        {
+            renderer.ViewSide = settings.ViewSide;
+            renderer.LayerFilter = settings.IsLayerAllowed;
+        }
+        return renderer;
     }
 
     /// <summary>Renders a whole schematic document (sheet) to SVG.</summary>
@@ -114,14 +127,16 @@ public sealed class SvgRenderer : IRenderer
     }
 
     /// <summary>Renders a whole PCB document (board) to an SVG file.</summary>
+    /// <param name="settings">Optional view-side and layer-visibility settings; null renders a top view with every layer.</param>
     public async ValueTask RenderAsync(
         PcbDocument document,
         string path,
         RenderOptions? options = null,
+        PcbRenderSettings? settings = null,
         CancellationToken cancellationToken = default)
     {
         await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
-        await RenderAsync(document, stream, options, cancellationToken);
+        await RenderAsync(document, stream, options, settings, cancellationToken);
     }
 
     /// <summary>Renders a whole schematic document (sheet) to an SVG file.</summary>
