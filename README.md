@@ -89,6 +89,36 @@ Three rendering packages are available, all built on the abstractions in `Origin
 - **OriginalCircuit.Altium.Rendering.Raster** — renders to PNG or JPG using SkiaSharp (cross-platform)
 - **OriginalCircuit.Altium.Rendering.Svg** — renders to SVG using .NET XML APIs (no native dependencies)
 
+Both renderers draw individual components (`PcbComponent`, `SchComponent`) and whole documents (`PcbDocument` boards and `SchDocument` sheets):
+
+```csharp
+var board = await new PcbDocReader().ReadAsync("board.PcbDoc");
+
+await new RasterRenderer().RenderAsync(board, "top.png",
+    new RenderOptions { Width = 2000, Height = 2000 });
+```
+
+### PCB board views and layers
+
+Board renders fill the physical board outline as a black substrate — so copper, silk and solder mask read like a real board and the outline stands out — and accept an optional `PcbRenderSettings` for the view side and layer visibility:
+
+```csharp
+// Flipped bottom view (mirrored so it reads as if the board were turned over),
+// with mechanical and internal-copper layers hidden for a clean read of the routing.
+var settings = new PcbRenderSettings
+{
+    ViewSide = PcbViewSide.Bottom,   // Top | Bottom | Both
+    ShowMechanical = false,          // hide mechanical layers (57-72)
+    ShowInternalCopper = false,      // hide mid-signal layers (2-31) and planes (39-54)
+    // Or take full control instead of the toggles:
+    // LayerFilter = layer => PcbLayerGroups.IsSignalOrSilk(layer),
+};
+
+await new RasterRenderer().RenderAsync(board, "bottom.png", options, settings);
+```
+
+`PcbLayerGroups` classifies layer IDs (`IsCopper`, `IsOverlay`, `IsMechanical`, `IsInternalPlane`, `IsMultiLayer`, `IsSignalOrSilk`) for building custom `LayerFilter` predicates. Component designator/comment text honours each component's visibility flags, and inverted (knockout) silk labels render as filled rectangles.
+
 See the [examples/](examples/) directory for complete rendering examples.
 
 ## Examples
@@ -98,7 +128,7 @@ The [examples/](examples/) directory contains runnable examples:
 - `CreateFiles` — create SchLib and PcbLib files from scratch
 - `LoadFiles` — read files and inspect their contents
 - `ModifyFiles` — read a file, modify components, and write it back
-- `RenderFiles` — render components to PNG and SVG
+- `RenderFiles` — render components and boards to PNG and SVG (with board view-side and layer options)
 
 Run any example with:
 

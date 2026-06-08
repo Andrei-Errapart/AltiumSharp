@@ -23,12 +23,16 @@
 //
 // WHAT CAN BE RENDERED
 // ────────────────────
-// Both renderers accept any IComponent (PcbComponent or SchComponent).
-// They draw all contained primitives: pads, tracks, arcs, pins,
-// rectangles, polylines, labels, etc.
+// Both renderers accept any IComponent (PcbComponent or SchComponent) as well
+// as whole documents (PcbDocument boards and SchDocument sheets). They draw all
+// contained primitives: pads, tracks, arcs, pins, rectangles, polylines, etc.
+//
+// Board (PcbDocument) renders fill the board outline as a black substrate and
+// take an optional PcbRenderSettings to pick the view side (Top / Bottom / Both,
+// where Bottom is mirrored) and filter which layers are drawn — see section 8.
 //
 // The renderers handle coordinate transformation automatically:
-// with AutoZoom=true (default), the component is scaled to fit the
+// with AutoZoom=true (default), the content is scaled to fit the
 // output dimensions while maintaining aspect ratio.
 //
 // ============================================================================
@@ -77,23 +81,23 @@ var pcbComponent = PcbComponent.Create("QFP48")
         .WithDesignator("5").Layer(1))
 
     // Silkscreen outline: four tracks forming a rectangle.
-    // Layer 21 = Top Overlay (silkscreen). Rendered in overlay color.
+    // Layer 33 = Top Overlay (silkscreen). Rendered in overlay color.
     .AddTrack(t => t.From(Coord.FromMm(-5.08), Coord.FromMm(-6.35))
-        .To(Coord.FromMm(5.08), Coord.FromMm(-6.35)).Width(Coord.FromMm(0.254)).Layer(21))
+        .To(Coord.FromMm(5.08), Coord.FromMm(-6.35)).Width(Coord.FromMm(0.254)).Layer(33))
     .AddTrack(t => t.From(Coord.FromMm(5.08), Coord.FromMm(-6.35))
-        .To(Coord.FromMm(5.08), Coord.FromMm(6.35)).Width(Coord.FromMm(0.254)).Layer(21))
+        .To(Coord.FromMm(5.08), Coord.FromMm(6.35)).Width(Coord.FromMm(0.254)).Layer(33))
     .AddTrack(t => t.From(Coord.FromMm(5.08), Coord.FromMm(6.35))
-        .To(Coord.FromMm(-5.08), Coord.FromMm(6.35)).Width(Coord.FromMm(0.254)).Layer(21))
+        .To(Coord.FromMm(-5.08), Coord.FromMm(6.35)).Width(Coord.FromMm(0.254)).Layer(33))
     .AddTrack(t => t.From(Coord.FromMm(-5.08), Coord.FromMm(6.35))
-        .To(Coord.FromMm(-5.08), Coord.FromMm(-6.35)).Width(Coord.FromMm(0.254)).Layer(21))
+        .To(Coord.FromMm(-5.08), Coord.FromMm(-6.35)).Width(Coord.FromMm(0.254)).Layer(33))
 
     // Pin 1 marker: a small filled circle at the corner (full arc, 0-360 degrees)
     .AddArc(a => a.At(Coord.FromMm(-5.08), Coord.FromMm(-6.35))
-        .Radius(Coord.FromMm(0.5)).Angles(0, 360).Width(Coord.FromMm(0.12)).Layer(21))
+        .Radius(Coord.FromMm(0.5)).Angles(0, 360).Width(Coord.FromMm(0.12)).Layer(33))
 
     // ".Designator" is a special token replaced by the component's ref des
     .AddText(".Designator", t => t
-        .At(Coord.FromMm(0), Coord.FromMm(7.62)).Height(Coord.FromMm(1.0)).Layer(21))
+        .At(Coord.FromMm(0), Coord.FromMm(7.62)).Height(Coord.FromMm(1.0)).Layer(33))
     .Build();
 
 // ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -266,10 +270,10 @@ var layers = new (int Id, string Name)[]
 {
     (1, "Top Layer"),              // Top copper
     (32, "Bottom Layer"),          // Bottom copper
-    (21, "Top Overlay"),           // Top silkscreen
-    (22, "Bottom Overlay"),        // Bottom silkscreen
-    (57, "Multi Layer"),           // Multi-layer (all copper)
-    (74, "Multi Layer (pads)")     // Multi-layer (pad-specific)
+    (33, "Top Overlay"),           // Top silkscreen
+    (34, "Bottom Overlay"),        // Bottom silkscreen
+    (37, "Top Solder"),            // Top solder mask
+    (74, "Multi Layer")            // Through-hole pads/vias (all copper)
 };
 
 foreach (var (id, name) in layers)
@@ -305,5 +309,79 @@ using (var fs = File.Create(hiResPath))
     await rasterRenderer.RenderAsync(pcbComponent, fs, options);
 
 Console.WriteLine($"  Hi-res PNG: {hiResPath} ({new FileInfo(hiResPath).Length} bytes)");
+
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║  8. Render a whole PCB board (PcbDocument)                               ║
+// ║                                                                         ║
+// ║  Whole boards render every layer onto a black substrate — the board     ║
+// ║  outline filled behind everything, so copper/silk read like a real      ║
+// ║  board. PcbRenderSettings selects the view side (Top / Bottom / Both)   ║
+// ║  and which layers are drawn. The Bottom view is mirrored horizontally,  ║
+// ║  so it reads as if the board were physically flipped over.              ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+
+Console.WriteLine("\n=== Rendering a PCB Board (document) ===");
+
+// In practice you load a board with `await new PcbDocReader().ReadAsync(path)`.
+// Here we build a tiny one so the example stays self-contained.
+var board = new PcbDocument();
+
+// The board outline is normally read from the file's Board6 record. We set a
+// simple 40 x 30 mm rectangle (KIND/VX/VY vertices, last repeats the first to
+// close) so the renderer fills the board area black behind the layers.
+board.BoardParameters = new Dictionary<string, string>
+{
+    ["KIND0"] = "0", ["VX0"] = "0mil",      ["VY0"] = "0mil",
+    ["KIND1"] = "0", ["VX1"] = "1574.8mil", ["VY1"] = "0mil",
+    ["KIND2"] = "0", ["VX2"] = "1574.8mil", ["VY2"] = "1181.1mil",
+    ["KIND3"] = "0", ["VX3"] = "0mil",      ["VY3"] = "1181.1mil",
+    ["KIND4"] = "0", ["VX4"] = "0mil",      ["VY4"] = "0mil",
+};
+
+// Tracks on a spread of layers, plus a through-hole via (1 = Top copper,
+// 32 = Bottom copper, 5 = Mid-Layer 4 internal copper, 33 = Top Overlay silk,
+// 69 = Mechanical 13).
+board.AddTrack(PcbTrack.Create().From(Coord.FromMm(5), Coord.FromMm(5))
+    .To(Coord.FromMm(35), Coord.FromMm(5)).Width(Coord.FromMm(0.5)).Layer(1).Build());
+board.AddTrack(PcbTrack.Create().From(Coord.FromMm(5), Coord.FromMm(25))
+    .To(Coord.FromMm(35), Coord.FromMm(25)).Width(Coord.FromMm(0.5)).Layer(32).Build());
+board.AddTrack(PcbTrack.Create().From(Coord.FromMm(5), Coord.FromMm(15))
+    .To(Coord.FromMm(35), Coord.FromMm(15)).Width(Coord.FromMm(0.3)).Layer(5).Build());
+board.AddTrack(PcbTrack.Create().From(Coord.FromMm(2), Coord.FromMm(2))
+    .To(Coord.FromMm(38), Coord.FromMm(2)).Width(Coord.FromMm(0.2)).Layer(33).Build());
+board.AddTrack(PcbTrack.Create().From(Coord.FromMm(0), Coord.FromMm(0))
+    .To(Coord.FromMm(40), Coord.FromMm(30)).Width(Coord.FromMm(0.1)).Layer(69).Build());
+board.AddVia(PcbVia.Create().At(Coord.FromMm(20), Coord.FromMm(15))
+    .Diameter(Coord.FromMm(1.2)).HoleSize(Coord.FromMm(0.6)).Build());
+
+var boardOptions = new RenderOptions { Width = 800, Height = 600 };
+
+// Top view (the default): bottom-side copper is hidden; the board is black.
+var boardTopPath = Path.Combine(outputDir, "board_top.png");
+using (var fs = File.Create(boardTopPath))
+    await rasterRenderer.RenderAsync(board, fs, boardOptions,
+        new PcbRenderSettings { ViewSide = PcbViewSide.Top });
+Console.WriteLine($"  Top view:     {boardTopPath}");
+
+// Bottom view: mirrored; bottom copper shows and top-side copper is hidden.
+var boardBottomPath = Path.Combine(outputDir, "board_bottom.png");
+using (var fs = File.Create(boardBottomPath))
+    await rasterRenderer.RenderAsync(board, fs, boardOptions,
+        new PcbRenderSettings { ViewSide = PcbViewSide.Bottom });
+Console.WriteLine($"  Bottom view:  {boardBottomPath}");
+
+// Decluttered top view: hide mechanical and internal-copper layers to read
+// just the top-side routing and silk. Equivalent to a custom predicate:
+//   LayerFilter = layer => PcbLayerGroups.IsSignalOrSilk(layer)
+var boardRoutingPath = Path.Combine(outputDir, "board_top_routing.png");
+using (var fs = File.Create(boardRoutingPath))
+    await rasterRenderer.RenderAsync(board, fs, boardOptions,
+        new PcbRenderSettings
+        {
+            ViewSide = PcbViewSide.Top,
+            ShowMechanical = false,
+            ShowInternalCopper = false
+        });
+Console.WriteLine($"  Top routing:  {boardRoutingPath}");
 
 Console.WriteLine($"\nAll rendered files are in: {outputDir}");
