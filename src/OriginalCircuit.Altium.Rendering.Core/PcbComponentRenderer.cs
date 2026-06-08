@@ -55,6 +55,33 @@ public sealed class PcbComponentRenderer
         _ => true,
     };
 
+    // A component's designator/comment text is shown only when the component enables that field
+    // (Altium's NameOn/CommentOn). Free text, and text not flagged as designator/comment, always shows.
+    // This keeps hidden comments (e.g. "Test Point", "Fiducial", value strings) out of the render.
+    private static bool IsTextVisible(PcbText text, PcbComponent? owner)
+    {
+        if (owner is null) return true;
+        if (text.IsComment && !owner.CommentOn) return false;
+        if (text.IsDesignator && !owner.NameOn) return false;
+        return true;
+    }
+
+    // Board-level texts carry a component index; resolve the owner through it.
+    private static IEnumerable<IPcbText> VisibleBoardTexts(
+        IEnumerable<IPcbText> texts, IReadOnlyList<IPcbComponent> components)
+        => texts.Where(t =>
+        {
+            var text = (PcbText)t;
+            var owner = text.ComponentIndex >= 0 && text.ComponentIndex < components.Count
+                ? components[text.ComponentIndex] as PcbComponent
+                : null;
+            return IsTextVisible(text, owner);
+        });
+
+    // Texts stored under a component are owned by that component directly.
+    private static IEnumerable<IPcbText> VisibleOwnedTexts(IEnumerable<IPcbText> texts, PcbComponent owner)
+        => texts.Where(t => IsTextVisible((PcbText)t, owner));
+
     /// <summary>
     /// Renders all primitives of a PCB component to the specified context, sorted by layer draw priority.
     /// </summary>
@@ -84,12 +111,12 @@ public sealed class PcbComponentRenderer
         var primitives = new List<(int layer, int priority, Action render)>();
         Collect(context, primitives,
             document.Tracks, document.Arcs, document.Fills, document.Regions,
-            document.Texts, document.Pads, document.Vias, document.ComponentBodies);
+            VisibleBoardTexts(document.Texts, document.Components), document.Pads, document.Vias, document.ComponentBodies);
 
         foreach (var component in document.Components.Cast<PcbComponent>())
             Collect(context, primitives,
                 component.Tracks, component.Arcs, component.Fills, component.Regions,
-                component.Texts, component.Pads, component.Vias, component.ComponentBodies);
+                VisibleOwnedTexts(component.Texts, component), component.Pads, component.Vias, component.ComponentBodies);
 
         DrawSorted(primitives);
 
@@ -448,6 +475,15 @@ public sealed class PcbComponentRenderer
         var height = _transform.ScaleValue(text.Height);
         if (height < 1) height = 1;
 
+        // Inverted (negative) text with a filled rectangle: Altium fills a rectangle in the layer
+        // colour and knocks the glyphs out of it, so the copper/board beneath shows through the text.
+        if (text.UseInvertedRectangle &&
+            text.InvertedRectWidth > Coord.Zero && text.InvertedRectHeight > Coord.Zero)
+        {
+            RenderInvertedText(context, text, x, y, color, height);
+            return;
+        }
+
         // Stroke (vector) font — Altium's default. Render the real glyph strokes, not a system font.
         // Honor an explicit TrueType request even when TextKind wasn't set (e.g. builder-created text).
         if (text.TextKind == PcbTextKind.Stroke && !text.IsTrueType)
@@ -499,6 +535,46 @@ public sealed class PcbComponentRenderer
             context.DrawText(text.Text, x, y, fontSize, color, options);
         }
     }
+
+    // Inverted text: a rectangle filled in the layer colour with the glyphs knocked out. The
+    // rectangle is anchored bottom-left at the text Location (Altium's anchor) and extends right/up
+    // before rotation. We approximate Altium's true knockout — which reveals whatever lies beneath
+    // the silk — by drawing the glyphs in the colour of the copper layer on the text's own side.
+    private void RenderInvertedText(IRenderContext context, PcbText text,
+        double sx, double sy, uint rectColor, double fontSize)
+    {
+        var w = _transform.ScaleValue(text.InvertedRectWidth);
+        var h = _transform.ScaleValue(text.InvertedRectHeight);
+        if (w < 1 || h < 1) return;
+
+        context.SaveState();
+        context.Translate(sx, sy);
+        if (text.Rotation != 0) context.Rotate(-text.Rotation);
+        if (text.IsMirrored) context.Scale(-1, 1);
+
+        // Local frame is glyph-space Y-up; screen Y is down, so the rectangle spans y ∈ [-h, 0].
+        context.FillRectangle(0, -h, w, h, rectColor);
+
+        var options = new TextRenderOptions
+        {
+            FontFamily = text.FontName ?? "Arial",
+            Bold = text.FontBold,
+            Italic = text.FontItalic,
+            HorizontalAlignment = TextHAlign.Center,
+            VerticalAlignment = TextVAlign.Middle,
+        };
+        context.DrawText(text.Text, w / 2.0, -h / 2.0, fontSize, KnockoutColor(text.Layer), options);
+
+        context.RestoreState();
+    }
+
+    // Colour revealed through knocked-out inverted glyphs: the copper on the same board side as the
+    // overlay (top overlay → top copper, bottom overlay → bottom copper).
+    private static uint KnockoutColor(int overlayLayer) => overlayLayer switch
+    {
+        34 => LayerColors.GetColor(32), // Bottom Overlay → Bottom copper
+        _ => LayerColors.GetColor(1),   // Top Overlay (and fallback) → Top copper
+    };
 
     // ── Component Body ──────────────────────────────────────────────
 
