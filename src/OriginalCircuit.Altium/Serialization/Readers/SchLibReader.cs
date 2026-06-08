@@ -42,6 +42,8 @@ internal enum SchRecordType
     TextFrame = 28,
     Junction = 29,
     Image = 30,
+    SheetName = 32,
+    SheetFileName = 33,
     Designator = 34,
     BusEntry = 37,
     Template = 39,
@@ -133,6 +135,7 @@ public sealed class SchLibReader
             var component = ReadComponent(accessor, sectionKey, cancellationToken);
             if (component != null)
             {
+                component.Fonts = library.Fonts;
                 library.Add(component);
             }
         }
@@ -234,6 +237,7 @@ public sealed class SchLibReader
         // so the writer can reproduce it instead of emitting only HEADER + Weight.
         var parameters = ReadParameterBlock(reader, out var rawHeader);
         library.HeaderParameters = ParseParametersOrdered(rawHeader);
+        library.Fonts = ParseFontTable(parameters);
 
         // Check if there's more data after parameters (binary component list)
         if (reader.HasMore)
@@ -544,6 +548,42 @@ public sealed class SchLibReader
 
     private static Dictionary<string, string> ReadParameterBlock(BinaryFormatReader reader)
         => ReadParameterBlock(reader, out _);
+
+    /// <summary>
+    /// Parses the FontID table (FONTIDCOUNT, FONTNAMEi, SIZEi, BOLDi, ITALICi, UNDERLINEi) from a
+    /// schematic FileHeader parameter block into a list of font definitions for rendering.
+    /// </summary>
+    internal static List<OriginalCircuit.Altium.Models.Sch.SchFontDefinition> ParseFontTable(
+        Dictionary<string, string> parameters)
+    {
+        var fonts = new List<OriginalCircuit.Altium.Models.Sch.SchFontDefinition>();
+        if (!parameters.TryGetValue("FONTIDCOUNT", out var countStr) ||
+            !int.TryParse(countStr, out var count) || count <= 0)
+            return fonts;
+
+        for (var i = 1; i <= count; i++)
+        {
+            var name = parameters.TryGetValue($"FONTNAME{i}", out var n) && !string.IsNullOrWhiteSpace(n)
+                ? n
+                : "Times New Roman";
+
+            double size = 10;
+            if (parameters.TryGetValue($"SIZE{i}", out var s) &&
+                double.TryParse(s, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var sv) && sv > 0)
+                size = sv;
+
+            fonts.Add(new OriginalCircuit.Altium.Models.Sch.SchFontDefinition(
+                i, name, size,
+                ParamIsTrue(parameters, $"BOLD{i}"),
+                ParamIsTrue(parameters, $"ITALIC{i}"),
+                ParamIsTrue(parameters, $"UNDERLINE{i}")));
+        }
+        return fonts;
+    }
+
+    private static bool ParamIsTrue(Dictionary<string, string> p, string key)
+        => p.TryGetValue(key, out var v) && v.Length > 0 && (v[0] is 'T' or 't' or '1');
 
     private static Dictionary<string, string> ReadParameterBlock(BinaryFormatReader reader, out string rawString)
     {
@@ -1938,7 +1978,8 @@ public sealed class SchLibReader
         return new SchSheetEntry
         {
             Side = dto.Side,
-            DistanceFromTop = CoordFromDxp(dto.DistanceFromTop),
+            // DistanceFromTop is stored in 100-mil steps (1 = 100 mils, = 10 DXP), not DXP.
+            DistanceFromTop = CoordFromDxp(dto.DistanceFromTop * 10, dto.DistanceFromTopFrac1),
             Name = dto.Name ?? string.Empty,
             IoType = dto.IoType,
             Style = dto.Style,

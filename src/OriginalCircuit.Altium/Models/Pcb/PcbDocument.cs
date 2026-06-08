@@ -149,6 +149,19 @@ public sealed class PcbDocument : IPcbDocument
             foreach (var text in _texts) bounds = bounds.Union(text.Bounds);
             foreach (var fill in _fills) bounds = bounds.Union(fill.Bounds);
             foreach (var region in _regions) bounds = bounds.Union(region.Bounds);
+            foreach (var body in _componentBodies) bounds = bounds.Union(body.Bounds);
+            // Components carry most of a board's primitives, so include them too.
+            foreach (var component in _components) bounds = bounds.Union(component.Bounds);
+            // Embedded board placements (panels): include the full array extent.
+            foreach (var eb in _embeddedBoards)
+            {
+                if (eb.X1Location == eb.X2Location && eb.Y1Location == eb.Y2Location) continue;
+                var dx = Coord.FromRaw(eb.ColSpacing.ToRaw() * Math.Max(0, eb.ColCount - 1));
+                var dy = Coord.FromRaw(eb.RowSpacing.ToRaw() * Math.Max(0, eb.RowCount - 1));
+                bounds = bounds.Union(new CoordRect(
+                    new CoordPoint(eb.X1Location, eb.Y1Location),
+                    new CoordPoint(eb.X2Location + dx, eb.Y2Location + dy)));
+            }
             return bounds;
         }
     }

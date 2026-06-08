@@ -82,8 +82,8 @@ public sealed class SchDocWriter
         if (harness.OwnerIndex >= 0) parameters["OWNERINDEX"] = harness.OwnerIndex.ToString();
         for (var i = 0; i < harness.Vertices.Count; i++)
         {
-            parameters[$"X{i + 1}"] = SchLibWriter.CoordToSchematicUnits(harness.Vertices[i].X);
-            parameters[$"Y{i + 1}"] = SchLibWriter.CoordToSchematicUnits(harness.Vertices[i].Y);
+            parameters[$"X{i + 1}"] = SchLibWriter.CoordToDxpUnits(harness.Vertices[i].X);
+            parameters[$"Y{i + 1}"] = SchLibWriter.CoordToDxpUnits(harness.Vertices[i].Y);
         }
         if (harness.Color != 0) parameters["Color"] = harness.Color.ToString();
         if (harness.LineWidth != 0) parameters["LineWidth"] = harness.LineWidth.ToString();
@@ -327,13 +327,13 @@ public sealed class SchDocWriter
             SchLibWriter.WriteArcRecord(writer, (SchArc)arc, ref index, ownerIndex);
 
         foreach (var polygon in component.Polygons)
-            SchLibWriter.WritePolygonRecord(writer, (SchPolygon)polygon, ref index, ownerIndex);
+            SchLibWriter.WritePolygonRecord(writer, (SchPolygon)polygon, ref index, ownerIndex, SchLibWriter.CoordToDxpUnits);
 
         foreach (var polyline in component.Polylines)
-            SchLibWriter.WritePolylineRecord(writer, (SchPolyline)polyline, ref index, ownerIndex);
+            SchLibWriter.WritePolylineRecord(writer, (SchPolyline)polyline, ref index, ownerIndex, SchLibWriter.CoordToDxpUnits);
 
         foreach (var bezier in component.Beziers)
-            SchLibWriter.WriteBezierRecord(writer, (SchBezier)bezier, ref index, ownerIndex);
+            SchLibWriter.WriteBezierRecord(writer, (SchBezier)bezier, ref index, ownerIndex, SchLibWriter.CoordToDxpUnits);
 
         foreach (var ellipse in component.Ellipses)
             SchLibWriter.WriteEllipseRecord(writer, (SchEllipse)ellipse, ref index, ownerIndex);
@@ -464,16 +464,16 @@ public sealed class SchDocWriter
             SchLibWriter.WritePowerObjectRecord(writer, (SchPowerObject)powerObj, ref index);
 
         foreach (var polygon in document.Polygons)
-            SchLibWriter.WritePolygonRecord(writer, (SchPolygon)polygon, ref index);
+            SchLibWriter.WritePolygonRecord(writer, (SchPolygon)polygon, ref index, vertexUnits: SchLibWriter.CoordToDxpUnits);
 
         foreach (var polyline in document.Polylines)
-            SchLibWriter.WritePolylineRecord(writer, (SchPolyline)polyline, ref index);
+            SchLibWriter.WritePolylineRecord(writer, (SchPolyline)polyline, ref index, vertexUnits: SchLibWriter.CoordToDxpUnits);
 
         foreach (var arc in document.Arcs)
             SchLibWriter.WriteArcRecord(writer, (SchArc)arc, ref index);
 
         foreach (var bezier in document.Beziers)
-            SchLibWriter.WriteBezierRecord(writer, (SchBezier)bezier, ref index);
+            SchLibWriter.WriteBezierRecord(writer, (SchBezier)bezier, ref index, vertexUnits: SchLibWriter.CoordToDxpUnits);
 
         foreach (var ellipse in document.Ellipses)
             SchLibWriter.WriteEllipseRecord(writer, (SchEllipse)ellipse, ref index);
@@ -500,7 +500,7 @@ public sealed class SchDocWriter
             SchLibWriter.WriteNoErcRecord(writer, noErc, ref index);
 
         foreach (var bus in document.Buses)
-            SchLibWriter.WriteBusRecord(writer, bus, ref index);
+            SchLibWriter.WriteBusRecord(writer, bus, ref index, vertexUnits: SchLibWriter.CoordToDxpUnits);
 
         foreach (var busEntry in document.BusEntries)
             SchLibWriter.WriteBusEntryRecord(writer, busEntry, ref index);
@@ -530,7 +530,7 @@ public sealed class SchDocWriter
         foreach (var blanket in document.Blankets)
         {
             var blanketIndex = index;
-            SchLibWriter.WriteBlanketRecord(writer, blanket, ref index);
+            SchLibWriter.WriteBlanketRecord(writer, blanket, ref index, vertexUnits: SchLibWriter.CoordToDxpUnits);
             foreach (var param in blanket.Parameters)
                 SchLibWriter.WriteParameterRecord(writer, param, ref index, blanketIndex);
         }
@@ -547,17 +547,22 @@ public sealed class SchDocWriter
         foreach (var compileMask in document.CompileMasks)
             WriteCompileMaskRecord(writer, compileMask, ref index);
 
-        foreach (var harnessConnector in document.HarnessConnectors)
-            WriteHarnessConnectorRecord(writer, harnessConnector, ref index);
+        // Harnesses read from the "Additional" stream are preserved verbatim there — don't also emit
+        // them here, or a round-trip duplicates every harness object.
+        if (!document.HarnessesInAdditionalStream)
+        {
+            foreach (var harnessConnector in document.HarnessConnectors)
+                WriteHarnessConnectorRecord(writer, harnessConnector, ref index);
 
-        foreach (var harnessEntry in document.HarnessEntries)
-            WriteHarnessEntryRecord(writer, harnessEntry, ref index);
+            foreach (var harnessEntry in document.HarnessEntries)
+                WriteHarnessEntryRecord(writer, harnessEntry, ref index);
 
-        foreach (var harnessType in document.HarnessTypes)
-            WriteHarnessTypeRecord(writer, harnessType, ref index);
+            foreach (var harnessType in document.HarnessTypes)
+                WriteHarnessTypeRecord(writer, harnessType, ref index);
 
-        foreach (var signalHarness in document.SignalHarnesses)
-            WriteSignalHarnessRecord(writer, signalHarness, ref index);
+            foreach (var signalHarness in document.SignalHarnesses)
+                WriteSignalHarnessRecord(writer, signalHarness, ref index);
+        }
 
         // Write opaque (unmodeled) records for round-trip fidelity
         foreach (var record in document.OpaqueRecords)
@@ -664,8 +669,8 @@ public sealed class SchDocWriter
 
         for (var i = 0; i < wire.Vertices.Count; i++)
         {
-            parameters[$"X{i + 1}"] = SchLibWriter.CoordToSchematicUnits(wire.Vertices[i].X);
-            parameters[$"Y{i + 1}"] = SchLibWriter.CoordToSchematicUnits(wire.Vertices[i].Y);
+            parameters[$"X{i + 1}"] = SchLibWriter.CoordToDxpUnits(wire.Vertices[i].X);
+            parameters[$"Y{i + 1}"] = SchLibWriter.CoordToDxpUnits(wire.Vertices[i].Y);
         }
 
         AddNonZero(parameters, "LINEWIDTH", wire.LineWidth);

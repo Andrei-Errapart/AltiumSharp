@@ -32,7 +32,10 @@ public sealed class SchDocReader
         try
         {
             await using var accessor = await CompoundFileAccessor.OpenAsync(path, writable: false, cancellationToken);
-            return Read(accessor, cancellationToken);
+            var document = Read(accessor, cancellationToken);
+            document.FileName = Path.GetFileName(path);
+            document.FilePath = path;
+            return document;
         }
         catch (Exception ex) when (ex is not AltiumFileException and not OperationCanceledException
             and not OutOfMemoryException and not FileNotFoundException and not UnauthorizedAccessException
@@ -70,6 +73,7 @@ public sealed class SchDocReader
         ReadFileHeader(accessor, document, cancellationToken);
         ReadStorageImageData(accessor, document);
         ReadAdditionalStreams(accessor, document);
+        ReadAdditionalHarnesses(accessor, document);
 
         document.Diagnostics = _diagnostics;
         return document;
@@ -177,6 +181,9 @@ public sealed class SchDocReader
             {
                 // Record 31: Sheet settings (font definitions, grid, border, title-block)
                 document.SheetSettings = parameters;
+                // The system (default) font is a 1-based FontID; objects without their own font use it.
+                if (parameters.TryGetValue("SYSTEMFONT", out var sysFontStr) && int.TryParse(sysFontStr, out var sysFont) && sysFont >= 1)
+                    document.SystemFont = sysFont;
             }
             else if (recordType == (int)SchRecordType.Component)
             {
@@ -212,6 +219,11 @@ public sealed class SchDocReader
         }
 
         document.RawRecords = rawRecordsUsable ? rawRecords : null;
+
+        // Font table for rendering: SchDoc stores it in the RECORD=31 sheet settings (header fallback).
+        document.Fonts = SchLibReader.ParseFontTable(document.SheetSettings ?? headerParams);
+        if (document.Fonts.Count == 0 && document.SheetSettings != null)
+            document.Fonts = SchLibReader.ParseFontTable(headerParams);
 
         // Assign children to their owner components/containers via OWNERINDEX
         foreach (var (index, ownerIndex, primitive) in allPrimitives)
@@ -253,9 +265,22 @@ public sealed class SchDocReader
             {
                 ownerSheetSymbol.AddEntry(sheetEntry);
             }
-            else if (primitive is not string)
+            else if (ownerIndex >= 0 && sheetSymbols.TryGetValue(ownerIndex, out var labelOwnerSymbol) && primitive is SheetLabelMarker sheetLabel)
             {
-                // Top-level primitive (not owned by a component), skip string markers
+                if (sheetLabel.IsFileName)
+                {
+                    labelOwnerSymbol.FileNameLabel = sheetLabel.Label;
+                    labelOwnerSymbol.FileName ??= sheetLabel.Label.Text;
+                }
+                else
+                {
+                    labelOwnerSymbol.NameLabel = sheetLabel.Label;
+                    labelOwnerSymbol.SheetName ??= sheetLabel.Label.Text;
+                }
+            }
+            else if (primitive is not string and not SheetLabelMarker)
+            {
+                // Top-level primitive (not owned by a component); skip string/label markers
                 document.AddPrimitive(primitive);
             }
         }
@@ -372,6 +397,8 @@ public sealed class SchDocReader
             SchRecordType.Port => CreatePort(paramCollection),
             SchRecordType.SheetSymbol => CreateSheetSymbol(paramCollection),
             SchRecordType.SheetEntry => CreateSheetEntry(paramCollection),
+            SchRecordType.SheetName => CreateSheetSymbolLabel(paramCollection, isFileName: false),
+            SchRecordType.SheetFileName => CreateSheetSymbolLabel(paramCollection, isFileName: true),
             SchRecordType.Blanket => CreateBlanket(parameters, paramCollection),
             SchRecordType.ParameterSet => CreateParameterSet(paramCollection),
             SchRecordType.ImplementationList => "ImplementationList", // Container marker
@@ -1318,7 +1345,9 @@ public sealed class SchDocReader
         return new SchSheetEntry
         {
             Side = dto.Side,
-            DistanceFromTop = CoordFromDxp(dto.DistanceFromTop),
+            // DistanceFromTop is stored in 100-mil steps (1 = 100 mils, = 10 DXP), NOT DXP — using DXP
+            // here clustered every entry against the top edge. The _Frac1 remainder is raw coord units.
+            DistanceFromTop = CoordFromDxp(dto.DistanceFromTop * 10, dto.DistanceFromTopFrac1),
             Name = dto.Name ?? string.Empty,
             IoType = dto.IoType,
             Style = dto.Style,
@@ -1341,6 +1370,20 @@ public sealed class SchDocReader
             UniqueId = dto.UniqueId
         };
     }
+
+    /// <summary>
+    /// A sheet symbol's name (RECORD=32) and file name (RECORD=33) are stored as separate, positioned
+    /// child records that share the label layout. This marker carries the parsed label plus which slot
+    /// it fills so the ownership pass can attach it to the owning sheet symbol.
+    /// </summary>
+    private sealed class SheetLabelMarker
+    {
+        public required SchLabel Label { get; init; }
+        public required bool IsFileName { get; init; }
+    }
+
+    private static SheetLabelMarker CreateSheetSymbolLabel(ParameterCollection p, bool isFileName) =>
+        new() { Label = CreateLabel(p), IsFileName = isFileName };
 
     private static SchBlanket CreateBlanket(Dictionary<string, string> parameters, ParameterCollection p)
     {
@@ -1531,7 +1574,10 @@ public sealed class SchDocReader
         if (string.IsNullOrEmpty(value)) return false;
         if (int.TryParse(value, out var intValue))
         {
-            result = Coord.FromRaw(intValue * 1000);
+            // SchDoc vertex coords (wires, polylines, polygons, beziers, buses) are stored in DXP
+            // units — the same scale as Locations (CoordFromDxp), NOT the SchLib "schematic units"
+            // (x1000). Using x1000 here made every vertex 100x too small.
+            result = Coord.FromRaw(intValue * 100_000);
             return true;
         }
         return false;
@@ -1581,6 +1627,144 @@ public sealed class SchDocReader
         if (additional.Count > 0)
             document.AdditionalStreams = additional;
     }
+
+    /// <summary>
+    /// Parses harness connectors (215), entries (216), type labels (217) and signal harnesses (218)
+    /// from the "Additional" OLE stream — Altium stores these separately from the FileHeader records.
+    /// Entries/types reference their owning connector by OwnerIndex (the connector's 0-based position
+    /// among the stream's records, after the stream header).
+    /// </summary>
+    private void ReadAdditionalHarnesses(CompoundFileAccessor accessor, SchDocument document)
+    {
+        var stream = accessor.TryGetStream("Additional");
+        if (stream == null) return;
+        var data = stream.GetData();
+        if (data.Length == 0) return;
+
+        try
+        {
+            using var ms = new MemoryStream(data);
+            using var reader = new BinaryFormatReader(ms, leaveOpen: true);
+            ReadParameterBlock(reader); // consume the stream header (HEADER|WEIGHT=…)
+
+            var connectorsByIndex = new Dictionary<int, SchHarnessConnector>();
+            var pendingEntries = new List<(int owner, SchHarnessEntry entry)>();
+            var pendingTypes = new List<(int owner, SchHarnessType type)>();
+            var signalHarnesses = new List<SchSignalHarness>();
+
+            var index = 0;
+            while (reader.HasMore)
+            {
+                var p = SchLibReader.ReadRecordParameters(reader);
+                if (p == null || p.Count == 0) { index++; continue; }
+                if (!p.TryGetValue("RECORD", out var rts) || !int.TryParse(rts, out var rt)) { index++; continue; }
+                var owner = p.TryGetValue("OWNERINDEX", out var os) && int.TryParse(os, out var oi) ? oi : 0;
+                switch (rt)
+                {
+                    case 215: connectorsByIndex[index] = CreateAdditionalHarnessConnector(p); break;
+                    case 216: pendingEntries.Add((owner, CreateAdditionalHarnessEntry(p))); break;
+                    case 217: pendingTypes.Add((owner, CreateAdditionalHarnessType(p))); break;
+                    case 218: signalHarnesses.Add(CreateAdditionalSignalHarness(p)); break;
+                }
+                index++;
+            }
+
+            foreach (var (owner, entry) in pendingEntries)
+            {
+                entry.OwnerIndex = owner;
+                if (connectorsByIndex.TryGetValue(owner, out var c)) c.Entries.Add(entry);
+                document.AddPrimitive(entry);
+            }
+            foreach (var (owner, type) in pendingTypes)
+            {
+                type.OwnerIndex = owner;
+                if (connectorsByIndex.TryGetValue(owner, out var c)) c.TypeLabel = type;
+                document.AddPrimitive(type);
+            }
+            foreach (var c in connectorsByIndex.Values) document.AddPrimitive(c);
+            foreach (var sh in signalHarnesses) document.AddPrimitive(sh);
+
+            // These harnesses live in the verbatim-preserved Additional stream; tell the writer not to
+            // also emit them to FileHeader (which would duplicate them on round-trip).
+            if (connectorsByIndex.Count > 0 || pendingEntries.Count > 0 || signalHarnesses.Count > 0)
+                document.HarnessesInAdditionalStream = true;
+        }
+        catch (Exception ex) when (ex is EndOfStreamException or InvalidDataException or IOException)
+        {
+            _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                $"Failed to parse harnesses from Additional stream: {ex.Message}"));
+        }
+    }
+
+    private static SchHarnessConnector CreateAdditionalHarnessConnector(Dictionary<string, string> p)
+    {
+        var loc = new CoordPoint(CoordFromDxp(GetInt(p, "LOCATION.X"), GetInt(p, "LOCATION.X_FRAC")),
+                                 CoordFromDxp(GetInt(p, "LOCATION.Y"), GetInt(p, "LOCATION.Y_FRAC")));
+        var xs = CoordFromDxp(GetInt(p, "XSIZE"));
+        var ys = CoordFromDxp(GetInt(p, "YSIZE"));
+        return new SchHarnessConnector
+        {
+            Location = loc,
+            XSize = xs,
+            YSize = ys,
+            // Corner1/Corner2 keep the existing rectangle contract (bottom-left .. top-right).
+            Corner1 = new CoordPoint(loc.X, loc.Y - ys),
+            Corner2 = new CoordPoint(loc.X + xs, loc.Y),
+            PrimaryConnectionPosition = CoordFromDxp(GetInt(p, "PRIMARYCONNECTIONPOSITION")),
+            LineWidth = GetInt(p, "LINEWIDTH"),
+            Color = GetInt(p, "COLOR"),
+            AreaColor = GetInt(p, "AREACOLOR"),
+            UniqueId = GetStr(p, "UNIQUEID"),
+        };
+    }
+
+    private static SchHarnessEntry CreateAdditionalHarnessEntry(Dictionary<string, string> p) => new()
+    {
+        Text = GetStr(p, "NAME") ?? string.Empty,
+        Side = GetInt(p, "SIDE"),
+        // DistanceFromTop is in 100-mil steps (1 = 100 mils = 10 DXP), as for sheet entries.
+        DistanceFromTop = CoordFromDxp(GetInt(p, "DISTANCEFROMTOP") * 10, GetInt(p, "DISTANCEFROMTOP_FRAC1")),
+        Color = GetInt(p, "COLOR"),
+        AreaColor = GetInt(p, "AREACOLOR"),
+        TextColor = GetInt(p, "TEXTCOLOR"),
+        TextFontId = GetInt(p, "TEXTFONTID"),
+        UniqueId = GetStr(p, "UNIQUEID"),
+    };
+
+    private static SchHarnessType CreateAdditionalHarnessType(Dictionary<string, string> p) => new()
+    {
+        Text = GetStr(p, "TEXT") ?? string.Empty,
+        Location = new CoordPoint(CoordFromDxp(GetInt(p, "LOCATION.X"), GetInt(p, "LOCATION.X_FRAC")),
+                                  CoordFromDxp(GetInt(p, "LOCATION.Y"), GetInt(p, "LOCATION.Y_FRAC"))),
+        Color = GetInt(p, "COLOR"),
+        TextColor = GetInt(p, "TEXTCOLOR"),
+        FontId = GetInt(p, "FONTID"),
+        UniqueId = GetStr(p, "UNIQUEID"),
+    };
+
+    private static SchSignalHarness CreateAdditionalSignalHarness(Dictionary<string, string> p)
+    {
+        var sh = new SchSignalHarness
+        {
+            Color = GetInt(p, "COLOR"),
+            LineWidth = GetInt(p, "LINEWIDTH"),
+            UniqueId = GetStr(p, "UNIQUEID"),
+        };
+        var count = GetInt(p, "LOCATIONCOUNT");
+        for (var i = 1; i <= count; i++)
+        {
+            if (p.TryGetValue($"X{i}", out var xStr) && p.TryGetValue($"Y{i}", out var yStr)
+                && TryParseCoord(xStr, out var x) && TryParseCoord(yStr, out var y))
+                sh.Vertices.Add(new CoordPoint(x, y));
+        }
+        return sh;
+    }
+
+    private static int GetInt(Dictionary<string, string> p, string key) =>
+        p.TryGetValue(key, out var v) && int.TryParse(v, out var i) ? i : 0;
+
+    private static string? GetStr(Dictionary<string, string> p, string key) =>
+        p.TryGetValue(key, out var v) ? v : null;
 
     private static Dictionary<string, string> ReadParameterBlock(BinaryFormatReader reader)
         => ReadParameterBlock(reader, out _);

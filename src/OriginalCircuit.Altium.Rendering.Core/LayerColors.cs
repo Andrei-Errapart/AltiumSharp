@@ -123,26 +123,29 @@ public static class LayerColors
     /// </summary>
     public static int GetDrawPriority(int layerId)
     {
+        // Altium's 2D draw order, back (low) to front (high): bottom side first, then internal
+        // and mid copper, then top copper, with the top overlay/silk above copper, then mechanical
+        // and finally multi-layer pads/vias and drill holes on top so they remain visible.
         return layerId switch
         {
-            32 => 0,                                      // Bottom Layer
+            36 => 0,                                      // Bottom Paste
             38 => 1,                                      // Bottom Solder
-            36 => 2,                                      // Bottom Paste
-            34 => 3,                                      // Bottom Overlay
-            _ when layerId >= 2 && layerId <= 31 => 6,    // Mid layers
-            1 => 6,                                       // Top Layer (same priority as mid)
-            37 => 9,                                      // Top Solder
-            35 => 7,                                      // Top Paste
-            33 => 2,                                      // Top Overlay
-            74 => 1,                                      // Multi Layer
-            _ when layerId >= 39 && layerId <= 54 => 11,  // Internal planes
-            55 => 12,                                     // Drill Guide
-            56 => 13,                                     // Keep-Out
-            _ when layerId >= 57 && layerId <= 72 => 14,  // Mechanical
-            73 => 15,                                     // Drill Drawing
-            81 => 1,                                      // Pad Holes
-            82 => 1,                                      // Via Holes
-            _ => 50                                       // Other/unknown
+            34 => 2,                                      // Bottom Overlay (silk)
+            32 => 3,                                      // Bottom Layer (copper)
+            _ when layerId >= 39 && layerId <= 54 => 4,   // Internal planes
+            _ when layerId >= 2 && layerId <= 31 => 5,    // Mid signal layers
+            1 => 6,                                       // Top Layer (copper)
+            37 => 7,                                       // Top Solder
+            35 => 8,                                       // Top Paste
+            33 => 9,                                       // Top Overlay (silk) — above copper
+            _ when layerId >= 57 && layerId <= 72 => 10,  // Mechanical
+            56 => 11,                                      // Keep-Out
+            55 => 12,                                      // Drill Guide
+            73 => 12,                                      // Drill Drawing
+            74 => 13,                                      // Multi Layer (thru-hole pads/vias)
+            81 => 14,                                      // Pad Holes
+            82 => 14,                                      // Via Holes
+            _ => 9                                         // Other/unknown — upper-mid
         };
     }
 }

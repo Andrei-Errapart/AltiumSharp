@@ -38,6 +38,18 @@ public sealed class SchSheetSymbol : ISchSheet
     public string? SheetName { get; set; }
 
     /// <summary>
+    /// The positioned label that draws the sheet name (designator). In Altium this is a separate
+    /// child record (RECORD=32) with its own location, color and font, not an inline attribute.
+    /// </summary>
+    public SchLabel? NameLabel { get; set; }
+
+    /// <summary>
+    /// The positioned label that draws the referenced file name. In Altium this is a separate child
+    /// record (RECORD=33) with its own location, color and font, not an inline attribute.
+    /// </summary>
+    public SchLabel? FileNameLabel { get; set; }
+
+    /// <summary>
     /// Line width index (0=Small, 1=Medium, 2=Large).
     /// </summary>
     public int LineWidth { get; set; }
@@ -179,5 +191,11 @@ public sealed class SchSheetSymbol : ISchSheet
     public string? UniqueId { get; set; }
 
     /// <inheritdoc />
-    public CoordRect Bounds => new(Location, new CoordPoint(Location.X + XSize, Location.Y + YSize));
+    /// <remarks>
+    /// Altium anchors a sheet symbol by its <b>top-left</b> corner: <see cref="Location"/> is the top
+    /// edge and the body extends downward by <see cref="YSize"/> (to <c>Location.Y - YSize</c>).
+    /// </remarks>
+    public CoordRect Bounds => new(
+        new CoordPoint(Location.X, Location.Y - YSize),
+        new CoordPoint(Location.X + XSize, Location.Y));
 }

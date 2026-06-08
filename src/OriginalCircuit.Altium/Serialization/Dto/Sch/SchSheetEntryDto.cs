@@ -47,11 +47,17 @@ internal sealed partial record SchSheetEntryDto
     public int Side { get; init; }
 
     /// <summary>
-    /// Gets or sets the distance from the top of the sheet symbol side in internal units.
+    /// Gets or sets the distance from the top of the sheet symbol side, in 100-mil steps.
     /// </summary>
     [AltiumParameter("DISTANCEFROMTOP")]
-    [AltiumCoord]
     public int DistanceFromTop { get; init; }
+
+    /// <summary>
+    /// Gets or sets the sub-step remainder of <see cref="DistanceFromTop"/>, in raw coordinate units
+    /// (1 mil = 10000). Combined with the step count this gives the exact distance.
+    /// </summary>
+    [AltiumParameter("DISTANCEFROMTOP_FRAC1")]
+    public int DistanceFromTopFrac1 { get; init; }
 
     /// <summary>
     /// Gets or sets the sheet entry name.

@@ -29,6 +29,11 @@ public sealed class SchLibrary : ISchLibrary
     /// </summary>
     internal List<KeyValuePair<string, string>>? HeaderParameters { get; set; }
 
+    /// <summary>
+    /// Font table parsed from the FileHeader FontID table, shared by all components for rendering.
+    /// </summary>
+    public IReadOnlyList<SchFontDefinition> Fonts { get; internal set; } = Array.Empty<SchFontDefinition>();
+
     /// <inheritdoc />
     public IReadOnlyList<ISchComponent> Components => _components;
 

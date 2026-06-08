@@ -8,6 +8,17 @@ using PadHoleType = OriginalCircuit.Altium.Models.Pcb.PadHoleType;
 
 namespace OriginalCircuit.Altium.Rendering;
 
+/// <summary>Which side of the board a PCB view represents, controlling layer visibility.</summary>
+public enum PcbViewSide
+{
+    /// <summary>Top view: bottom-side copper/overlay/paste/solder are hidden.</summary>
+    Top,
+    /// <summary>Bottom view: top-side copper/overlay/paste/solder are hidden.</summary>
+    Bottom,
+    /// <summary>Show every layer (Altium's see-through 2D editor view).</summary>
+    Both,
+}
+
 /// <summary>
 /// Renders PCB component primitives to an <see cref="IRenderContext"/>.
 /// Uses interface properties only — no concrete type casts.
@@ -17,6 +28,13 @@ public sealed class PcbComponentRenderer
     private readonly CoordTransform _transform;
 
     /// <summary>
+    /// Which board side this view represents. Defaults to <see cref="PcbViewSide.Top"/> so a board
+    /// renders as a clean top view (bottom-side silk/copper/paste/solder hidden) rather than overlaying
+    /// both sides' text. Set to <see cref="PcbViewSide.Both"/> to show every layer.
+    /// </summary>
+    public PcbViewSide ViewSide { get; set; } = PcbViewSide.Top;
+
+    /// <summary>
     /// Initializes a new instance of <see cref="PcbComponentRenderer"/> with the specified coordinate transform.
     /// </summary>
     /// <param name="transform">The coordinate transform used to map world coordinates to screen coordinates.</param>
@@ -24,6 +42,18 @@ public sealed class PcbComponentRenderer
     {
         _transform = transform ?? throw new ArgumentNullException(nameof(transform));
     }
+
+    // Bottom-side layers (copper/overlay/paste/solder) hidden in a Top view, and the top-side
+    // equivalents hidden in a Bottom view. Multilayer, mechanical, drill and internal layers always show.
+    private static bool IsBottomSideLayer(int layer) => layer is 32 or 34 or 36 or 38;
+    private static bool IsTopSideLayer(int layer) => layer is 1 or 33 or 35 or 37;
+
+    private bool IsLayerVisible(int layer) => ViewSide switch
+    {
+        PcbViewSide.Top => !IsBottomSideLayer(layer),
+        PcbViewSide.Bottom => !IsTopSideLayer(layer),
+        _ => true,
+    };
 
     /// <summary>
     /// Renders all primitives of a PCB component to the specified context, sorted by layer draw priority.
@@ -35,38 +65,108 @@ public sealed class PcbComponentRenderer
         ArgumentNullException.ThrowIfNull(component);
         ArgumentNullException.ThrowIfNull(context);
 
-        // Collect all primitives with their layer and draw priority
         var primitives = new List<(int layer, int priority, Action render)>();
+        Collect(context, primitives,
+            component.Tracks, component.Arcs, component.Fills, component.Regions,
+            component.Texts, component.Pads, component.Vias, component.ComponentBodies);
+        DrawSorted(primitives);
+    }
 
-        foreach (var track in component.Tracks.Cast<PcbTrack>())
-            primitives.Add((track.Layer, LayerColors.GetDrawPriority(track.Layer), () => RenderTrack(context, track)));
+    /// <summary>
+    /// Renders a whole PCB document (board): its top-level primitives plus every component's
+    /// primitives, all sorted by layer draw priority so the stack-up matches Altium.
+    /// </summary>
+    public void Render(PcbDocument document, IRenderContext context)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(context);
 
-        foreach (var arc in component.Arcs.Cast<PcbArc>())
-            primitives.Add((arc.Layer, LayerColors.GetDrawPriority(arc.Layer), () => RenderArc(context, arc)));
+        var primitives = new List<(int layer, int priority, Action render)>();
+        Collect(context, primitives,
+            document.Tracks, document.Arcs, document.Fills, document.Regions,
+            document.Texts, document.Pads, document.Vias, document.ComponentBodies);
 
-        foreach (var fill in component.Fills.Cast<PcbFill>())
-            primitives.Add((fill.Layer, LayerColors.GetDrawPriority(fill.Layer), () => RenderFill(context, fill)));
+        foreach (var component in document.Components.Cast<PcbComponent>())
+            Collect(context, primitives,
+                component.Tracks, component.Arcs, component.Fills, component.Regions,
+                component.Texts, component.Pads, component.Vias, component.ComponentBodies);
 
-        foreach (var region in component.Regions.Cast<PcbRegion>())
-            primitives.Add((region.Layer, LayerColors.GetDrawPriority(region.Layer), () => RenderRegion(context, region)));
+        DrawSorted(primitives);
 
-        foreach (var text in component.Texts.Cast<PcbText>())
-            primitives.Add((text.Layer, LayerColors.GetDrawPriority(text.Layer), () => RenderText(context, text)));
+        // Embedded boards (panels): draw the placement outline of each array instance. Rendering the
+        // referenced board's full content would require resolving and loading the external PcbDoc.
+        foreach (var board in document.EmbeddedBoards)
+            RenderEmbeddedBoard(context, board);
+    }
 
-        foreach (var pad in component.Pads.Cast<PcbPad>())
-            primitives.Add((pad.Layer, LayerColors.GetDrawPriority(pad.Layer), () => RenderPad(context, pad)));
+    private void RenderEmbeddedBoard(IRenderContext context, PcbEmbeddedBoard board)
+    {
+        if (board.IsHidden || !board.Enabled) return;
+        if (board.X1Location == board.X2Location || board.Y1Location == board.Y2Location) return;
 
-        foreach (var via in component.Vias.Cast<PcbVia>())
-            primitives.Add((via.Layer, LayerColors.GetDrawPriority(via.Layer), () => RenderVia(context, via)));
+        int cols = Math.Max(1, board.ColCount);
+        int rows = Math.Max(1, board.RowCount);
+        var color = LayerColors.GetColor(board.Layer != 0 ? board.Layer : 57);
+        var lineWidth = Math.Max(1.0, _transform.ScaleValue(Coord.FromMils(8)));
 
-        foreach (var body in component.ComponentBodies.Cast<PcbComponentBody>())
-            primitives.Add((body.Layer, LayerColors.GetDrawPriority(body.Layer), () => RenderComponentBody(context, body)));
+        for (int r = 0; r < rows; r++)
+        for (int c = 0; c < cols; c++)
+        {
+            var dx = Coord.FromRaw(board.ColSpacing.ToRaw() * c);
+            var dy = Coord.FromRaw(board.RowSpacing.ToRaw() * r);
+            var (sx1, sy1) = _transform.WorldToScreen(board.X1Location + dx, board.Y1Location + dy);
+            var (sx2, sy2) = _transform.WorldToScreen(board.X2Location + dx, board.Y2Location + dy);
+            double x = Math.Min(sx1, sx2), y = Math.Min(sy1, sy2);
+            double w = Math.Abs(sx2 - sx1), h = Math.Abs(sy2 - sy1);
+            context.DrawRectangle(x, y, w, h, color, lineWidth);
 
-        // Sort by draw priority (lower priority = drawn first / behind)
+            var title = !string.IsNullOrEmpty(board.ViewportTitle)
+                ? board.ViewportTitle
+                : System.IO.Path.GetFileNameWithoutExtension(board.DocumentPath ?? "Embedded Board");
+            if (!string.IsNullOrEmpty(title))
+                context.DrawText(title, x + w / 2, y + h / 2, 14, color,
+                    new TextRenderOptions { HorizontalAlignment = TextHAlign.Center, VerticalAlignment = TextVAlign.Middle });
+        }
+    }
+
+    private static void DrawSorted(List<(int layer, int priority, Action render)> primitives)
+    {
+        // Sort by draw priority (lower priority = drawn first / behind). OrderBy is stable so
+        // primitives on the same layer keep their original order.
         primitives.Sort((a, b) => a.priority.CompareTo(b.priority));
-
         foreach (var (_, _, render) in primitives)
             render();
+    }
+
+    private void Collect(IRenderContext context, List<(int layer, int priority, Action render)> primitives,
+        IEnumerable<IPcbTrack> tracks, IEnumerable<IPcbArc> arcs, IEnumerable<IPcbFill> fills,
+        IEnumerable<IPcbRegion> regions, IEnumerable<IPcbText> texts, IEnumerable<IPcbPad> pads,
+        IEnumerable<IPcbVia> vias, IEnumerable<IPcbComponentBody> bodies)
+    {
+        foreach (var track in tracks.Cast<PcbTrack>())
+            if (IsLayerVisible(track.Layer))
+                primitives.Add((track.Layer, LayerColors.GetDrawPriority(track.Layer), () => RenderTrack(context, track)));
+        foreach (var arc in arcs.Cast<PcbArc>())
+            if (IsLayerVisible(arc.Layer))
+                primitives.Add((arc.Layer, LayerColors.GetDrawPriority(arc.Layer), () => RenderArc(context, arc)));
+        foreach (var fill in fills.Cast<PcbFill>())
+            if (IsLayerVisible(fill.Layer))
+                primitives.Add((fill.Layer, LayerColors.GetDrawPriority(fill.Layer), () => RenderFill(context, fill)));
+        foreach (var region in regions.Cast<PcbRegion>())
+            if (IsLayerVisible(region.Layer))
+                primitives.Add((region.Layer, LayerColors.GetDrawPriority(region.Layer), () => RenderRegion(context, region)));
+        foreach (var text in texts.Cast<PcbText>())
+            if (IsLayerVisible(text.Layer))
+                primitives.Add((text.Layer, LayerColors.GetDrawPriority(text.Layer), () => RenderText(context, text)));
+        foreach (var pad in pads.Cast<PcbPad>())
+            if (IsLayerVisible(pad.Layer))
+                primitives.Add((pad.Layer, LayerColors.GetDrawPriority(pad.Layer), () => RenderPad(context, pad)));
+        foreach (var via in vias.Cast<PcbVia>())
+            if (IsLayerVisible(via.Layer))
+                primitives.Add((via.Layer, LayerColors.GetDrawPriority(via.Layer), () => RenderVia(context, via)));
+        foreach (var body in bodies.Cast<PcbComponentBody>())
+            if (IsLayerVisible(body.Layer))
+                primitives.Add((body.Layer, LayerColors.GetDrawPriority(body.Layer), () => RenderComponentBody(context, body)));
     }
 
     // ── Track ───────────────────────────────────────────────────────
@@ -305,71 +405,98 @@ public sealed class PcbComponentRenderer
         if (region.Outline.Count < 3) return;
 
         var color = LayerColors.GetColor(region.Layer);
-        var count = region.Outline.Count;
-        var xPoints = new double[count];
-        var yPoints = new double[count];
 
-        for (int i = 0; i < count; i++)
+        // No holes: simple polygon fill.
+        if (region.Holes == null || region.Holes.Count == 0)
         {
-            (xPoints[i], yPoints[i]) = _transform.WorldToScreen(region.Outline[i].X, region.Outline[i].Y);
+            var (xs, ys) = MapContour(region.Outline);
+            context.FillPolygon(xs, ys, color);
+            return;
         }
 
-        context.FillPolygon(xPoints, yPoints, color);
+        // Holes present: even-odd fill of outline + cutout contours so the holes show through.
+        var contours = new List<(double[] X, double[] Y)>(1 + region.Holes.Count)
+        {
+            MapContour(region.Outline)
+        };
+        foreach (var hole in region.Holes)
+        {
+            if (hole.Count >= 3)
+                contours.Add(MapContour(hole));
+        }
+        context.FillContours(contours, color);
+    }
+
+    private (double[] X, double[] Y) MapContour(IReadOnlyList<CoordPoint> points)
+    {
+        var xs = new double[points.Count];
+        var ys = new double[points.Count];
+        for (int i = 0; i < points.Count; i++)
+            (xs[i], ys[i]) = _transform.WorldToScreen(points[i].X, points[i].Y);
+        return (xs, ys);
     }
 
     // ── Text ────────────────────────────────────────────────────────
 
     private void RenderText(IRenderContext context, PcbText text)
     {
+        if (string.IsNullOrEmpty(text.Text)) return;
+
         var (x, y) = _transform.WorldToScreen(text.Location.X, text.Location.Y);
         var color = LayerColors.GetColor(text.Layer);
 
-        var scaledHeight = _transform.ScaleValue(text.Height);
-        // V1: stroke fonts use height + strokeWidth for baseline; TrueType uses height only
-        if (text.TextKind == PcbTextKind.Stroke)
-            scaledHeight += _transform.ScaleValue(text.StrokeWidth);
-        double fontSize = scaledHeight > 1 ? scaledHeight : 10;
+        var height = _transform.ScaleValue(text.Height);
+        if (height < 1) height = 1;
 
+        // Stroke (vector) font — Altium's default. Render the real glyph strokes, not a system font.
+        // Honor an explicit TrueType request even when TextKind wasn't set (e.g. builder-created text).
+        if (text.TextKind == PcbTextKind.Stroke && !text.IsTrueType)
+        {
+            var segments = AltiumStrokeFont.Layout(
+                text.Text, AltiumStrokeFont.FromStrokeFont(text.StrokeFont), out _);
+            if (segments.Count == 0) return;
+
+            var strokeWidth = _transform.ScaleValue(text.StrokeWidth);
+            if (strokeWidth < 1) strokeWidth = 1;
+
+            // Non-frame Altium text always anchors bottom-left at (X,Y) regardless of justification.
+            context.SaveState();
+            context.Translate(x, y);
+            if (text.Rotation != 0) context.Rotate(-text.Rotation);
+            if (text.IsMirrored) context.Scale(-1, 1);
+
+            // Glyph space is Y-up; screen Y is down, so negate Y.
+            foreach (var s in segments)
+                context.DrawLine(s.X1 * height, -s.Y1 * height, s.X2 * height, -s.Y2 * height, color, strokeWidth);
+
+            context.RestoreState();
+            return;
+        }
+
+        // TrueType / barcode: render the named system font, scaled to the text height.
+        double fontSize = height;
         var options = new TextRenderOptions
         {
             FontFamily = text.FontName ?? "Arial",
             Bold = text.FontBold,
-            Italic = text.FontItalic
+            Italic = text.FontItalic,
+            HorizontalAlignment = TextHAlign.Left,
+            VerticalAlignment = TextVAlign.Baseline
         };
 
         bool needsTransform = text.Rotation != 0 || text.IsMirrored;
-
         if (needsTransform)
         {
             context.SaveState();
             context.Translate(x, y);
             if (text.Rotation != 0) context.Rotate(-text.Rotation);
             if (text.IsMirrored) context.Scale(-1, 1);
-
-            // If text is too small, draw bounding box
-            if (fontSize < 5)
-            {
-                var metrics = context.MeasureText(text.Text, fontSize, options);
-                context.DrawRectangle(0, -metrics.Height, metrics.Width, metrics.Height, color, 1);
-            }
-            else
-            {
-                context.DrawText(text.Text, 0, 0, fontSize, color, options);
-            }
-
+            context.DrawText(text.Text, 0, 0, fontSize, color, options);
             context.RestoreState();
         }
         else
         {
-            if (fontSize < 5)
-            {
-                var metrics = context.MeasureText(text.Text, fontSize, options);
-                context.DrawRectangle(x, y - metrics.Height, metrics.Width, metrics.Height, color, 1);
-            }
-            else
-            {
-                context.DrawText(text.Text, x, y, fontSize, color, options);
-            }
+            context.DrawText(text.Text, x, y, fontSize, color, options);
         }
     }
 

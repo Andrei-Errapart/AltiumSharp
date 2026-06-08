@@ -18,9 +18,31 @@ public sealed class SchComponentRenderer
     private readonly CoordTransform _transform;
     private SchComponent? _currentComponent;
 
+    // Document-level context used to resolve title-block special strings (=Title, =Revision, …).
+    private IReadOnlyDictionary<string, string>? _documentParameters;
+
+    // The document's harness colour (from its signal-harness bundles); harness ports use it instead of
+    // their stored yellow port colour. 0 when the document has no harnesses.
+    private uint _harnessBundleColor;
+
+    /// <summary>
+    /// File name of the document being rendered (e.g. <c>DAC.SchDoc</c>). Used to resolve the
+    /// <c>=DocumentName</c> title-block special string. Optional.
+    /// </summary>
+    public string? DocumentFileName { get; set; }
+
+    /// <summary>
+    /// Full path of the document being rendered. Used to resolve the
+    /// <c>=DocumentFullPathAndName</c> title-block special string. Optional.
+    /// </summary>
+    public string? DocumentFullPath { get; set; }
+
     private const double DefaultLineWidth = 1.0;
     private const double DefaultFontSize = 10.0;
-    private const double FontScalingAdjust = 0.667;
+    // Schematic font sizes are point sizes. Empirically Altium renders a "size N" schematic font
+    // at roughly N*10 mils tall (≈ one 100-mil grid for the default size 10), consistent with
+    // altium_monkey's point→pixel factor. This keeps text proportional and readable at any zoom.
+    private const double PointToMils = 10.0;
     private const uint DefaultPinColor = ColorHelper.DarkBlue;
     private const uint DefaultWireColor = ColorHelper.DarkBlue;
     private const uint DefaultJunctionColor = ColorHelper.Navy;
@@ -31,6 +53,32 @@ public sealed class SchComponentRenderer
     /// lookups will use the correct font name, size, and style.
     /// </summary>
     public IReadOnlyList<SchFontInfo>? Fonts { get; set; }
+
+    /// <summary>
+    /// Populates <see cref="Fonts"/> from a component's parsed font table so text is drawn with the
+    /// correct family, point size and style instead of the Arial-10 fallback.
+    /// </summary>
+    /// <param name="fonts">Font definitions from the schematic header (1-based FontId order).</param>
+    public void SetFonts(IReadOnlyList<SchFontDefinition>? fonts)
+    {
+        if (fonts == null || fonts.Count == 0)
+        {
+            Fonts = null;
+            return;
+        }
+
+        var list = new List<SchFontInfo>(fonts.Count);
+        foreach (var f in fonts)
+            list.Add(new SchFontInfo(string.IsNullOrWhiteSpace(f.Name) ? "Arial" : f.Name, f.Size, f.Bold, f.Italic));
+        Fonts = list;
+    }
+
+    /// <summary>
+    /// The document's system (default) font as a 1-based index into <see cref="Fonts"/>. Text objects
+    /// that carry no FontId (pins, sheet entries) resolve to this rather than the first table entry.
+    /// 0 means "use the first entry" (the per-component/library fallback).
+    /// </summary>
+    public int SystemFontId { get; set; }
 
     /// <summary>
     /// When set, only primitives belonging to this part ID will be rendered.
@@ -144,14 +192,17 @@ public sealed class SchComponentRenderer
         // Draw electrical type symbol at connection end
         RenderPinElectricalSymbol(context, pin.ElectricalType, sx, sy, pin.Orientation, color);
 
-        // Pin name (at body end)
+        // Pin name — drawn INSIDE the component body, just past the body end (sx,sy) and opposite
+        // the connection end (ex,ey). In Altium only the pin NUMBER sits outside on the stub.
         if (pin.ShowName && !string.IsNullOrEmpty(pin.Name))
         {
-            var displayText = OverlineHelper.GetDisplayText(pin.Name);
+            var displayText = FixTextEncoding(OverlineHelper.GetDisplayText(pin.Name));
             var font = GetFont(0); // Pin names use default font
-            double nameOffset = 2.0;
+            var fontSize = GetFontSize(0);
+            double nameOffset = Math.Max(2.0, fontSize * 0.3);
+            var segments = OverlineHelper.Parse(pin.Name);
+            bool hasOverline = segments.Any(s => s.HasOverline);
 
-            double nameX, nameY;
             var options = new TextRenderOptions
             {
                 FontFamily = font.FontName,
@@ -162,45 +213,61 @@ public sealed class SchComponentRenderer
 
             switch (pin.Orientation)
             {
-                case PinOrientation.Right:
-                    nameX = ex + nameOffset;
-                    nameY = ey;
-                    options = options with { HorizontalAlignment = TextHAlign.Left };
-                    break;
                 case PinOrientation.Left:
-                    nameX = ex - nameOffset;
-                    nameY = ey;
-                    options = options with { HorizontalAlignment = TextHAlign.Right };
+                {
+                    // Body is to the right; name starts just inside the left edge.
+                    var opt = options with { HorizontalAlignment = TextHAlign.Left };
+                    var nx = sx + nameOffset;
+                    context.DrawText(displayText, nx, sy, fontSize, color, opt);
+                    if (hasOverline) RenderOverlines(context, segments, nx, sy, fontSize, color, opt);
                     break;
+                }
                 case PinOrientation.Up:
-                    nameX = ex;
-                    nameY = ey - nameOffset;
-                    options = options with { HorizontalAlignment = TextHAlign.Center };
+                {
+                    // Vertical pin; body is below — rotate the name and run it into the body.
+                    context.SaveState();
+                    context.Translate(sx, sy + nameOffset);
+                    context.Rotate(90);
+                    context.DrawText(displayText, 0, 0, fontSize, color,
+                        options with { HorizontalAlignment = TextHAlign.Left });
+                    context.RestoreState();
                     break;
-                default: // Down
-                    nameX = ex;
-                    nameY = ey + nameOffset;
-                    options = options with { HorizontalAlignment = TextHAlign.Center };
+                }
+                case PinOrientation.Down:
+                {
+                    // Vertical pin; body is above — rotate the name and run it into the body.
+                    context.SaveState();
+                    context.Translate(sx, sy - nameOffset);
+                    context.Rotate(-90);
+                    context.DrawText(displayText, 0, 0, fontSize, color,
+                        options with { HorizontalAlignment = TextHAlign.Left });
+                    context.RestoreState();
                     break;
-            }
-
-            var fontSize = GetFontSize(0);
-            context.DrawText(displayText, nameX, nameY, fontSize, color, options);
-
-            // Draw overlines
-            var segments = OverlineHelper.Parse(pin.Name);
-            if (segments.Any(s => s.HasOverline))
-            {
-                RenderOverlines(context, segments, nameX, nameY, fontSize, color, options);
+                }
+                default: // Right
+                {
+                    // Body is to the left; name ends just inside the right edge (right-aligned).
+                    var opt = options with { HorizontalAlignment = TextHAlign.Right };
+                    var nx = sx - nameOffset;
+                    context.DrawText(displayText, nx, sy, fontSize, color, opt);
+                    if (hasOverline)
+                    {
+                        var w = context.MeasureText(displayText, fontSize, opt).Width;
+                        RenderOverlines(context, segments, nx - w, sy, fontSize, color, opt);
+                    }
+                    break;
+                }
             }
         }
 
-        // Pin designator (above/beside the pin line, centered)
+        // Pin designator (the pin NUMBER) sits on the stub just above/beside the pin line, centered
+        // along it. It's drawn smaller than the pin name and close to its own line, so on tight pitch
+        // (e.g. 100-mil) it stays within the gap instead of riding up into the pin above.
         if (pin.ShowDesignator && !string.IsNullOrEmpty(pin.Designator))
         {
             double desigX, desigY;
-            double fontSize = GetFontSize(0) * 0.8;
-            double desigOffset = 2.0;
+            double fontSize = GetFontSize(0) * 0.66;
+            double desigOffset = Math.Max(1.5, fontSize * 0.18);
 
             switch (pin.Orientation)
             {
@@ -617,14 +684,41 @@ public sealed class SchComponentRenderer
 
         var sweep = ComputeSweep(arc.StartAngle, arc.EndAngle);
 
+        if (rx <= 0 || ry <= 0) return;
+
         if (Math.Abs(sweep - 360) < 1e-5)
         {
             context.DrawEllipse(cx, cy, rx, ry, color, lineWidth);
+            return;
         }
-        else
+
+        // Altium interprets the start/end angles as true geometric angles (polar form),
+        // not the standard parametric ellipse angle. For rx != ry these differ, so sample
+        // the arc with the polar-form ellipse to place the endpoints where Altium does.
+        int steps = Math.Max(2, (int)Math.Ceiling(Math.Abs(sweep) / 4.0)); // ~4 degrees per segment
+        var xs = new double[steps + 1];
+        var ys = new double[steps + 1];
+        for (int i = 0; i <= steps; i++)
         {
-            context.DrawArc(cx, cy, rx, ry, -arc.StartAngle, -sweep, color, lineWidth);
+            double ang = arc.StartAngle + sweep * i / steps;
+            (xs[i], ys[i]) = EllipsePolarPoint(cx, cy, rx, ry, ang);
         }
+        context.DrawPolyline(xs, ys, color, lineWidth);
+    }
+
+    /// <summary>
+    /// Computes a point on Altium's polar-form ellipse: r(θ) = sqrt(1/((cosθ/rx)² + (sinθ/ry)²)),
+    /// point = (cx + r·cosθ, cy − r·sinθ). The angle is the true geometric direction in degrees
+    /// (world CCW); screen Y is inverted so the sine term is negated.
+    /// </summary>
+    private static (double x, double y) EllipsePolarPoint(double cx, double cy, double rx, double ry, double angleDeg)
+    {
+        double a = angleDeg * Math.PI / 180.0;
+        double ca = Math.Cos(a);
+        double sa = Math.Sin(a);
+        double denom = (ca / rx) * (ca / rx) + (sa / ry) * (sa / ry);
+        double r = denom > 1e-12 ? Math.Sqrt(1.0 / denom) : 0.0;
+        return (cx + r * ca, cy - r * sa);
     }
 
     // ── Text Frame ──────────────────────────────────────────────────
@@ -657,6 +751,7 @@ public sealed class SchComponentRenderer
 
         if (!string.IsNullOrEmpty(textFrame.Text))
         {
+            var frameText = FixTextEncoding(textFrame.Text);
             var textColor = ColorHelper.BgrToArgb(textFrame.TextColor);
             var font = GetFont(textFrame.FontId);
             var fontSize = GetFontSize(textFrame.FontId);
@@ -684,7 +779,7 @@ public sealed class SchComponentRenderer
             if (textFrame.WordWrap && availableWidth > 0)
             {
                 // Word-wrap: split into lines that fit within the frame width
-                var lines = WrapText(context, textFrame.Text, fontSize, options, availableWidth);
+                var lines = WrapText(context, frameText, fontSize, options, availableWidth);
                 var lineHeight = context.MeasureText("Ag", fontSize, options).Height * 1.2;
                 var totalTextHeight = lines.Count * lineHeight;
 
@@ -725,7 +820,7 @@ public sealed class SchComponentRenderer
                     _ => y + padding
                 };
 
-                context.DrawText(textFrame.Text, textX, textY, fontSize, textColor,
+                context.DrawText(frameText, textX, textY, fontSize, textColor,
                     new TextRenderOptions
                     {
                         FontFamily = font.FontName,
@@ -772,12 +867,14 @@ public sealed class SchComponentRenderer
         var displayText = ResolveStringIndirection(label.Text);
         if (string.IsNullOrEmpty(displayText)) return;
 
-        if (label.Rotation != 0 || label.IsMirrored)
+        // Altium never mirrors text glyphs: a mirrored component keeps its labels readable, and the
+        // stored justification/location already account for the flip. Only rotation is applied here —
+        // mirroring the glyphs (Scale(-1,1)) would render the text backwards, which Altium never does.
+        if (label.Rotation != 0)
         {
             context.SaveState();
             context.Translate(sx, sy);
-            if (label.Rotation != 0) context.Rotate(-label.Rotation);
-            if (label.IsMirrored) context.Scale(-1, 1);
+            context.Rotate(-label.Rotation);
             context.DrawText(displayText, 0, 0, fontSize, color, options);
             context.RestoreState();
         }
@@ -801,15 +898,10 @@ public sealed class SchComponentRenderer
         var font = GetFont(parameter.FontId);
         var fontSize = GetFontSize(parameter.FontId);
 
-        var resolvedValue = ResolveStringIndirection(parameter.Value);
-        string displayText;
-        if (parameter.HideName)
-            displayText = resolvedValue;
-        else
-            displayText = string.IsNullOrEmpty(parameter.Name)
-                ? resolvedValue
-                : $"{parameter.Name}={resolvedValue}";
-
+        // Altium's default visible-parameter display mode is value-only ("22µF", not "Value=22µF").
+        // The "Name=Value" form is opt-in and rare, and our HideName flag is unreliable (inverted-key
+        // serialization issue), so render the value to match Altium's typical appearance.
+        var displayText = ResolveStringIndirection(parameter.Value);
         if (string.IsNullOrEmpty(displayText)) return;
 
         var (hAlign, vAlign) = MapJustification(parameter.Justification);
@@ -822,13 +914,14 @@ public sealed class SchComponentRenderer
             VerticalAlignment = vAlign
         };
 
+        // As with labels, Altium keeps parameter text (designator, comment, value) readable on a
+        // mirrored component — the stored justification already reflects the flip. Apply rotation only.
         double rotation = parameter.Orientation * 90.0;
-        if (rotation != 0 || parameter.IsMirrored)
+        if (rotation != 0)
         {
             context.SaveState();
             context.Translate(sx, sy);
-            if (rotation != 0) context.Rotate(-rotation);
-            if (parameter.IsMirrored) context.Scale(-1, 1);
+            context.Rotate(-rotation);
             context.DrawText(displayText, 0, 0, fontSize, color, options);
             context.RestoreState();
         }
@@ -861,6 +954,7 @@ public sealed class SchComponentRenderer
     public void RenderNetLabel(IRenderContext context, SchNetLabel netLabel)
     {
         if (string.IsNullOrEmpty(netLabel.Text)) return;
+        var netText = FixTextEncoding(netLabel.Text);
 
         var (sx, sy) = _transform.WorldToScreen(netLabel.Location.X, netLabel.Location.Y);
         var color = GetArgbColor(netLabel.Color);
@@ -883,12 +977,12 @@ public sealed class SchComponentRenderer
             context.SaveState();
             context.Translate(sx, sy);
             context.Rotate(-rotation);
-            context.DrawText(netLabel.Text, 0, 0, fontSize, color, options);
+            context.DrawText(netText, 0, 0, fontSize, color, options);
             context.RestoreState();
         }
         else
         {
-            context.DrawText(netLabel.Text, sx, sy, fontSize, color, options);
+            context.DrawText(netText, sx, sy, fontSize, color, options);
         }
     }
 
@@ -902,71 +996,89 @@ public sealed class SchComponentRenderer
         var (sx, sy) = _transform.WorldToScreen(powerObject.Location.X, powerObject.Location.Y);
         var color = powerObject.Color != 0 ? ColorHelper.BgrToArgb(powerObject.Color) : ColorHelper.Black;
 
+        // World-scaled sizes so the port tracks the drawing instead of being fixed pixels.
+        var symbolSize = _transform.ScaleValue(Coord.FromMils(50));
+        if (symbolSize < 4) symbolSize = 4;
+        var symbolLineWidth = Math.Max(1.0, _transform.ScaleValue(Coord.FromMils(6)));
+        double pinLength = symbolSize * 1.2;
+
+        // Our symbol is drawn pointing up (north). Altium's Rotation is CCW-from-east (90°=up,
+        // 270°=down), so rotate the base by (90 − Rotation) to face the right way. (Was Rotate(−Rotation),
+        // which put GND/5V on their sides.)
+        double symbolRotation = 90 - powerObject.Rotation;
+
         context.SaveState();
         context.Translate(sx, sy);
-        if (powerObject.Rotation != 0)
-            context.Rotate(-powerObject.Rotation);
+        if (symbolRotation != 0)
+            context.Rotate(symbolRotation);
         if (powerObject.IsMirrored)
             context.Scale(-1, 1);
 
-        // Pin line from connection point going up (default orientation)
-        const double pinLength = 10.0;
-        context.DrawLine(0, 0, 0, -pinLength, color, DefaultLineWidth);
-
-        // Draw symbol at the end of the pin
-        double symbolY = -pinLength;
-        RenderPowerPortSymbol(context, powerObject.Style, symbolY, color);
+        // Pin line + symbol, drawn in the local "up" base orientation.
+        context.DrawLine(0, 0, 0, -pinLength, color, symbolLineWidth);
+        RenderPowerPortSymbol(context, powerObject.Style, -pinLength, color, symbolSize, symbolLineWidth);
 
         context.RestoreState();
 
-        // Draw net name text
+        // Net name stays UPRIGHT (Altium doesn't rotate power-port text); it's placed beyond the
+        // symbol in the direction the port points.
         if (powerObject.ShowNetName && !string.IsNullOrEmpty(powerObject.Text))
         {
             var netNameText = ResolveStringIndirection(powerObject.Text);
             var font = GetFont(powerObject.FontId);
             var fontSize = GetFontSize(powerObject.FontId);
 
-            // Position text above/beside the symbol
-            context.SaveState();
-            context.Translate(sx, sy);
-            if (powerObject.Rotation != 0)
-                context.Rotate(-powerObject.Rotation);
-            if (powerObject.IsMirrored)
-                context.Scale(-1, 1);
+            double rad = powerObject.Rotation * Math.PI / 180.0;
+            double dirX = Math.Cos(rad), dirY = -Math.Sin(rad); // screen Y is inverted
+            // Place the text just beyond the symbol's far end, anchored at its NEAR edge so it never
+            // overlaps the port symbol — e.g. GND text sits BELOW the ground bars, not over them.
+            double dist = pinLength + symbolSize * 1.25;
+            double tx = sx + dist * dirX;
+            double ty = sy + dist * dirY;
 
-            double textY = symbolY - 12;
-            context.DrawText(netNameText, 0, textY, fontSize, color,
+            TextHAlign hAlign;
+            TextVAlign vAlign;
+            if (Math.Abs(dirY) >= Math.Abs(dirX))
+            {
+                hAlign = TextHAlign.Center;
+                vAlign = dirY > 0 ? TextVAlign.Top : TextVAlign.Bottom; // down → text below; up → above
+            }
+            else
+            {
+                vAlign = TextVAlign.Middle;
+                hAlign = dirX > 0 ? TextHAlign.Left : TextHAlign.Right;
+            }
+
+            context.DrawText(netNameText, tx, ty, fontSize, color,
                 new TextRenderOptions
                 {
                     FontFamily = font.FontName,
                     Bold = font.Bold,
                     Italic = font.Italic,
-                    HorizontalAlignment = TextHAlign.Center,
-                    VerticalAlignment = TextVAlign.Bottom
+                    HorizontalAlignment = hAlign,
+                    VerticalAlignment = vAlign
                 });
-
-            context.RestoreState();
         }
     }
 
     private static void RenderPowerPortSymbol(IRenderContext context, PowerPortStyle style,
-        double y, uint color)
+        double y, uint color, double s, double w)
     {
-        const double s = 8.0; // Symbol size
+        double w2 = w * 1.5; // emphasis width for GOST styles
 
         switch (style)
         {
             case PowerPortStyle.Circle:
-                context.DrawEllipse(0, y - s / 2, s / 2, s / 2, color, 1);
+                context.DrawEllipse(0, y - s / 2, s / 2, s / 2, color, w);
                 break;
 
             case PowerPortStyle.Arrow:
-                context.DrawLine(-s * 0.4, y, 0, y - s, color, 1);
-                context.DrawLine(s * 0.4, y, 0, y - s, color, 1);
+                context.DrawLine(-s * 0.4, y, 0, y - s, color, w);
+                context.DrawLine(s * 0.4, y, 0, y - s, color, w);
                 break;
 
             case PowerPortStyle.Bar:
-                context.DrawLine(-s, y, s, y, color, 1);
+                context.DrawLine(-s, y, s, y, color, w);
                 break;
 
             case PowerPortStyle.Wave:
@@ -977,64 +1089,64 @@ public sealed class SchComponentRenderer
                     double x2 = -s + (i + 1) * s / 4.0;
                     double y1 = y + Math.Sin(i * Math.PI / 2) * s * 0.3;
                     double y2 = y + Math.Sin((i + 1) * Math.PI / 2) * s * 0.3;
-                    context.DrawLine(x1, y1, x2, y2, color, 1);
+                    context.DrawLine(x1, y1, x2, y2, color, w);
                 }
                 break;
 
             case PowerPortStyle.PowerGround:
                 // Standard ground: 3 horizontal lines decreasing in width
-                context.DrawLine(-s, y, s, y, color, 1);
-                context.DrawLine(-s * 0.6, y - s * 0.3, s * 0.6, y - s * 0.3, color, 1);
-                context.DrawLine(-s * 0.2, y - s * 0.6, s * 0.2, y - s * 0.6, color, 1);
+                context.DrawLine(-s, y, s, y, color, w);
+                context.DrawLine(-s * 0.6, y - s * 0.3, s * 0.6, y - s * 0.3, color, w);
+                context.DrawLine(-s * 0.2, y - s * 0.6, s * 0.2, y - s * 0.6, color, w);
                 break;
 
             case PowerPortStyle.SignalGround:
                 // Triangle ground
-                context.DrawLine(-s, y, s, y, color, 1);
-                context.DrawLine(-s, y, 0, y - s, color, 1);
-                context.DrawLine(s, y, 0, y - s, color, 1);
+                context.DrawLine(-s, y, s, y, color, w);
+                context.DrawLine(-s, y, 0, y - s, color, w);
+                context.DrawLine(s, y, 0, y - s, color, w);
                 break;
 
             case PowerPortStyle.Earth:
                 // Earth ground: horizontal line + 3 diagonal hatches
-                context.DrawLine(-s, y, s, y, color, 1);
-                context.DrawLine(-s * 0.8, y, -s * 0.4, y - s * 0.5, color, 1);
-                context.DrawLine(-s * 0.2, y, s * 0.2, y - s * 0.5, color, 1);
-                context.DrawLine(s * 0.4, y, s * 0.8, y - s * 0.5, color, 1);
+                context.DrawLine(-s, y, s, y, color, w);
+                context.DrawLine(-s * 0.8, y, -s * 0.4, y - s * 0.5, color, w);
+                context.DrawLine(-s * 0.2, y, s * 0.2, y - s * 0.5, color, w);
+                context.DrawLine(s * 0.4, y, s * 0.8, y - s * 0.5, color, w);
                 break;
 
             case PowerPortStyle.GostArrow:
                 // Arrow pointing up (GOST style)
-                context.DrawLine(0, y, 0, y - s, color, 2);
-                context.DrawLine(-s * 0.3, y - s * 0.6, 0, y - s, color, 2);
-                context.DrawLine(s * 0.3, y - s * 0.6, 0, y - s, color, 2);
+                context.DrawLine(0, y, 0, y - s, color, w2);
+                context.DrawLine(-s * 0.3, y - s * 0.6, 0, y - s, color, w2);
+                context.DrawLine(s * 0.3, y - s * 0.6, 0, y - s, color, w2);
                 break;
 
             case PowerPortStyle.GostPowerGround:
                 // GOST ground
-                context.DrawLine(-s, y, s, y, color, 2);
-                context.DrawLine(-s * 0.6, y - s * 0.25, s * 0.6, y - s * 0.25, color, 2);
-                context.DrawLine(-s * 0.3, y - s * 0.5, s * 0.3, y - s * 0.5, color, 2);
+                context.DrawLine(-s, y, s, y, color, w2);
+                context.DrawLine(-s * 0.6, y - s * 0.25, s * 0.6, y - s * 0.25, color, w2);
+                context.DrawLine(-s * 0.3, y - s * 0.5, s * 0.3, y - s * 0.5, color, w2);
                 break;
 
             case PowerPortStyle.GostEarth:
                 // GOST earth
-                context.DrawLine(-s, y, s, y, color, 2);
+                context.DrawLine(-s, y, s, y, color, w2);
                 for (int i = -2; i <= 2; i++)
                 {
                     double xBase = i * s * 0.4;
-                    context.DrawLine(xBase, y, xBase - s * 0.2, y - s * 0.4, color, 1);
+                    context.DrawLine(xBase, y, xBase - s * 0.2, y - s * 0.4, color, w);
                 }
                 break;
 
             case PowerPortStyle.GostBar:
                 // GOST bar - thick horizontal line
-                context.DrawLine(-s * 1.2, y, s * 1.2, y, color, 2);
+                context.DrawLine(-s * 1.2, y, s * 1.2, y, color, w2);
                 break;
 
             default:
                 // Fallback: simple bar
-                context.DrawLine(-s, y, s, y, color, 1);
+                context.DrawLine(-s, y, s, y, color, w);
                 break;
         }
     }
@@ -1080,11 +1192,625 @@ public sealed class SchComponentRenderer
         // Symbols are complex asset references - stub (V1 also doesn't render)
     }
 
+    // ── Document (sheet) rendering ──────────────────────────────────
+
+    /// <summary>
+    /// Renders a whole schematic document (sheet): its top-level primitives plus every placed
+    /// component instance, in Altium's back-to-front order.
+    /// </summary>
+    public void Render(SchDocument document, IRenderContext context)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(context);
+
+        // Capture document parameters (Name→Value) so labels like "=Title" / "=Revision"
+        // embedded from the sheet template resolve to their real values.
+        _documentParameters = BuildDocumentParameters(document);
+        DocumentFileName ??= document.FileName;
+        DocumentFullPath ??= document.FilePath;
+        // Objects without their own FontId (pins, sheet entries) use the sheet's system font.
+        SystemFontId = document.SystemFont;
+        // Harness ports take the harness colour (from the bundles), not their stored yellow port colour.
+        var bundle = document.SignalHarnesses.FirstOrDefault(s => s.Color != 0);
+        _harnessBundleColor = bundle != null ? ColorHelper.BgrToArgb(bundle.Color) : 0;
+
+        // Sheet page: border frame + title-block grid, drawn behind all content.
+        RenderSheetFrame(context, document);
+
+        // Back: sheet symbols and filled shapes
+        foreach (var sheet in document.SheetSymbols) RenderSheetSymbol(context, sheet);
+        foreach (var rect in document.Rectangles) RenderRectangle(context, rect);
+        foreach (var polygon in document.Polygons) RenderPolygon(context, polygon);
+        foreach (var ellipse in document.Ellipses) RenderEllipse(context, ellipse);
+        foreach (var roundedRect in document.RoundedRectangles) RenderRoundedRectangle(context, roundedRect);
+        foreach (var pie in document.Pies) RenderPie(context, pie);
+        foreach (var textFrame in document.TextFrames) RenderTextFrame(context, textFrame);
+        foreach (var image in document.Images) RenderImage(context, image);
+
+        // Lines and curves
+        foreach (var line in document.Lines) RenderLine(context, line);
+        foreach (var arc in document.Arcs) RenderArc(context, arc);
+        foreach (var ellipticalArc in document.EllipticalArcs) RenderEllipticalArc(context, ellipticalArc);
+        foreach (var polyline in document.Polylines) RenderPolyline(context, polyline);
+        foreach (var bezier in document.Beziers) RenderBezier(context, bezier);
+
+        // Buses, bus entries, signal-harness bundles, wires
+        foreach (var bus in document.Buses) RenderBus(context, bus);
+        foreach (var busEntry in document.BusEntries) RenderBusEntry(context, busEntry);
+        foreach (var signalHarness in document.SignalHarnesses) RenderSignalHarness(context, signalHarness);
+        foreach (var wire in document.Wires.Cast<SchWire>()) RenderWire(context, wire);
+
+        // Harness connectors (box + bundle entries + type label)
+        foreach (var connector in document.HarnessConnectors) RenderHarnessConnector(context, connector);
+
+        // Component instances (each manages its own _currentComponent scope)
+        foreach (var component in document.Components.Cast<SchComponent>()) Render(component, context);
+
+        // Connection points
+        foreach (var junction in document.Junctions.Cast<SchJunction>()) RenderJunction(context, junction);
+        foreach (var noErc in document.NoErcs.Cast<SchNoErc>()) RenderNoErc(context, noErc);
+
+        // Text, labels, ports on top
+        foreach (var port in document.Ports) RenderPort(context, port);
+        foreach (var label in document.Labels.Cast<SchLabel>()) RenderLabel(context, label);
+        foreach (var netLabel in document.NetLabels.Cast<SchNetLabel>()) RenderNetLabel(context, netLabel);
+        foreach (var parameter in document.Parameters.Cast<SchParameter>()) RenderParameter(context, parameter);
+        foreach (var powerObject in document.PowerObjects.Cast<SchPowerObject>()) RenderPowerObject(context, powerObject);
+    }
+
+    // ── Sheet frame (border + title block) ──────────────────────────
+
+    /// <summary>Builds a case-insensitive Name→Value map from the document's top-level parameters.</summary>
+    private static Dictionary<string, string> BuildDocumentParameters(SchDocument document)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in document.Parameters)
+        {
+            if (p is SchParameter sp && !string.IsNullOrEmpty(sp.Name) && !map.ContainsKey(sp.Name))
+                map[sp.Name] = sp.Value ?? string.Empty;
+        }
+        return map;
+    }
+
+    // Width of the reference-zone border band (mils). The inner frame is inset by this, and the
+    // title block's bottom-right corner sits on the inner frame corner.
+    private const double BorderBand = 150.0;
+
+    /// <summary>Draws the sheet border, reference zones and title-block grid behind the content.</summary>
+    private void RenderSheetFrame(IRenderContext context, SchDocument document)
+    {
+        var sheet = document.SheetInfo;
+        double sheetW = sheet.Width.ToMils();
+        double sheetH = sheet.Height.ToMils();
+        if (sheetW <= 0 || sheetH <= 0) return;
+
+        uint color = ColorHelper.Black;
+        double borderWidth = Math.Max(1.0, _transform.ScaleValue(Coord.FromMils(5)));
+        double gridWidth = Math.Max(1.0, _transform.ScaleValue(Coord.FromMils(3)));
+
+        // The built-in border and recognised standard Altium templates use Altium's standard zoned
+        // frame + title block, which the template does NOT embed — so we draw them. Custom templates
+        // (e.g. a company A3) embed their own frame/title block; we only draw the outer paper edge.
+        bool customTemplate = !string.IsNullOrEmpty(sheet.TemplateFileName) && !IsStandardTemplate(sheet.TemplateFileName);
+        bool standardFrame = !customTemplate;
+
+        if (sheet.BorderOn)
+            RenderSheetBorder(context, sheet, sheetW, sheetH, color, borderWidth, standardFrame);
+
+        if (sheet.HasTitleBlock && standardFrame)
+            RenderTitleBlock(context, document, sheetW, color, gridWidth);
+    }
+
+    // Recognised standard Altium sheet templates whose title block uses the built-in geometry and
+    // does NOT embed its own frame lines — so we supply the grid. Custom templates embed their own.
+    private static readonly HashSet<string> StandardTemplateNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "A0", "A1", "A2", "A3", "A4", "A", "B", "C", "D", "E",
+        "Letter", "Legal", "Tabloid", "OrCAD_A", "OrCAD_B", "OrCAD_C", "OrCAD_D", "OrCAD_E",
+    };
+
+    private static bool IsStandardTemplate(string templateFileName)
+    {
+        if (string.IsNullOrEmpty(templateFileName)) return false;
+        return StandardTemplateNames.Contains(Path.GetFileNameWithoutExtension(templateFileName));
+    }
+
+    /// <summary>
+    /// Draws the alphanumeric reference zones (1,2,3… along top/bottom; A,B,C… along left/right) in the
+    /// border band — for every template, since Altium computes them. The outer + inner frame rectangles
+    /// are drawn only for the built-in/standard frame; custom templates embed their own.
+    /// </summary>
+    private void RenderSheetBorder(IRenderContext context, SchSheetInfo sheet,
+        double sheetW, double sheetH, uint color, double lineWidth, bool standardFrame)
+    {
+        double m = sheet.MarginWidth.ToMils();
+        if (m <= 0 || m * 2 >= Math.Min(sheetW, sheetH)) m = BorderBand;
+
+        // Outer paper edge + inner frame belong to the built-in/standard frame. Custom templates embed
+        // their own outer+inner rectangles (RECORD=13 lines), so re-drawing here would duplicate them.
+        if (standardFrame)
+        {
+            DrawMilsRect(context, 0, 0, sheetW, sheetH, color, lineWidth);
+            DrawMilsRect(context, m, m, sheetW - m, sheetH - m, color, lineWidth);
+        }
+
+        // Reference zones (1..n top/bottom, A.. left/right, + tick divisions) are COMPUTED by Altium for
+        // BOTH standard and custom templates (the template never embeds them), so draw them regardless
+        // of the frame, gated only on ReferenceZonesOn.
+        if (!sheet.ReferenceZonesOn) return;
+        if (m * 2 >= Math.Min(sheetW, sheetH)) return;
+
+        int zx = Math.Max(1, sheet.ZonesX);
+        int zy = Math.Max(1, sheet.ZonesY);
+        double fontSize = _transform.ScaleValue(Coord.FromMils(90));
+        var textOpts = new TextRenderOptions
+        {
+            FontFamily = GetFont(0).FontName,
+            HorizontalAlignment = TextHAlign.Center,
+            VerticalAlignment = TextVAlign.Middle,
+        };
+
+        // Numbered zones along the top and bottom edges (1,2,3… left→right).
+        double innerW = sheetW - 2 * m;
+        for (int i = 0; i < zx; i++)
+        {
+            double x0 = m + innerW * i / zx;
+            double xc = m + innerW * (i + 0.5) / zx;
+            if (i > 0)
+            {
+                DrawMilsLine(context, x0, 0, x0, m, color, lineWidth);
+                DrawMilsLine(context, x0, sheetH - m, x0, sheetH, color, lineWidth);
+            }
+            string label = (i + 1).ToString();
+            DrawMilsText(context, label, xc, m / 2, fontSize, color, textOpts);
+            DrawMilsText(context, label, xc, sheetH - m / 2, fontSize, color, textOpts);
+        }
+
+        // Lettered zones along the left and right edges (A at the top, descending).
+        double innerH = sheetH - 2 * m;
+        for (int i = 0; i < zy; i++)
+        {
+            double y0 = m + innerH * i / zy;
+            double yc = m + innerH * (i + 0.5) / zy;
+            if (i > 0)
+            {
+                DrawMilsLine(context, 0, y0, m, y0, color, lineWidth);
+                DrawMilsLine(context, sheetW - m, y0, sheetW, y0, color, lineWidth);
+            }
+            string label = ((char)('A' + (zy - 1 - i))).ToString();
+            DrawMilsText(context, label, m / 2, yc, fontSize, color, textOpts);
+            DrawMilsText(context, label, sheetW - m / 2, yc, fontSize, color, textOpts);
+        }
+    }
+
+    /// <summary>
+    /// Draws the standard Altium title-block grid (the layout from the A-series templates) flush in
+    /// the inner-frame's bottom-right corner. The grid matches the embedded template labels; for the
+    /// built-in title block (no embedded labels) the captions and resolved values are drawn too.
+    /// </summary>
+    private void RenderTitleBlock(IRenderContext context, SchDocument document,
+        double sheetW, uint color, double lineWidth)
+    {
+        // When the document carries embedded title-block labels, the sheet template ALSO embeds the
+        // title-block grid itself (as polylines/lines that render normally) — so we must draw nothing
+        // here, or we double every line. We only reconstruct the grid for the built-in title block
+        // (TitleBlockOn with no template and no embedded fields), handled below.
+        if (HasEmbeddedTitleBlockLabels(document)) return;
+
+        // Fixed physical size; bottom-right corner sits on the inner-frame corner so it touches the
+        // frame exactly like Altium. Local coordinates: origin = block bottom-left, +x right, +y up.
+        const double BlockW = 4650, BlockH = 600, Addr = 2500, Logo = 3600;
+        double right = sheetW - BorderBand;
+        double bottom = BorderBand;
+        double left = right - BlockW;
+        if (left < BorderBand) return;     // sheet too small for a title block
+
+        void L(double x0, double y0, double x1, double y1) =>
+            DrawMilsLine(context, left + x0, bottom + y0, left + x1, bottom + y1, color, lineWidth);
+
+        // Outer box.
+        L(0, 0, BlockW, 0); L(0, BlockH, BlockW, BlockH);
+        L(0, 0, 0, BlockH); L(BlockW, 0, BlockW, BlockH);
+        // Horizontal dividers — LEFT SECTION ONLY (the organization/address and logo columns to the
+        // right are full-height single cells with no horizontal lines crossing them).
+        const double FileTop = 100, DateTop = 220, SizeTop = 400;
+        L(0, FileTop, Addr, FileTop);   // File | Date
+        L(0, DateTop, Addr, DateTop);   // Date | Size
+        L(0, SizeTop, Addr, SizeTop);   // Size | Title
+        // Vertical dividers (left section).
+        L(700, DateTop, 700, SizeTop);  // Size | Number
+        L(1600, FileTop, 1600, SizeTop);// Number | Revision  and  Time | Sheet
+        L(850, FileTop, 850, DateTop);  // Date | Time
+        // Organization/address column + logo cell — both full height, no internal lines.
+        L(Addr, 0, Addr, BlockH);   // left section | address column
+        L(Logo, 0, Logo, BlockH);   // address text | logo
+
+        double capFont = _transform.ScaleValue(Coord.FromMils(55));
+        double valFont = _transform.ScaleValue(Coord.FromMils(75));
+        var capOpts = new TextRenderOptions { FontFamily = GetFont(0).FontName, HorizontalAlignment = TextHAlign.Left, VerticalAlignment = TextVAlign.Middle };
+
+        void Cap(double x, double y, string t) => DrawMilsText(context, t, left + x, bottom + y, capFont, color, capOpts);
+        void Val(double x, double y, string field) =>
+            DrawMilsText(context, ResolveStringIndirection(field), left + x, bottom + y, valFont, color, capOpts);
+
+        Cap(40, 500, "Title");   Val(420, 500, "=Title");
+        Cap(40, 310, "Size:");   Val(330, 310, "A4");
+        Cap(740, 310, "Number:"); Val(740, 250, "=DocumentNumber");
+        Cap(1640, 310, "Rev:");  Val(1980, 310, "=Revision");
+        Cap(40, 160, "Date:");   Val(330, 160, "=CurrentDate");
+        Cap(890, 160, "Time:");  Val(1180, 160, "=CurrentTime");
+        Cap(1640, 160, "Sheet"); Val(1880, 160, "=SheetNumber"); Cap(2020, 160, "of"); Val(2180, 160, "=SheetTotal");
+        Cap(40, 50, "File:");    Val(330, 50, "=DocumentName");
+        Cap(Addr + 40, 540, "Organization"); Val(Addr + 40, 450, "=Organization");
+    }
+
+    /// <summary>True when the document already carries embedded title-block labels (special strings).</summary>
+    private static bool HasEmbeddedTitleBlockLabels(SchDocument document)
+    {
+        foreach (var l in document.Labels)
+            if (l is SchLabel sl && !string.IsNullOrEmpty(sl.Text) && sl.Text.StartsWith('='))
+                return true;
+        return false;
+    }
+
+    private (double, double) WorldMilsToScreen(double xMils, double yMils) =>
+        _transform.WorldToScreen(Coord.FromMils(xMils), Coord.FromMils(yMils));
+
+    private void DrawMilsLine(IRenderContext context, double x1, double y1, double x2, double y2, uint color, double width)
+    {
+        var (a, b) = WorldMilsToScreen(x1, y1);
+        var (c, d) = WorldMilsToScreen(x2, y2);
+        context.DrawLine(a, b, c, d, color, width);
+    }
+
+    private void DrawMilsRect(IRenderContext context, double xMin, double yMin, double xMax, double yMax, uint color, double width)
+    {
+        var (a, b) = WorldMilsToScreen(xMin, yMin);
+        var (c, d) = WorldMilsToScreen(xMax, yMax);
+        context.DrawRectangle(Math.Min(a, c), Math.Min(b, d), Math.Abs(c - a), Math.Abs(d - b), color, width);
+    }
+
+    private void DrawMilsText(IRenderContext context, string text, double xMils, double yMils,
+        double fontSize, uint color, TextRenderOptions options)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        var (sx, sy) = WorldMilsToScreen(xMils, yMils);
+        context.DrawText(text, sx, sy, fontSize, color, options);
+    }
+
+    // ── Bus ─────────────────────────────────────────────────────────
+
+    /// <summary>Renders a schematic bus as a thick polyline.</summary>
+    public void RenderBus(IRenderContext context, SchBus bus)
+    {
+        if (bus.Vertices.Count < 2) return;
+
+        var color = bus.Color != 0 ? ColorHelper.BgrToArgb(bus.Color) : DefaultBusColor;
+        // Buses are drawn thicker than wires (Altium uses ~4 mil minimum).
+        var lineWidth = Math.Max(_transform.MapLineWidthEnum(bus.LineWidth),
+            _transform.ScaleValue(Coord.FromMils(4)));
+        if (lineWidth < 2) lineWidth = 2;
+        var style = MapSchLineStyle(bus.LineStyle);
+
+        var xs = new double[bus.Vertices.Count];
+        var ys = new double[bus.Vertices.Count];
+        for (int i = 0; i < bus.Vertices.Count; i++)
+            (xs[i], ys[i]) = _transform.WorldToScreen(bus.Vertices[i].X, bus.Vertices[i].Y);
+
+        context.DrawPolyline(xs, ys, color, lineWidth, style);
+    }
+
+    /// <summary>Renders a schematic bus entry (the diagonal stub joining a wire to a bus).</summary>
+    public void RenderBusEntry(IRenderContext context, SchBusEntry entry)
+    {
+        var (x1, y1) = _transform.WorldToScreen(entry.Location.X, entry.Location.Y);
+        var (x2, y2) = _transform.WorldToScreen(entry.Corner.X, entry.Corner.Y);
+        var color = entry.Color != 0 ? ColorHelper.BgrToArgb(entry.Color) : DefaultBusColor;
+        var lineWidth = _transform.MapLineWidthEnum(entry.LineWidth);
+        context.DrawLine(x1, y1, x2, y2, color, lineWidth);
+    }
+
+    // ── No-ERC ──────────────────────────────────────────────────────
+
+    /// <summary>Renders a No-ERC marker as an X cross at the connection point.</summary>
+    public void RenderNoErc(IRenderContext context, SchNoErc noErc)
+    {
+        var (sx, sy) = _transform.WorldToScreen(noErc.Location.X, noErc.Location.Y);
+        var color = noErc.Color != 0 ? ColorHelper.BgrToArgb(noErc.Color) : ColorHelper.Red;
+        var s = _transform.ScaleValue(Coord.FromMils(noErc.Symbol == 1 ? 8 : 4));
+        if (s < 3) s = 3;
+        var w = Math.Max(1.0, _transform.ScaleValue(Coord.FromMils(4)));
+        context.DrawLine(sx - s, sy - s, sx + s, sy + s, color, w);
+        context.DrawLine(sx - s, sy + s, sx + s, sy - s, color, w);
+    }
+
+    // ── Port ────────────────────────────────────────────────────────
+
+    /// <summary>Renders a sheet port as a flag/hexagon outline with its net name.</summary>
+    public void RenderPort(IRenderContext context, SchPort port)
+    {
+        var w = port.Width > Coord.Zero ? port.Width : Coord.FromMils(100);
+        var h = port.Height > Coord.Zero ? port.Height : Coord.FromMils(20);
+        // The port's Location is the wire connection point: it sits at the vertical centre of the
+        // port body's end, so the body is centred on Location.Y (was drawn upward from it, leaving
+        // the wire attached to the bottom edge ~½·height = 50 mil too low).
+        var half = Coord.FromRaw(h.ToRaw() / 2);
+        var (sx0, sy0) = _transform.WorldToScreen(port.Location.X, port.Location.Y - half);
+        var (sx1, sy1) = _transform.WorldToScreen(port.Location.X + w, port.Location.Y + half);
+
+        double left = Math.Min(sx0, sx1), right = Math.Max(sx0, sx1);
+        double top = Math.Min(sy0, sy1), bottom = Math.Max(sy0, sy1);
+        double midY = (top + bottom) / 2.0;
+        double cham = Math.Min((bottom - top) / 2.0, (right - left) / 2.0);
+
+        var xs = new[] { left + cham, right - cham, right, right - cham, left + cham, left };
+        var ys = new[] { top, top, midY, bottom, bottom, midY };
+
+        // A harness port (one carrying a HarnessType) is drawn in the harness colour — a light blue —
+        // not the yellow signal-port colour, so it visually matches its bundle and connector.
+        uint fill, border;
+        if (!string.IsNullOrEmpty(port.HarnessType))
+        {
+            fill = _harnessBundleColor != 0 ? _harnessBundleColor : ColorHelper.FromRgb(184, 201, 230);
+            border = Darken(fill, 0.6);
+        }
+        else
+        {
+            fill = port.AreaColor != 0 ? ColorHelper.BgrToArgb(port.AreaColor) : ColorHelper.FromRgb(255, 255, 180);
+            border = port.Color != 0 ? ColorHelper.BgrToArgb(port.Color) : DefaultBusColor;
+        }
+        context.FillPolygon(xs, ys, fill);
+        context.DrawPolygon(xs, ys, border, _transform.MapLineWidthEnum(port.BorderWidth));
+
+        if (!string.IsNullOrEmpty(port.Name))
+        {
+            var (cx, cy) = _transform.WorldToScreen(port.Location.X + w, port.Location.Y + h);
+            var textColor = port.TextColor != 0 ? ColorHelper.BgrToArgb(port.TextColor) : ColorHelper.Black;
+            var font = GetFont(port.FontId);
+            var fontSize = GetFontSize(port.FontId);
+            context.DrawText(port.Name, (left + right) / 2.0, midY, fontSize, textColor,
+                new TextRenderOptions
+                {
+                    FontFamily = font.FontName,
+                    Bold = font.Bold,
+                    Italic = font.Italic,
+                    HorizontalAlignment = TextHAlign.Center,
+                    VerticalAlignment = TextVAlign.Middle
+                });
+        }
+    }
+
+    // ── Sheet symbol ────────────────────────────────────────────────
+
+    /// <summary>Renders a hierarchical sheet symbol (box + names) and its sheet entries.</summary>
+    public void RenderSheetSymbol(IRenderContext context, SchSheetSymbol sheet)
+    {
+        // Altium anchors the symbol at its TOP-left corner: Location is the top edge and the body
+        // extends DOWNWARD by YSize. (The old code extended upward, mis-placing the box and entries.)
+        var topY = sheet.Location.Y;
+        var bottomY = sheet.Location.Y - sheet.YSize;
+        var (sx0, sy0) = _transform.WorldToScreen(sheet.Location.X, topY);
+        var (sx1, sy1) = _transform.WorldToScreen(sheet.Location.X + sheet.XSize, bottomY);
+        double x = Math.Min(sx0, sx1), y = Math.Min(sy0, sy1);
+        double w = Math.Abs(sx1 - sx0), h = Math.Abs(sy1 - sy0);
+
+        var border = sheet.Color != 0 ? ColorHelper.BgrToArgb(sheet.Color) : DefaultBusColor;
+        var lineWidth = _transform.MapLineWidthEnum(sheet.LineWidth);
+
+        if (sheet.IsSolid)
+            context.FillRectangle(x, y, w, h, ColorHelper.BgrToArgb(sheet.AreaColor));
+        context.DrawRectangle(x, y, w, h, border, lineWidth);
+
+        foreach (var entry in sheet.Entries)
+            RenderSheetEntry(context, sheet, entry);
+
+        // The sheet name (designator) and file name are separate, positioned child labels with their
+        // own location, colour and font — render them as labels rather than auto-placing the strings.
+        if (sheet.NameLabel != null)
+            RenderLabel(context, sheet.NameLabel);
+        else if (!string.IsNullOrEmpty(sheet.SheetName))
+            DrawSheetSymbolStringFallback(context, sheet.SheetName!, x, y, border, above: true);
+
+        if (sheet.FileNameLabel != null)
+            RenderLabel(context, sheet.FileNameLabel);
+        else if (!string.IsNullOrEmpty(sheet.FileName))
+            DrawSheetSymbolStringFallback(context, sheet.FileName!, x, y, border, above: false);
+    }
+
+    /// <summary>Auto-places a sheet symbol's name/file string when no positioned label record exists.</summary>
+    private void DrawSheetSymbolStringFallback(IRenderContext context, string text,
+        double boxX, double boxTopY, uint color, bool above)
+    {
+        var font = GetFont(0);
+        var fontSize = GetFontSize(0);
+        // Both the name and the file name sit ABOVE the box in Altium (name on top, file just under it).
+        double ty = above ? boxTopY - fontSize * 1.4 : boxTopY - fontSize * 0.2;
+        context.DrawText(text, boxX, ty, fontSize, color, new TextRenderOptions
+        {
+            FontFamily = font.FontName,
+            Bold = font.Bold,
+            Italic = font.Italic,
+            HorizontalAlignment = TextHAlign.Left,
+            VerticalAlignment = TextVAlign.Bottom
+        });
+    }
+
+    // Sheet-entry symbol dimensions (world mils): L = depth into the body, H = half height,
+    // A = the triangular arrow notch depth. Chosen to match Altium's standard "Block & Triangle" entry.
+    private const double EntryLengthMils = 100.0;
+    private const double EntryHalfHeightMils = 25.0;
+    private const double EntryArrowMils = 50.0;
+
+    private void RenderSheetEntry(IRenderContext context, SchSheetSymbol sheet, SchSheetEntry entry)
+    {
+        // The connection point sits on the symbol edge; DistanceFromTop is measured DOWN from the top.
+        var ey = sheet.Location.Y - entry.DistanceFromTop;
+        bool left = entry.Side != 1; // 1 = Right; everything else anchors to the left edge
+        var ex = left ? sheet.Location.X : sheet.Location.X + sheet.XSize;
+
+        var (px, py) = _transform.WorldToScreen(ex, ey);
+        var fill = entry.AreaColor != 0 ? ColorHelper.BgrToArgb(entry.AreaColor) : ColorHelper.FromRgb(255, 255, 180);
+        var border = entry.Color != 0 ? ColorHelper.BgrToArgb(entry.Color) : DefaultBusColor;
+        double lineWidth = Math.Max(1.0, _transform.ScaleValue(Coord.FromMils(3)));
+
+        double dir = left ? 1 : -1; // screen-x direction pointing INTO the body
+        double L = _transform.ScaleValue(Coord.FromMils(EntryLengthMils));
+        double H = _transform.ScaleValue(Coord.FromMils(EntryHalfHeightMils));
+        double A = _transform.ScaleValue(Coord.FromMils(EntryArrowMils));
+
+        double xEdge = px;                 // at the body edge (wire connection)
+        double xFar = px + dir * L;        // deepest point inside the body
+        double xInnerEdge = px + dir * A;  // arrow notch near the edge
+        double xInnerFar = px + dir * (L - A); // arrow notch near the far end
+
+        double[] xs, ys;
+        switch (entry.IoType)
+        {
+            case 2: // Input — flat at the edge, arrow pointing INTO the body
+                xs = new[] { xInnerFar, xFar, xInnerFar, xEdge, xEdge };
+                ys = new[] { py - H, py, py + H, py + H, py - H };
+                break;
+            case 1: // Output — arrow pointing OUT toward the connection, flat far side
+                xs = new[] { xFar, xFar, xInnerEdge, xEdge, xInnerEdge };
+                ys = new[] { py - H, py + H, py + H, py, py - H };
+                break;
+            case 3: // Bidirectional — double-pointed hexagon
+                xs = new[] { xInnerFar, xFar, xInnerFar, xInnerEdge, xEdge, xInnerEdge };
+                ys = new[] { py - H, py, py + H, py + H, py, py - H };
+                break;
+            default: // Unspecified — plain rectangle
+                xs = new[] { xEdge, xFar, xFar, xEdge };
+                ys = new[] { py - H, py - H, py + H, py + H };
+                break;
+        }
+
+        context.FillPolygon(xs, ys, fill);
+        context.DrawPolygon(xs, ys, border, lineWidth);
+
+        if (!string.IsNullOrEmpty(entry.Name))
+        {
+            var font = GetFont(entry.FontId);
+            var fontSize = GetFontSize(entry.FontId);
+            var textColor = entry.TextColor != 0 ? ColorHelper.BgrToArgb(entry.TextColor) : border;
+            double gap = _transform.ScaleValue(Coord.FromMils(20));
+            context.DrawText(entry.Name, xFar + dir * gap, py, fontSize, textColor,
+                new TextRenderOptions
+                {
+                    FontFamily = font.FontName,
+                    Bold = font.Bold,
+                    Italic = font.Italic,
+                    HorizontalAlignment = left ? TextHAlign.Left : TextHAlign.Right,
+                    VerticalAlignment = TextVAlign.Middle
+                });
+        }
+    }
+
+    // ── Harness ─────────────────────────────────────────────────────
+
+    /// <summary>Renders a signal harness (the thick bundle wire connecting a port to a harness connector).</summary>
+    public void RenderSignalHarness(IRenderContext context, SchSignalHarness harness)
+    {
+        if (harness.Vertices.Count < 2) return;
+        var color = harness.Color != 0 ? ColorHelper.BgrToArgb(harness.Color) : DefaultBusColor;
+        // A signal harness is much thicker than a normal wire (and a light harness colour). LineWidth is
+        // a 0-3 index; map it generously so the bundle reads as a fat band, not a wire.
+        var lineWidth = Math.Max(_transform.ScaleValue(Coord.FromMils(Math.Max(harness.LineWidth, 1) * 8.0)), 3.0);
+        var xs = new double[harness.Vertices.Count];
+        var ys = new double[harness.Vertices.Count];
+        for (int i = 0; i < harness.Vertices.Count; i++)
+            (xs[i], ys[i]) = _transform.WorldToScreen(harness.Vertices[i].X, harness.Vertices[i].Y);
+        context.DrawPolyline(xs, ys, color, lineWidth);
+    }
+
+    /// <summary>Renders a harness connector: its rounded body, type label, and bundle entries.</summary>
+    public void RenderHarnessConnector(IRenderContext context, SchHarnessConnector connector)
+    {
+        // Location is the TOP-left; the body extends right by XSize and down by YSize.
+        var topY = connector.Location.Y;
+        var bottomY = connector.Location.Y - connector.YSize;
+        var (sx0, sy0) = _transform.WorldToScreen(connector.Location.X, topY);
+        var (sx1, sy1) = _transform.WorldToScreen(connector.Location.X + connector.XSize, bottomY);
+        double x = Math.Min(sx0, sx1), y = Math.Min(sy0, sy1);
+        double w = Math.Abs(sx1 - sx0), h = Math.Abs(sy1 - sy0);
+        if (w <= 0 || h <= 0) return;
+
+        var border = connector.Color != 0 ? ColorHelper.BgrToArgb(connector.Color) : DefaultBusColor;
+        var fill = ColorHelper.BgrToArgb(connector.AreaColor);
+        var lineWidth = _transform.MapLineWidthEnum(connector.LineWidth);
+        double radius = Math.Min(Math.Min(w, h) / 2.0, _transform.ScaleValue(Coord.FromMils(50)));
+
+        context.FillRoundedRectangle(x, y, w, h, radius, fill);
+        context.DrawRoundedRectangle(x, y, w, h, radius, radius, border, lineWidth);
+
+        if (connector.TypeLabel is { } tl && !string.IsNullOrEmpty(tl.Text))
+        {
+            var (tx, ty) = _transform.WorldToScreen(tl.Location.X, tl.Location.Y);
+            var tcolor = tl.Color != 0 ? ColorHelper.BgrToArgb(tl.Color) : border;
+            var font = GetFont(tl.FontId);
+            // Altium anchors the harness-type label at the RIGHT of the text (the label's Location is
+            // its right edge), so the name extends leftward from there.
+            context.DrawText(FixTextEncoding(tl.Text), tx, ty, GetFontSize(tl.FontId), tcolor,
+                new TextRenderOptions
+                {
+                    FontFamily = font.FontName,
+                    Bold = font.Bold,
+                    Italic = font.Italic,
+                    HorizontalAlignment = TextHAlign.Right,
+                    VerticalAlignment = TextVAlign.Bottom
+                });
+        }
+
+        foreach (var entry in connector.Entries)
+            RenderHarnessEntry(context, connector, x, y, w, h, border, entry);
+    }
+
+    private void RenderHarnessEntry(IRenderContext context, SchHarnessConnector connector,
+        double boxX, double boxY, double boxW, double boxH, uint defaultColor, SchHarnessEntry entry)
+    {
+        bool right = entry.Side == 1; // 0 = Left edge, 1 = Right edge
+        var ey = connector.Location.Y - entry.DistanceFromTop;
+        var ex = right ? connector.Location.X + connector.XSize : connector.Location.X;
+        var (px, py) = _transform.WorldToScreen(ex, ey);
+
+        var textColor = entry.TextColor != 0 ? ColorHelper.BgrToArgb(entry.TextColor) : defaultColor;
+        var font = GetFont(entry.TextFontId);
+        var fontSize = GetFontSize(entry.TextFontId);
+
+        // Connection dot on the body edge where the entry's wire attaches.
+        double dot = Math.Max(2.0, _transform.ScaleValue(Coord.FromMils(6)));
+        context.FillEllipse(px, py, dot / 2, dot / 2, textColor);
+
+        if (string.IsNullOrEmpty(entry.Text)) return;
+        // Entry name sits INSIDE the body, aligned to its connection edge (Altium lists the bundle
+        // members inside the connector box).
+        double margin = _transform.ScaleValue(Coord.FromMils(15));
+        double textX = right ? boxX + boxW - margin : boxX + margin;
+        context.DrawText(FixTextEncoding(entry.Text), textX, py, fontSize, textColor,
+            new TextRenderOptions
+            {
+                FontFamily = font.FontName,
+                Bold = font.Bold,
+                Italic = font.Italic,
+                HorizontalAlignment = right ? TextHAlign.Right : TextHAlign.Left,
+                VerticalAlignment = TextVAlign.Middle
+            });
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static uint GetArgbColor(int bgrColor)
     {
         return bgrColor != 0 ? ColorHelper.BgrToArgb(bgrColor) : ColorHelper.Black;
+    }
+
+    /// <summary>Returns the ARGB colour with its RGB channels scaled by <paramref name="factor"/> (alpha kept).</summary>
+    private static uint Darken(uint argb, double factor)
+    {
+        uint a = (argb >> 24) & 0xFF;
+        uint r = (uint)(((argb >> 16) & 0xFF) * factor);
+        uint g = (uint)(((argb >> 8) & 0xFF) * factor);
+        uint b = (uint)((argb & 0xFF) * factor);
+        return (a << 24) | (r << 16) | (g << 8) | b;
     }
 
     private static double ComputeSweep(double startAngle, double endAngle)
@@ -1134,15 +1860,25 @@ public sealed class SchComponentRenderer
 
     private SchFontInfo GetFont(int fontId)
     {
-        if (Fonts != null && fontId > 0 && fontId <= Fonts.Count)
-            return Fonts[fontId - 1]; // FontId is 1-based
+        // FontId is 1-based. An out-of-range / zero id (e.g. pin name & designator text, sheet entries)
+        // resolves to the document's SYSTEM font — NOT blindly the first table entry. Altium's first
+        // table slot is often Times New Roman while the sheet's real default is e.g. Trebuchet MS.
+        if (Fonts != null && Fonts.Count > 0)
+        {
+            if (fontId < 1 || fontId > Fonts.Count)
+                fontId = (SystemFontId >= 1 && SystemFontId <= Fonts.Count) ? SystemFontId : 1;
+            return Fonts[fontId - 1];
+        }
         return new SchFontInfo("Arial", DefaultFontSize, false, false);
     }
 
     private double GetFontSize(int fontId)
     {
         var font = GetFont(fontId);
-        return font.Size * FontScalingAdjust;
+        // Convert the point size to a world height (mils) and scale by zoom so schematic text
+        // tracks the drawing instead of being a fixed pixel size. Floor at 1px for visibility.
+        var px = _transform.ScaleValue(Coord.FromMils(font.Size * PointToMils));
+        return px < 1.0 ? 1.0 : px;
     }
 
     private static List<string> WrapText(IRenderContext context, string text, double fontSize,
@@ -1187,14 +1923,17 @@ public sealed class SchComponentRenderer
         double startX, double startY, double fontSize, uint color, TextRenderOptions options)
     {
         double currentX = startX;
-        double overlineY = startY - fontSize; // Above text
+        // Text is drawn vertically centered on startY, so the cap tops are ~0.4·fontSize above it.
+        // Place the overline just above the caps (was a full fontSize too high, so it clipped).
+        double overlineY = startY - fontSize * 0.46;
+        double overlineWidth = Math.Max(1.0, fontSize * 0.06);
 
         foreach (var segment in segments)
         {
             var metrics = context.MeasureText(segment.Text, fontSize, options);
             if (segment.HasOverline)
             {
-                context.DrawLine(currentX, overlineY, currentX + metrics.Width, overlineY, color, 1);
+                context.DrawLine(currentX, overlineY, currentX + metrics.Width, overlineY, color, overlineWidth);
             }
             currentX += metrics.Width;
         }
@@ -1205,25 +1944,100 @@ public sealed class SchComponentRenderer
     /// parameter value from the current component's parameter list.
     /// For example, "=Value" resolves to the Value parameter's text.
     /// </summary>
-    private string ResolveStringIndirection(string text)
+    private string ResolveStringIndirection(string text) => FixTextEncoding(Resolve(text));
+
+    private string Resolve(string text)
     {
         if (string.IsNullOrEmpty(text) || !text.StartsWith('='))
             return text;
 
-        if (_currentComponent == null)
-            return text;
-
         var parameterName = text.Substring(1);
 
-        // Search component parameters for matching name (case-insensitive)
-        foreach (var param in _currentComponent.Parameters)
+        // 1. Component parameters (when rendering inside a component scope).
+        if (_currentComponent != null)
         {
-            if (string.Equals(param.Name, parameterName, StringComparison.OrdinalIgnoreCase))
-                return param.Value;
+            foreach (var param in _currentComponent.Parameters)
+            {
+                if (string.Equals(param.Name, parameterName, StringComparison.OrdinalIgnoreCase))
+                    return param.Value;
+            }
         }
 
-        // If no parameter found, return the parameter name without the "="
+        // 2. Live-computed special strings. Altium evaluates these at render time and they are NOT
+        //    backed by a stored parameter, so they must win over any same-named "*" placeholder param.
+        if (TryResolveComputedString(parameterName, out var computed))
+            return computed;
+
+        // 3. Document parameters (title-block fields: Title, Revision, Organization, SheetNumber, …).
+        if (_documentParameters != null &&
+            _documentParameters.TryGetValue(parameterName, out var docValue) &&
+            !string.IsNullOrEmpty(docValue))
+        {
+            return docValue;
+        }
+
+        // 4. Sheet numbering fallback when no parameter supplies it.
+        if (string.Equals(parameterName, "SheetNumber", StringComparison.OrdinalIgnoreCase)) return "1";
+        if (string.Equals(parameterName, "SheetTotal", StringComparison.OrdinalIgnoreCase)) return "1";
+
+        // 5. Unknown — show the field name without the leading "=".
         return parameterName;
+    }
+
+    /// <summary>
+    /// Resolves Altium's live special strings (current date/time, document name/path) that Altium
+    /// computes at render time rather than reading from a parameter. Returns false for other names.
+    /// </summary>
+    private bool TryResolveComputedString(string name, out string value)
+    {
+        var now = DateTime.Now;
+        switch (name.ToUpperInvariant())
+        {
+            case "CURRENTDATE":
+                value = now.ToShortDateString();
+                return true;
+            case "CURRENTTIME":
+                value = now.ToLongTimeString();
+                return true;
+            case "DOCUMENTNAME":
+            case "SHEETNAME":
+                value = DocumentFileName ?? string.Empty;
+                return true;
+            case "DOCUMENTFULLPATHANDNAME":
+                value = DocumentFullPath ?? DocumentFileName ?? string.Empty;
+                return true;
+            default:
+                value = string.Empty;
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Repairs UTF-8 parameter values that were decoded as Windows-1252 (Altium stores some text,
+    /// e.g. "µF", UTF-8-encoded behind a %UTF8% marker the reader doesn't decode, so "µ" arrives as
+    /// "Âµ"). Re-interprets the Latin-1 bytes as UTF-8 when that yields a valid string.
+    /// </summary>
+    internal static string FixTextEncoding(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+
+        bool suspect = false;
+        foreach (var c in text)
+        {
+            if (c > 0xFF) return text;              // already real Unicode — leave it
+            if (c is 'Â' or 'Ã') suspect = true; // UTF-8 lead bytes seen as Â / Ã
+        }
+        if (!suspect) return text;
+
+        try
+        {
+            var bytes = System.Text.Encoding.Latin1.GetBytes(text);
+            return new System.Text.UTF8Encoding(false, throwOnInvalidBytes: true).GetString(bytes);
+        }
+        catch
+        {
+            return text;
+        }
     }
 
     /// <summary>

@@ -335,6 +335,13 @@ public sealed class SchComponent : ISchComponent
     /// </summary>
     public string? GenericComponentTemplateGuid { get; set; }
 
+    /// <summary>
+    /// Font table from the owning library/document header (FontID table). Records reference
+    /// entries by 1-based FontId. Populated on read; empty for components built from scratch.
+    /// Used by the renderer to draw text with the correct font name, size and style.
+    /// </summary>
+    public IReadOnlyList<SchFontDefinition> Fonts { get; set; } = Array.Empty<SchFontDefinition>();
+
     /// <inheritdoc />
     public IReadOnlyList<ISchPin> Pins => _pins;
 

@@ -2,8 +2,8 @@ namespace OriginalCircuit.Altium.Rendering;
 
 /// <summary>
 /// Parses Altium's overline escape sequences in pin names and text.
-/// A backslash (\) toggles overline mode: characters between pairs of backslashes
-/// are rendered with an overline.
+/// A backslash (\) overlines the character that immediately precedes it, so an
+/// active-low name like LDAC is stored as "L\D\A\C\" with every letter overlined.
 /// </summary>
 public static class OverlineHelper
 {
@@ -13,37 +13,40 @@ public static class OverlineHelper
     public readonly record struct TextSegment(string Text, bool HasOverline);
 
     /// <summary>
-    /// Parses a string containing backslash overline markers into segments.
-    /// Each backslash toggles overline state. The backslashes themselves are not
-    /// included in the output text.
+    /// Parses a string containing backslash overline markers into segments. A character is
+    /// overlined when it is immediately followed by a backslash; the backslashes are markers
+    /// and are not displayed. Runs of equal overline state are grouped into one segment.
     /// </summary>
     public static List<TextSegment> Parse(string? text)
     {
         var segments = new List<TextSegment>();
         if (string.IsNullOrEmpty(text)) return segments;
 
-        bool overline = false;
-        int start = 0;
+        var sb = new System.Text.StringBuilder();
+        bool runOverline = false;
+        bool haveRun = false;
 
         for (int i = 0; i < text.Length; i++)
         {
-            if (text[i] == '\\')
+            if (text[i] == '\\') continue; // markers are consumed, never displayed
+
+            bool over = i + 1 < text.Length && text[i + 1] == '\\';
+            if (!haveRun)
             {
-                // Emit segment before the backslash
-                if (i > start)
-                {
-                    segments.Add(new TextSegment(text[start..i], overline));
-                }
-                overline = !overline;
-                start = i + 1;
+                runOverline = over;
+                haveRun = true;
             }
+            else if (over != runOverline)
+            {
+                segments.Add(new TextSegment(sb.ToString(), runOverline));
+                sb.Clear();
+                runOverline = over;
+            }
+            sb.Append(text[i]);
         }
 
-        // Emit remaining text
-        if (start < text.Length)
-        {
-            segments.Add(new TextSegment(text[start..], overline));
-        }
+        if (sb.Length > 0)
+            segments.Add(new TextSegment(sb.ToString(), runOverline));
 
         return segments;
     }

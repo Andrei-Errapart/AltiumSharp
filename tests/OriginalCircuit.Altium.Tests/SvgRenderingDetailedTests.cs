@@ -807,7 +807,8 @@ public sealed class SvgRenderingDetailedTests
 
         var doc = await RenderSchToSvg(c);
         Assert.Equal(0, CountElements(doc, "ellipse"));
-        Assert.Equal(1, CountElements(doc, "path"));
+        // Partial elliptical arcs are sampled with Altium's polar-form ellipse and emitted as a polyline.
+        Assert.Equal(1, CountElements(doc, "polyline"));
     }
 
     // ── SchJunction ──────────────────────────────────────────────────
@@ -928,10 +929,10 @@ public sealed class SvgRenderingDetailedTests
         // 1 background + 1 fill + 1 border = 3 rects
         Assert.Equal(3, CountElements(doc, "rect"));
 
-        // 1 text for the content
-        Assert.Equal(1, CountElements(doc, "text"));
-        var text = doc.Descendants(Ns + "text").First();
-        Assert.Equal("Frame Text", text.Value);
+        // Text content is present (it may wrap into multiple lines at the rendered font size).
+        var texts = doc.Descendants(Ns + "text").Where(t => !string.IsNullOrEmpty(t.Value)).ToList();
+        Assert.True(texts.Count >= 1);
+        Assert.Contains("Frame", string.Concat(texts.Select(t => t.Value)));
     }
 
     [Fact]
@@ -952,7 +953,8 @@ public sealed class SvgRenderingDetailedTests
 
         // 1 background rect only
         Assert.Equal(1, CountElements(doc, "rect"));
-        Assert.Equal(1, CountElements(doc, "text"));
+        // Text content is present (may wrap into multiple lines at the rendered font size).
+        Assert.True(doc.Descendants(Ns + "text").Count(t => !string.IsNullOrEmpty(t.Value)) >= 1);
     }
 
     // ── SchImage ─────────────────────────────────────────────────────
@@ -1222,8 +1224,28 @@ public sealed class SvgRenderingDetailedTests
     }
 
     [Fact]
-    public async Task PcbText_ProducesTextElement()
+    public async Task PcbText_TrueType_ProducesTextElement()
     {
+        var component = PcbComponent.Create("TestFP")
+            .AddText("REF**", t => t
+                .At(Coord.FromMils(0), Coord.FromMils(0))
+                .Height(Coord.FromMils(40))
+                .Layer(21)
+                .TrueType("Arial"))
+            .Build();
+
+        var doc = await RenderPcbToSvg(component);
+
+        var texts = doc.Descendants(Ns + "text").ToList();
+        Assert.True(texts.Count >= 1,
+            $"TrueType PCB text should produce at least 1 <text> element, found {texts.Count}");
+        Assert.Contains("REF**", string.Join(" ", texts.Select(t => t.Value)));
+    }
+
+    [Fact]
+    public async Task PcbText_Stroke_ProducesVectorLineSegments()
+    {
+        // Stroke font is Altium's default; it renders as vector <line> segments, not a <text> element.
         var component = PcbComponent.Create("TestFP")
             .AddText("REF**", t => t
                 .At(Coord.FromMils(0), Coord.FromMils(0))
@@ -1233,11 +1255,9 @@ public sealed class SvgRenderingDetailedTests
 
         var doc = await RenderPcbToSvg(component);
 
-        var texts = doc.Descendants(Ns + "text").ToList();
-        Assert.True(texts.Count >= 1,
-            $"PCB text should produce at least 1 <text> element, found {texts.Count}");
-        if (texts.Count > 0)
-            Assert.Contains("REF**", string.Join(" ", texts.Select(t => t.Value)));
+        Assert.Equal(0, CountElements(doc, "text"));
+        Assert.True(CountElements(doc, "line") >= 1,
+            "PCB stroke text should produce vector <line> segments");
     }
 
     [Fact]

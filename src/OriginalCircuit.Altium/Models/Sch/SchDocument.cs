@@ -93,6 +93,43 @@ public sealed class SchDocument : ISchDocument
     /// </summary>
     internal List<List<KeyValuePair<string, string>>>? RawRecords { get; set; }
 
+    /// <summary>
+    /// Font table parsed from the sheet settings (RECORD=31) FontID table, used for rendering text.
+    /// </summary>
+    public IReadOnlyList<SchFontDefinition> Fonts { get; internal set; } = Array.Empty<SchFontDefinition>();
+
+    /// <summary>
+    /// The document's system (default) font — a 1-based index into <see cref="Fonts"/>. Objects that
+    /// don't carry their own FontId (pins, sheet entries) render with this font, not the first entry.
+    /// From the <c>SystemFont</c> sheet-settings value; defaults to 1.
+    /// </summary>
+    public int SystemFont { get; set; } = 1;
+
+    /// <summary>
+    /// True when harness records were read from the "Additional" OLE stream (kept verbatim in
+    /// <see cref="AdditionalStreams"/>). The writer then skips re-emitting them to FileHeader so they
+    /// aren't duplicated on round-trip.
+    /// </summary>
+    public bool HarnessesInAdditionalStream { get; set; }
+
+    /// <summary>
+    /// Parsed sheet (page) settings: paper size, orientation, border and title-block flags.
+    /// Derived from <see cref="SheetSettings"/>; defaults to a landscape A4 sheet when absent.
+    /// </summary>
+    public SchSheetInfo SheetInfo => SchSheetInfo.Parse(SheetSettings);
+
+    /// <summary>
+    /// Source file name (e.g. <c>DAC.SchDoc</c>) when the document was read from a file.
+    /// Used to resolve the <c>=DocumentName</c> title-block special string.
+    /// </summary>
+    public string? FileName { get; set; }
+
+    /// <summary>
+    /// Source file full path when the document was read from a file.
+    /// Used to resolve the <c>=DocumentFullPathAndName</c> title-block special string.
+    /// </summary>
+    public string? FilePath { get; set; }
+
     /// <inheritdoc />
     public IReadOnlyList<ISchComponent> Components => _components;
 
@@ -257,16 +294,36 @@ public sealed class SchDocument : ISchDocument
     {
         get
         {
-            var bounds = CoordRect.Empty;
+            // Start from the sheet rectangle so the rendered view fits the whole page (with its
+            // border/title block) like Altium, even when the content occupies only part of the sheet.
+            var bounds = SheetInfo.SheetRect;
             foreach (var comp in _components) bounds = bounds.Union(comp.Bounds);
             foreach (var wire in _wires) bounds = bounds.Union(wire.Bounds);
             foreach (var netLabel in _netLabels) bounds = bounds.Union(netLabel.Bounds);
             foreach (var junction in _junctions) bounds = bounds.Union(junction.Bounds);
             foreach (var power in _powerObjects) bounds = bounds.Union(power.Bounds);
-            foreach (var label in _labels) bounds = bounds.Union(label.Bounds);
-            foreach (var param in _parameters) bounds = bounds.Union(param.Bounds);
+            // Hidden labels and invisible parameters (e.g. read-only title-block fields) carry only a
+            // coarse text-length bounds estimate; including them would inflate the page extent and
+            // throw off auto-zoom, so skip anything that isn't actually drawn.
+            foreach (var label in _labels) if (!label.IsHidden) bounds = bounds.Union(label.Bounds);
+            foreach (var param in _parameters) if (param.IsVisible) bounds = bounds.Union(param.Bounds);
             foreach (var line in _lines) bounds = bounds.Union(line.Bounds);
             foreach (var rect in _rectangles) bounds = bounds.Union(rect.Bounds);
+            foreach (var bus in _buses) bounds = bounds.Union(bus.Bounds);
+            foreach (var busEntry in _busEntries) bounds = bounds.Union(busEntry.Bounds);
+            foreach (var port in _ports) bounds = bounds.Union(port.Bounds);
+            foreach (var sheet in _sheetSymbols) bounds = bounds.Union(sheet.Bounds);
+            foreach (var noErc in _noErcs) bounds = bounds.Union(noErc.Bounds);
+            foreach (var polyline in _polylines) bounds = bounds.Union(polyline.Bounds);
+            foreach (var polygon in _polygons) bounds = bounds.Union(polygon.Bounds);
+            foreach (var arc in _arcs) bounds = bounds.Union(arc.Bounds);
+            foreach (var bezier in _beziers) bounds = bounds.Union(bezier.Bounds);
+            foreach (var ellipse in _ellipses) bounds = bounds.Union(ellipse.Bounds);
+            foreach (var roundedRect in _roundedRectangles) bounds = bounds.Union(roundedRect.Bounds);
+            foreach (var pie in _pies) bounds = bounds.Union(pie.Bounds);
+            foreach (var textFrame in _textFrames) bounds = bounds.Union(textFrame.Bounds);
+            foreach (var image in _images) bounds = bounds.Union(image.Bounds);
+            foreach (var ellipticalArc in _ellipticalArcs) bounds = bounds.Union(ellipticalArc.Bounds);
             return bounds;
         }
     }

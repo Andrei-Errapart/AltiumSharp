@@ -549,7 +549,8 @@ public sealed class SchLibWriter
         index++;
     }
 
-    internal static void WritePolygonRecord(BinaryFormatWriter writer, SchPolygon polygon, ref int index, int ownerIndex = -1)
+    internal static void WritePolygonRecord(BinaryFormatWriter writer, SchPolygon polygon, ref int index, int ownerIndex = -1,
+        Func<Coord, string>? vertexUnits = null)
     {
         var parameters = new Dictionary<string, string>
         {
@@ -570,7 +571,7 @@ public sealed class SchLibWriter
         for (var i = 0; i < polygon.Vertices.Count; i++)
         {
             var v = polygon.Vertices[i];
-            AddSchVertex(parameters, i + 1, v.X, v.Y);
+            AddSchVertex(parameters, i + 1, v.X, v.Y, vertexUnits);
         }
         AddUniqueId(parameters, polygon.UniqueId);
 
@@ -578,7 +579,8 @@ public sealed class SchLibWriter
         index++;
     }
 
-    internal static void WritePolylineRecord(BinaryFormatWriter writer, SchPolyline polyline, ref int index, int ownerIndex = -1)
+    internal static void WritePolylineRecord(BinaryFormatWriter writer, SchPolyline polyline, ref int index, int ownerIndex = -1,
+        Func<Coord, string>? vertexUnits = null)
     {
         var parameters = new Dictionary<string, string>
         {
@@ -605,7 +607,7 @@ public sealed class SchLibWriter
         for (var i = 0; i < polyline.Vertices.Count; i++)
         {
             var v = polyline.Vertices[i];
-            AddSchVertex(parameters, i + 1, v.X, v.Y);
+            AddSchVertex(parameters, i + 1, v.X, v.Y, vertexUnits);
         }
         AddNonZero(parameters, "LineStyleExt", (int)polyline.LineStyle); // LineStyleExt follows the vertices
         AddUniqueId(parameters, polyline.UniqueId);
@@ -614,7 +616,8 @@ public sealed class SchLibWriter
         index++;
     }
 
-    internal static void WriteBezierRecord(BinaryFormatWriter writer, SchBezier bezier, ref int index, int ownerIndex = -1)
+    internal static void WriteBezierRecord(BinaryFormatWriter writer, SchBezier bezier, ref int index, int ownerIndex = -1,
+        Func<Coord, string>? vertexUnits = null)
     {
         var parameters = new Dictionary<string, string>
         {
@@ -633,7 +636,7 @@ public sealed class SchLibWriter
         for (var i = 0; i < bezier.ControlPoints.Count; i++)
         {
             var cp = bezier.ControlPoints[i];
-            AddSchVertex(parameters, i + 1, cp.X, cp.Y);
+            AddSchVertex(parameters, i + 1, cp.X, cp.Y, vertexUnits);
         }
         AddUniqueId(parameters, bezier.UniqueId);
 
@@ -1041,7 +1044,8 @@ public sealed class SchLibWriter
         index++;
     }
 
-    internal static void WriteBusRecord(BinaryFormatWriter writer, SchBus bus, ref int index, int ownerIndex = -1)
+    internal static void WriteBusRecord(BinaryFormatWriter writer, SchBus bus, ref int index, int ownerIndex = -1,
+        Func<Coord, string>? vertexUnits = null)
     {
         var parameters = new Dictionary<string, string>
         {
@@ -1057,10 +1061,11 @@ public sealed class SchLibWriter
         AddNonZero(parameters, "Color", bus.Color);
         AddNonZero(parameters, "AreaColor", bus.AreaColor);
         parameters["LocationCount"] = bus.Vertices.Count.ToString();
+        var busConv = vertexUnits ?? CoordToSchematicUnits;
         for (var i = 0; i < bus.Vertices.Count; i++)
         {
-            parameters[$"X{i + 1}"] = CoordToSchematicUnits(bus.Vertices[i].X);
-            parameters[$"Y{i + 1}"] = CoordToSchematicUnits(bus.Vertices[i].Y);
+            parameters[$"X{i + 1}"] = busConv(bus.Vertices[i].X);
+            parameters[$"Y{i + 1}"] = busConv(bus.Vertices[i].Y);
         }
         AddUniqueId(parameters, bus.UniqueId);
 
@@ -1187,7 +1192,11 @@ public sealed class SchLibWriter
             entry.Disabled, entry.Dimmed, entry.UniqueId, ownerIndex);
 
         AddNonZero(parameters, "Side", entry.Side);
-        AddCoordParam(parameters, "DistanceFromTop", entry.DistanceFromTop);
+        // DistanceFromTop is stored in 100-mil steps (1 step = 100 mils = 1,000,000 raw units), with any
+        // sub-step remainder in DistanceFromTop_Frac1 (raw coord units). NOT the DXP convention.
+        var dftRaw = entry.DistanceFromTop.ToRaw();
+        if (dftRaw / 1_000_000 != 0) parameters["DistanceFromTop"] = (dftRaw / 1_000_000).ToString();
+        if (dftRaw % 1_000_000 != 0) parameters["DistanceFromTop_Frac1"] = (dftRaw % 1_000_000).ToString();
         parameters["Name"] = entry.Name;
         AddNonZero(parameters, "IOType", entry.IoType);
         AddNonZero(parameters, "Style", entry.Style);
@@ -1234,7 +1243,8 @@ public sealed class SchLibWriter
         index++;
     }
 
-    internal static void WriteBlanketRecord(BinaryFormatWriter writer, SchBlanket blanket, ref int index, int ownerIndex = -1)
+    internal static void WriteBlanketRecord(BinaryFormatWriter writer, SchBlanket blanket, ref int index, int ownerIndex = -1,
+        Func<Coord, string>? vertexUnits = null)
     {
         var parameters = new Dictionary<string, string>
         {
@@ -1253,10 +1263,11 @@ public sealed class SchLibWriter
         AddNonZero(parameters, "Color", blanket.Color);
         AddNonZero(parameters, "AreaColor", blanket.AreaColor);
         parameters["LocationCount"] = blanket.Vertices.Count.ToString();
+        var blanketConv = vertexUnits ?? CoordToSchematicUnits;
         for (var i = 0; i < blanket.Vertices.Count; i++)
         {
-            parameters[$"X{i + 1}"] = CoordToSchematicUnits(blanket.Vertices[i].X);
-            parameters[$"Y{i + 1}"] = CoordToSchematicUnits(blanket.Vertices[i].Y);
+            parameters[$"X{i + 1}"] = blanketConv(blanket.Vertices[i].X);
+            parameters[$"Y{i + 1}"] = blanketConv(blanket.Vertices[i].Y);
         }
         AddUniqueId(parameters, blanket.UniqueId);
 
@@ -1525,13 +1536,23 @@ public sealed class SchLibWriter
         (coord.ToRaw() / 1000).ToString();
 
     /// <summary>
-    /// Writes a vertex's X{n}/Y{n} parameters, omitting either when its schematic-unit value is 0
-    /// (Altium does not emit zero-valued vertex coordinates).
+    /// Converts a Coord to whole DXP units (raw / 100,000, i.e. 10 mils per unit). SchDoc vertex
+    /// coordinates use this scale — unlike SchLib vertices, which use <see cref="CoordToSchematicUnits"/>.
     /// </summary>
-    private static void AddSchVertex(Dictionary<string, string> parameters, int index, Coord x, Coord y)
+    internal static string CoordToDxpUnits(Coord coord) =>
+        (coord.ToRaw() / 100_000).ToString();
+
+    /// <summary>
+    /// Writes a vertex's X{n}/Y{n} parameters, omitting either when its value is 0
+    /// (Altium does not emit zero-valued vertex coordinates). The vertex unit converter defaults to
+    /// SchLib schematic units; SchDoc callers pass <see cref="CoordToDxpUnits"/>.
+    /// </summary>
+    private static void AddSchVertex(Dictionary<string, string> parameters, int index, Coord x, Coord y,
+        Func<Coord, string>? toUnits = null)
     {
-        var sx = CoordToSchematicUnits(x);
-        var sy = CoordToSchematicUnits(y);
+        var conv = toUnits ?? CoordToSchematicUnits;
+        var sx = conv(x);
+        var sy = conv(y);
         if (sx != "0") parameters[$"X{index}"] = sx;
         if (sy != "0") parameters[$"Y{index}"] = sy;
     }
