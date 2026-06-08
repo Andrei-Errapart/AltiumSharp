@@ -108,6 +108,10 @@ public sealed class PcbComponentRenderer
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(context);
 
+        // Substrate: fill the physical board outline first so the board area reads clearly against
+        // the canvas; every layer then draws on top of it.
+        RenderBoardFill(context, document.GetBoardOutline());
+
         var primitives = new List<(int layer, int priority, Action render)>();
         Collect(context, primitives,
             document.Tracks, document.Arcs, document.Fills, document.Regions,
@@ -124,6 +128,21 @@ public sealed class PcbComponentRenderer
         // referenced board's full content would require resolving and loading the external PcbDoc.
         foreach (var board in document.EmbeddedBoards)
             RenderEmbeddedBoard(context, board);
+    }
+
+    // Black PCB substrate. Drawn under everything so copper/silk/mask read like a real board and
+    // the board edge stands out against the canvas.
+    private const uint BoardColor = 0xFF000000;
+
+    private void RenderBoardFill(IRenderContext context, IReadOnlyList<CoordPoint> outline)
+    {
+        if (outline.Count < 3) return;
+
+        var xs = new double[outline.Count];
+        var ys = new double[outline.Count];
+        for (int i = 0; i < outline.Count; i++)
+            (xs[i], ys[i]) = _transform.WorldToScreen(outline[i].X, outline[i].Y);
+        context.FillPolygon(xs, ys, BoardColor);
     }
 
     private void RenderEmbeddedBoard(IRenderContext context, PcbEmbeddedBoard board)

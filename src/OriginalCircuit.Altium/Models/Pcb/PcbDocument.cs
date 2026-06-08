@@ -101,6 +101,15 @@ public sealed class PcbDocument : IPcbDocument
     /// </summary>
     public Dictionary<string, string>? BoardParameters { get; set; }
 
+    private IReadOnlyList<CoordPoint>? _boardOutline;
+
+    /// <summary>
+    /// The physical board outline as a closed polygon of world-space points, parsed from the
+    /// Board6 parameter block (arc edges are tessellated). Empty when no outline is defined.
+    /// </summary>
+    public IReadOnlyList<CoordPoint> GetBoardOutline()
+        => _boardOutline ??= PcbBoardOutline.Parse(BoardParameters);
+
     /// <summary>
     /// Board-level parameters as an ordered key/value list, preserving key order and duplicate
     /// keys (the block contains repeated RECORD=Board markers that delimit layer-stack
