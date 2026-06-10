@@ -29,6 +29,12 @@ jobs:
       - name: Test
         run: dotnet test tests/OriginalCircuit.Altium.Tests/ --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --results-directory ./test-results
 
+      - name: Run examples (smoke test)
+        run: |
+          dotnet run --project examples/ExtractBom --configuration Release --no-build
+          dotnet run --project examples/GeneratePickAndPlace --configuration Release --no-build
+          dotnet run --project examples/ExtractEmbeddedAssets --configuration Release --no-build
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()

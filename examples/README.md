@@ -16,6 +16,11 @@ For example:
 dotnet run --project examples/CreateFiles
 ```
 
+Each example has its own README with a full walkthrough; the
+[guides index](../guides/README.md) lists them all by topic. Read-oriented examples load
+a sample from [`TestData/`](../TestData/) by default and accept a path to your own file
+as an argument.
+
 ## Example Projects
 
 ### CreateFiles
@@ -66,6 +71,47 @@ Demonstrates rendering components to raster images and SVG.
 ```
 dotnet run --project examples/RenderFiles
 ```
+
+### ExtractBom
+
+Reads a schematic document and produces a grouped bill of materials.
+
+- Groups identical parts into one line with a quantity and designator list
+- Reads designators from component parameters, values from `Comment`, footprints from
+  implementation links
+- Writes the BOM as CSV and HTML
+
+```
+dotnet run --project examples/ExtractBom
+```
+
+See [ExtractBom/README.md](ExtractBom/README.md) for the walkthrough.
+
+### GeneratePickAndPlace
+
+Reads a PCB document and writes an assembly pick-and-place (centroid) CSV.
+
+- One row per placed component: designator, X/Y centroid (mm), rotation, board side
+- Reads placement from `PcbComponent.X/Y/Rotation/Layer/SourceDesignator`
+
+```
+dotnet run --project examples/GeneratePickAndPlace
+```
+
+See [GeneratePickAndPlace/README.md](GeneratePickAndPlace/README.md) for the walkthrough.
+
+### ExtractEmbeddedAssets
+
+Extracts embedded binary assets to disk.
+
+- Pulls 3D STEP models out of a PcbLib (`PcbLibrary.Models`)
+- Pulls bitmap images out of a SchDoc/SchLib (`SchImage.ImageData`), sniffing the format
+
+```
+dotnet run --project examples/ExtractEmbeddedAssets
+```
+
+See [ExtractEmbeddedAssets/README.md](ExtractEmbeddedAssets/README.md) for the walkthrough.
 
 ## Test Data
 

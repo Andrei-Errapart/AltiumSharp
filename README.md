@@ -123,17 +123,27 @@ See the [examples/](examples/) directory for complete rendering examples.
 
 ## Examples
 
-The [examples/](examples/) directory contains runnable examples:
+The [examples/](examples/) directory contains runnable examples, each with its own
+walkthrough README. The [guides index](guides/README.md) lists them by topic.
 
 - `CreateFiles` — create SchLib and PcbLib files from scratch
 - `LoadFiles` — read files and inspect their contents
 - `ModifyFiles` — read a file, modify components, and write it back
 - `RenderFiles` — render components and boards to PNG and SVG (with board view-side and layer options)
+- `ExtractBom` — read a schematic and produce a grouped bill of materials (CSV + HTML)
+- `GeneratePickAndPlace` — read a board and write an assembly pick-and-place (centroid) CSV
+- `ExtractEmbeddedAssets` — extract embedded 3D STEP models and images to disk
 
 Run any example with:
 
 ```
 dotnet run --project examples/CreateFiles
+```
+
+Read-oriented examples load a file from `TestData/` by default, or take a path to your own file:
+
+```
+dotnet run --project examples/ExtractBom -- "C:\path\to\MyBoard.SchDoc"
 ```
 
 ## Credits
