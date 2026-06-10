@@ -19,7 +19,7 @@
   - [Loading from Streams](#loading-from-streams)
 - [Modifying Files](#modifying-files)
 - [Rendering](#rendering)
-  - [Raster (PNG)](#raster-png)
+  - [Raster (PNG and JPEG)](#raster-png-and-jpeg)
   - [SVG](#svg)
   - [CoordTransform](#coordtransform)
   - [Layer Colors](#layer-colors)
@@ -725,7 +725,7 @@ pcbDoc.AddTrack(new PcbTrack
 
 ## Rendering
 
-### Raster (PNG)
+### Raster (PNG and JPEG)
 
 ```csharp
 using OriginalCircuit.Altium.Rendering;
@@ -745,6 +745,11 @@ await renderer.RenderAsync(pcbComponent, ms, new RenderOptions { Width = 512, He
 
 // Render to file
 await renderer.RenderAsync(pcbComponent, "output.png", new RenderOptions { Width = 2048, Height = 2048 });
+
+// JPEG output: configure the renderer's Format/Quality, or render to a .jpg/.jpeg path
+var jpegRenderer = new RasterRenderer { Format = RasterImageFormat.Jpeg, Quality = 85 };
+await jpegRenderer.RenderAsync(pcbComponent, ms, new RenderOptions { Width = 512, Height = 512 });
+await renderer.RenderAsync(pcbComponent, "output.jpg");   // format inferred from the extension
 
 // Render a schematic component
 var schComponent = new SchComponent { Name = "R1" };
@@ -780,12 +785,14 @@ var svgContent = new StreamReader(ms).ReadToEnd();
 ```csharp
 var options = new RenderOptions
 {
-    Width = 1024,              // Output width in pixels (default: 1024)
-    Height = 768,              // Output height in pixels (default: 768)
-    BackgroundColor = 0xFFFFFFFF,  // ARGB background (default: white)
-    AutoZoom = true,           // Auto-fit component to viewport (default: true)
-    Scale = 1.0                // Scale factor (default: 1.0)
+    Width = 1024,                       // Output width in pixels (default: 1024)
+    Height = 768,                       // Output height in pixels (default: 768)
+    BackgroundColor = EdaColor.White,   // Background (EdaColor; default: white)
+    AutoZoom = true,                    // Auto-fit component to viewport (default: true)
+    Scale = 1.0                         // Scale factor (default: 1.0)
 };
+// Raster format/quality are configured on RasterRenderer (PNG by default):
+//   new RasterRenderer { Format = RasterImageFormat.Jpeg, Quality = 85 }
 ```
 
 ### CoordTransform

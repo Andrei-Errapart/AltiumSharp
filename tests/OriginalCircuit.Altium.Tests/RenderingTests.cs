@@ -100,6 +100,60 @@ public sealed class RenderingTests
     }
 
     [Fact]
+    public async Task RasterRenderer_JpegFormat_ProducesJpegBytes()
+    {
+        var component = PcbComponent.Create("TestFP")
+            .AddPad(p => p
+                .At(Coord.FromMils(0), Coord.FromMils(0))
+                .Size(Coord.FromMils(60), Coord.FromMils(25))
+                .WithDesignator("1")
+                .Layer(1))
+            .Build();
+
+        var renderer = new RasterRenderer { Format = RasterImageFormat.Jpeg, Quality = 85 };
+        using var ms = new MemoryStream();
+        await renderer.RenderAsync(component, ms, new RenderOptions { Width = 256, Height = 256 });
+
+        Assert.True(ms.Length > 0, "JPEG output should be non-empty");
+        ms.Position = 0;
+        var header = new byte[3];
+        ms.Read(header, 0, 3);
+        // JPEG start-of-image marker: FF D8 FF
+        Assert.Equal(0xFF, header[0]);
+        Assert.Equal(0xD8, header[1]);
+        Assert.Equal(0xFF, header[2]);
+    }
+
+    [Fact]
+    public async Task RasterRenderer_JpgFilePath_InfersJpegFromExtension()
+    {
+        var component = PcbComponent.Create("TestFP")
+            .AddPad(p => p
+                .At(Coord.FromMils(0), Coord.FromMils(0))
+                .Size(Coord.FromMils(60), Coord.FromMils(25))
+                .WithDesignator("1")
+                .Layer(1))
+            .Build();
+
+        // Default Format is PNG; a .jpg path should still produce JPEG.
+        var renderer = new RasterRenderer();
+        var path = Path.Combine(Path.GetTempPath(), $"raster_test_{Guid.NewGuid():N}.jpg");
+        try
+        {
+            await renderer.RenderAsync(component, path, new RenderOptions { Width = 256, Height = 256 });
+            var bytes = await File.ReadAllBytesAsync(path);
+            Assert.True(bytes.Length > 3);
+            Assert.Equal(0xFF, bytes[0]);
+            Assert.Equal(0xD8, bytes[1]);
+            Assert.Equal(0xFF, bytes[2]);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task SvgRenderer_PcbComponent_ProducesValidSvg()
     {
         var component = PcbComponent.Create("TestFP")

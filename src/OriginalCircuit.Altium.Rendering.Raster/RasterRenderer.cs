@@ -11,12 +11,37 @@ using SkiaSharp;
 namespace OriginalCircuit.Altium.Rendering.Raster;
 
 /// <summary>
-/// Renders components and whole documents to raster images (PNG) using SkiaSharp.
+/// Output image format for <see cref="RasterRenderer"/>.
 /// </summary>
+public enum RasterImageFormat
+{
+    /// <summary>PNG — lossless (the default).</summary>
+    Png = 0,
+
+    /// <summary>JPEG — lossy; honours <see cref="RasterRenderer.Quality"/>.</summary>
+    Jpeg = 1
+}
+
+/// <summary>
+/// Renders components and whole documents to raster images (PNG or JPEG) using SkiaSharp.
+/// </summary>
+/// <remarks>
+/// The image is encoded into memory and written to the output stream asynchronously, so the
+/// renderer works with streams that disallow synchronous I/O (e.g. an ASP.NET response body).
+/// </remarks>
 public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
 {
+    /// <summary>
+    /// Output image format (default <see cref="RasterImageFormat.Png"/>). When rendering to a file
+    /// path, the format is taken from the extension (.png / .jpg / .jpeg) and overrides this value.
+    /// </summary>
+    public RasterImageFormat Format { get; set; } = RasterImageFormat.Png;
+
+    /// <summary>Encoder quality (1-100) for JPEG output. Ignored for PNG. Default 100.</summary>
+    public int Quality { get; set; } = 100;
+
     /// <inheritdoc />
-    public ValueTask RenderAsync(
+    public async ValueTask RenderAsync(
         IComponent component,
         Stream output,
         RenderOptions? options = null,
@@ -26,9 +51,99 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         ArgumentNullException.ThrowIfNull(output);
 
         options ??= new RenderOptions();
+        var bytes = RenderToBytes(Format, options, PrepareComponent(component));
+        await output.WriteAsync(bytes, cancellationToken);
+    }
+
+    /// <summary>Renders a whole PCB document (board) to a raster image.</summary>
+    /// <param name="settings">Optional view-side and layer-visibility settings; null renders a top view with every layer.</param>
+    public async ValueTask RenderAsync(
+        PcbDocument document,
+        Stream output,
+        RenderOptions? options = null,
+        PcbRenderSettings? settings = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(output);
+
+        options ??= new RenderOptions();
+        var bytes = RenderToBytes(Format, options, PrepareDocument(document, settings));
+        await output.WriteAsync(bytes, cancellationToken);
+    }
+
+    /// <summary>Renders a whole schematic document (sheet) to a raster image.</summary>
+    public async ValueTask RenderAsync(
+        SchDocument document,
+        Stream output,
+        RenderOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(output);
+
+        options ??= new RenderOptions();
+        var bytes = RenderToBytes(Format, options, PrepareSheet(document));
+        await output.WriteAsync(bytes, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask RenderAsync(
+        IComponent component,
+        string path,
+        RenderOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        options ??= new RenderOptions();
+        var bytes = RenderToBytes(FormatForPath(path), options, PrepareComponent(component));
+        await WriteFileAsync(path, bytes, cancellationToken);
+    }
+
+    /// <summary>Renders a whole PCB document (board) to a raster file (format inferred from the extension).</summary>
+    /// <param name="settings">Optional view-side and layer-visibility settings; null renders a top view with every layer.</param>
+    public async ValueTask RenderAsync(
+        PcbDocument document,
+        string path,
+        RenderOptions? options = null,
+        PcbRenderSettings? settings = null,
+        CancellationToken cancellationToken = default)
+    {
+        options ??= new RenderOptions();
+        var bytes = RenderToBytes(FormatForPath(path), options, PrepareDocument(document, settings));
+        await WriteFileAsync(path, bytes, cancellationToken);
+    }
+
+    /// <summary>Renders a whole schematic document (sheet) to a raster file (format inferred from the extension).</summary>
+    public async ValueTask RenderAsync(
+        SchDocument document,
+        string path,
+        RenderOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        options ??= new RenderOptions();
+        var bytes = RenderToBytes(FormatForPath(path), options, PrepareSheet(document));
+        await WriteFileAsync(path, bytes, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    ValueTask IPcbLibRenderer.RenderAsync(
+        IPcbComponent component,
+        Stream output,
+        RenderOptions? options,
+        CancellationToken cancellationToken)
+    {
+        return RenderAsync(component, output, options, cancellationToken);
+    }
+
+    // ── internals ───────────────────────────────────────────────────────────
+
+    // What to draw and how to frame it — built once per input type and shared by the stream and
+    // file overloads (the only difference between them is where the encoded bytes go).
+    private readonly record struct Scene(CoordRect Bounds, double Margin, Action<CoordTransform, IRenderContext> Draw);
+
+    private static Scene PrepareComponent(IComponent component) =>
         // Schematic symbols need more breathing room so outward pin-name text isn't clipped.
-        var margin = component is SchComponent ? 0.82 : 0.9;
-        RenderTo(output, options, component.Bounds, margin, (transform, context) =>
+        new(component.Bounds, component is SchComponent ? 0.82 : 0.9, (transform, context) =>
         {
             if (component is PcbComponent pcb)
             {
@@ -43,26 +158,20 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
                 renderer.Render(sch, context);
             }
         });
-        return ValueTask.CompletedTask;
-    }
 
-    /// <summary>Renders a whole PCB document (board) to PNG.</summary>
-    /// <param name="settings">Optional view-side and layer-visibility settings; null renders a top view with every layer.</param>
-    public ValueTask RenderAsync(
-        PcbDocument document,
-        Stream output,
-        RenderOptions? options = null,
-        PcbRenderSettings? settings = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(document);
-        ArgumentNullException.ThrowIfNull(output);
-
-        options ??= new RenderOptions();
-        RenderTo(output, options, document.Bounds, 0.95,
+    private static Scene PrepareDocument(PcbDocument document, PcbRenderSettings? settings) =>
+        new(document.Bounds, 0.95,
             (transform, context) => CreatePcbRenderer(transform, settings).Render(document, context));
-        return ValueTask.CompletedTask;
-    }
+
+    private static Scene PrepareSheet(SchDocument document) =>
+        // Frame to the sheet page (like Altium's "fit sheet") rather than the content bounds: schematic
+        // component bounds over-estimate text extents, which would otherwise zoom the page out.
+        new(document.SheetInfo.SheetRect, 0.96, (transform, context) =>
+        {
+            var renderer = new SchComponentRenderer(transform);
+            renderer.SetFonts(document.Fonts);
+            renderer.Render(document, context);
+        });
 
     private static PcbComponentRenderer CreatePcbRenderer(CoordTransform transform, PcbRenderSettings? settings)
     {
@@ -75,30 +184,9 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         return renderer;
     }
 
-    /// <summary>Renders a whole schematic document (sheet) to PNG.</summary>
-    public ValueTask RenderAsync(
-        SchDocument document,
-        Stream output,
-        RenderOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(document);
-        ArgumentNullException.ThrowIfNull(output);
-
-        options ??= new RenderOptions();
-        // Frame to the sheet page (like Altium's "fit sheet") rather than the content bounds: schematic
-        // component bounds over-estimate text extents, which would otherwise zoom the page out.
-        RenderTo(output, options, document.SheetInfo.SheetRect, 0.96, (transform, context) =>
-        {
-            var renderer = new SchComponentRenderer(transform);
-            renderer.SetFonts(document.Fonts);
-            renderer.Render(document, context);
-        });
-        return ValueTask.CompletedTask;
-    }
-
-    private static void RenderTo(Stream output, RenderOptions options, CoordRect bounds, double margin,
-        Action<CoordTransform, IRenderContext> draw)
+    // Renders to an in-memory bitmap and returns the encoded image bytes. Encoding is CPU-bound
+    // and synchronous; the caller writes the result to the destination stream asynchronously.
+    private byte[] RenderToBytes(RasterImageFormat format, RenderOptions options, Scene scene)
     {
         using var bitmap = new SKBitmap(options.Width, options.Height);
         using var canvas = new SKCanvas(bitmap);
@@ -113,60 +201,34 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
             Scale = options.Scale,
         };
         if (options.AutoZoom)
-            transform.AutoZoom(bounds, margin);
+            transform.AutoZoom(scene.Bounds, scene.Margin);
 
-        draw(transform, context);
+        scene.Draw(transform, context);
 
         using var image = SKImage.FromBitmap(bitmap);
-        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-        data.SaveTo(output);
+        var (skFormat, quality) = format == RasterImageFormat.Jpeg
+            ? (SKEncodedImageFormat.Jpeg, Math.Clamp(Quality, 1, 100))
+            : (SKEncodedImageFormat.Png, 100);
+        using var data = image.Encode(skFormat, quality);
+        return data.ToArray();
     }
 
-    /// <inheritdoc />
-    public async ValueTask RenderAsync(
-        IComponent component,
-        string path,
-        RenderOptions? options = null,
-        CancellationToken cancellationToken = default)
+    // .jpg/.jpeg -> JPEG, .png -> PNG; any other extension keeps the configured Format.
+    private RasterImageFormat FormatForPath(string path)
+    {
+        var ext = Path.GetExtension(path);
+        if (ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+            ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
+            return RasterImageFormat.Jpeg;
+        if (ext.Equals(".png", StringComparison.OrdinalIgnoreCase))
+            return RasterImageFormat.Png;
+        return Format;
+    }
+
+    private static async ValueTask WriteFileAsync(string path, byte[] bytes, CancellationToken cancellationToken)
     {
         await using var stream = new FileStream(
             path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
-        await RenderAsync(component, stream, options, cancellationToken);
-    }
-
-    /// <summary>Renders a whole PCB document (board) to a PNG file.</summary>
-    /// <param name="settings">Optional view-side and layer-visibility settings; null renders a top view with every layer.</param>
-    public async ValueTask RenderAsync(
-        PcbDocument document,
-        string path,
-        RenderOptions? options = null,
-        PcbRenderSettings? settings = null,
-        CancellationToken cancellationToken = default)
-    {
-        await using var stream = new FileStream(
-            path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
-        await RenderAsync(document, stream, options, settings, cancellationToken);
-    }
-
-    /// <summary>Renders a whole schematic document (sheet) to a PNG file.</summary>
-    public async ValueTask RenderAsync(
-        SchDocument document,
-        string path,
-        RenderOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        await using var stream = new FileStream(
-            path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
-        await RenderAsync(document, stream, options, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    ValueTask IPcbLibRenderer.RenderAsync(
-        IPcbComponent component,
-        Stream output,
-        RenderOptions? options,
-        CancellationToken cancellationToken)
-    {
-        return RenderAsync(component, output, options, cancellationToken);
+        await stream.WriteAsync(bytes, cancellationToken);
     }
 }

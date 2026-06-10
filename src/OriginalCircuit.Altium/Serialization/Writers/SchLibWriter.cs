@@ -384,7 +384,9 @@ public sealed class SchLibWriter
         {
             w.Write(2); // Pin record type (Int32)
             w.Write((byte)0); // Unknown
-            w.Write((short)1); // OwnerPartId
+            // OwnerPartId: which part of a multi-part component this pin belongs to.
+            // Parts are 1-based; default to part 1 when unset (a from-scratch single-part pin).
+            w.Write((short)(pin.OwnerPartId > 0 ? pin.OwnerPartId : 1));
             w.Write((byte)0); // OwnerPartDisplayMode
             w.Write((byte)pin.SymbolInnerEdge);
             w.Write((byte)pin.SymbolOuterEdge);

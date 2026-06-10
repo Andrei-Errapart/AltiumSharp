@@ -71,15 +71,7 @@ await lib.SaveAsync(path);
 
 var loaded = (SchLibrary)await AltiumLibrary.OpenSchLibAsync(path);
 var reloaded = (SchComponent)loaded.Components.First();
-var distinctParts = reloaded.Pins.Select(p => ((SchPin)p).OwnerPartId).Distinct().Count();
-Console.WriteLine($"\nReloaded from {Path.GetFileName(path)}: PartCount = {reloaded.PartCount}, " +
-                  $"{reloaded.Pins.Count} pins across {distinctParts} distinct OwnerPartId value(s).");
-if (reloaded.PartCount > 1 && distinctParts <= 1)
-{
-    Console.WriteLine("  Note: this build's SchLib round-trip does not preserve per-pin OwnerPartId, so the");
-    Console.WriteLine("  reloaded pins are not split by part. The in-memory assignment above is how you author");
-    Console.WriteLine("  multi-part components; the persistence gap is a library limitation, not a usage error.");
-}
+PrintParts($"Reloaded from {Path.GetFileName(path)} (PartCount = {reloaded.PartCount})", reloaded);
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

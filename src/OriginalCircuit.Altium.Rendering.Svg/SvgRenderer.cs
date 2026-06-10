@@ -12,10 +12,14 @@ namespace OriginalCircuit.Altium.Rendering.Svg;
 /// <summary>
 /// Renders components and whole documents to SVG vector graphics.
 /// </summary>
+/// <remarks>
+/// The SVG is built in memory and written to the output stream asynchronously, so the renderer
+/// works with streams that disallow synchronous I/O (e.g. an ASP.NET response body).
+/// </remarks>
 public sealed class SvgRenderer : IRenderer
 {
     /// <inheritdoc />
-    public ValueTask RenderAsync(
+    public async ValueTask RenderAsync(
         IComponent component,
         Stream output,
         RenderOptions? options = null,
@@ -27,7 +31,7 @@ public sealed class SvgRenderer : IRenderer
         options ??= new RenderOptions();
         // Schematic symbols need more breathing room so outward pin-name text isn't clipped.
         var margin = component is SchComponent ? 0.82 : 0.9;
-        RenderTo(output, options, component.Bounds, margin, (transform, ctx) =>
+        var bytes = RenderToBytes(options, component.Bounds, margin, (transform, ctx) =>
         {
             if (component is PcbComponent pcbComponent)
             {
@@ -42,12 +46,12 @@ public sealed class SvgRenderer : IRenderer
                 renderer.Render(schComponent, ctx);
             }
         });
-        return ValueTask.CompletedTask;
+        await output.WriteAsync(bytes, cancellationToken);
     }
 
     /// <summary>Renders a whole PCB document (board) to SVG.</summary>
     /// <param name="settings">Optional view-side and layer-visibility settings; null renders a top view with every layer.</param>
-    public ValueTask RenderAsync(
+    public async ValueTask RenderAsync(
         PcbDocument document,
         Stream output,
         RenderOptions? options = null,
@@ -58,9 +62,9 @@ public sealed class SvgRenderer : IRenderer
         ArgumentNullException.ThrowIfNull(output);
 
         options ??= new RenderOptions();
-        RenderTo(output, options, document.Bounds, 0.95,
+        var bytes = RenderToBytes(options, document.Bounds, 0.95,
             (transform, ctx) => CreatePcbRenderer(transform, settings).Render(document, ctx));
-        return ValueTask.CompletedTask;
+        await output.WriteAsync(bytes, cancellationToken);
     }
 
     private static PcbComponentRenderer CreatePcbRenderer(CoordTransform transform, PcbRenderSettings? settings)
@@ -75,7 +79,7 @@ public sealed class SvgRenderer : IRenderer
     }
 
     /// <summary>Renders a whole schematic document (sheet) to SVG.</summary>
-    public ValueTask RenderAsync(
+    public async ValueTask RenderAsync(
         SchDocument document,
         Stream output,
         RenderOptions? options = null,
@@ -87,16 +91,18 @@ public sealed class SvgRenderer : IRenderer
         options ??= new RenderOptions();
         // Frame to the sheet page (like Altium's "fit sheet") rather than the content bounds: schematic
         // component bounds over-estimate text extents, which would otherwise zoom the page out.
-        RenderTo(output, options, document.SheetInfo.SheetRect, 0.96, (transform, ctx) =>
+        var bytes = RenderToBytes(options, document.SheetInfo.SheetRect, 0.96, (transform, ctx) =>
         {
             var renderer = new SchComponentRenderer(transform);
             renderer.SetFonts(document.Fonts);
             renderer.Render(document, ctx);
         });
-        return ValueTask.CompletedTask;
+        await output.WriteAsync(bytes, cancellationToken);
     }
 
-    private static void RenderTo(Stream output, RenderOptions options, CoordRect bounds, double margin,
+    // Builds the SVG document in memory and returns its bytes; the caller writes them to the
+    // destination stream asynchronously.
+    private static byte[] RenderToBytes(RenderOptions options, CoordRect bounds, double margin,
         Action<CoordTransform, IRenderContext> draw)
     {
         var ctx = new SvgRenderContext(options.Width, options.Height);
@@ -112,7 +118,10 @@ public sealed class SvgRenderer : IRenderer
             transform.AutoZoom(bounds, margin);
 
         draw(transform, ctx);
-        ctx.WriteTo(output);
+
+        using var buffer = new MemoryStream();
+        ctx.WriteTo(buffer);   // produces the exact SVG document (XML declaration + svg element)
+        return buffer.ToArray();
     }
 
     /// <inheritdoc />

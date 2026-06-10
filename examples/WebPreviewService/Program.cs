@@ -100,22 +100,19 @@ static void RunServer(string[] args)
             return;
         }
 
-        // The renderers write synchronously; Kestrel disallows sync IO on the response
-        // body, so render into a buffer first and stream that out asynchronously.
+        // The renderers encode in memory and write to the stream asynchronously, so we can
+        // render straight to the response body (set the content type before the first write).
         var options = new RenderOptions { Width = 600, Height = 450 };
-        using var buffer = new MemoryStream();
         if (string.Equals(format, "svg", StringComparison.OrdinalIgnoreCase))
         {
-            await svg.RenderAsync(comp, buffer, options);
             ctx.Response.ContentType = "image/svg+xml";
+            await svg.RenderAsync(comp, ctx.Response.Body, options);
         }
         else
         {
-            await raster.RenderAsync(comp, buffer, options);
             ctx.Response.ContentType = "image/png";
+            await raster.RenderAsync(comp, ctx.Response.Body, options);
         }
-        buffer.Position = 0;
-        await buffer.CopyToAsync(ctx.Response.Body);
     });
 
     Console.WriteLine("Altium preview service listening.");

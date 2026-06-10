@@ -360,6 +360,37 @@ public class WriterTests
     }
 
     [Fact]
+    public async Task SchLibWriter_RoundTrip_PreservesPinOwnerPartId()
+    {
+        // A multi-part component: pins are tagged with the part they belong to.
+        var library = AltiumLibrary.CreateSchLib();
+        var component = new SchComponent { Name = "DUALGATE", PartCount = 2 };
+
+        var pinPart1 = SchPin.Create("1").WithName("A")
+            .At(Coord.FromMils(-100), Coord.Zero).Length(Coord.FromMils(50)).Build();
+        pinPart1.OwnerPartId = 1;
+        component.AddPin(pinPart1);
+
+        var pinPart2 = SchPin.Create("4").WithName("A")
+            .At(Coord.FromMils(-100), Coord.Zero).Length(Coord.FromMils(50)).Build();
+        pinPart2.OwnerPartId = 2;
+        component.AddPin(pinPart2);
+
+        library.Add(component);
+
+        using var stream = new MemoryStream();
+        await library.SaveAsync(stream);
+        stream.Position = 0;
+        var reread = await AltiumLibrary.OpenSchLibAsync(stream);
+
+        var rc = reread.Components[0];
+        Assert.Equal(2, rc.PartCount);
+        var ownerByDesignator = rc.Pins.ToDictionary(p => p.Designator!, p => ((SchPin)p).OwnerPartId);
+        Assert.Equal(1, ownerByDesignator["1"]);
+        Assert.Equal(2, ownerByDesignator["4"]);
+    }
+
+    [Fact]
     public async Task SchLibWriter_CanWriteLibraryWithLines()
     {
         // Arrange

@@ -24,9 +24,9 @@ GET /preview?lib=<path-to-.SchLib-or-.PcbLib>&component=<name>&format=png|svg
 ## How it works
 
 `AltiumLibrary.OpenAsync` returns an `ILibrary`; pick the component by name from
-`AllComponents` and render it. **Gotcha:** the renderers write *synchronously*, and
-Kestrel disallows synchronous I/O on the response body — so render into a `MemoryStream`
-first, then stream that out asynchronously.
+`AllComponents` and render it straight to the response body. The renderers encode in
+memory and write to the stream asynchronously, so they work directly with a Kestrel
+response — set the content type before the first write.
 
 ```csharp
 app.MapGet("/preview", async (string lib, string component, string? format, HttpContext ctx) =>
@@ -37,11 +37,8 @@ app.MapGet("/preview", async (string lib, string component, string? format, Http
     if (comp is null) { ctx.Response.StatusCode = 404; return; }
 
     var options = new RenderOptions { Width = 600, Height = 450 };
-    using var buffer = new MemoryStream();                 // buffer: renderers write sync
-    if (format == "svg") { await new SvgRenderer().RenderAsync(comp, buffer, options);  ctx.Response.ContentType = "image/svg+xml"; }
-    else                 { await new RasterRenderer().RenderAsync(comp, buffer, options); ctx.Response.ContentType = "image/png"; }
-    buffer.Position = 0;
-    await buffer.CopyToAsync(ctx.Response.Body);           // async copy to the response
+    if (format == "svg") { ctx.Response.ContentType = "image/svg+xml"; await new SvgRenderer().RenderAsync(comp, ctx.Response.Body, options); }
+    else                 { ctx.Response.ContentType = "image/png";     await new RasterRenderer().RenderAsync(comp, ctx.Response.Body, options); }
 });
 ```
 
@@ -61,7 +58,7 @@ GET /preview?...&component=NOPE -> HTTP 404
 - The default (no-argument) mode renders to an in-memory stream and exits, so the example
   is runnable offline and the render-to-stream code is exercised without a server. It is
   build-verified in CI but not smoke-run there (it needs SkiaSharp at runtime).
-- Buffer-then-copy is the key pattern: don't hand a Kestrel response body straight to a
-  renderer that writes synchronously.
+- The renderers are asynchronous at the stream level, so rendering straight into a Kestrel
+  response body works — no manual buffering required.
 
 See the [guides index](../../guides/README.md) for the full set of examples.

@@ -43,15 +43,17 @@ In memory:
   Part 1: 5 pins (1:A, 2:B, 3:Y, 14:VCC, 7:GND)
   Part 2: 3 pins (4:A, 5:B, 6:Y)
 
-Reloaded from MultiPart.SchLib: PartCount = 2, 8 pins across 1 distinct OwnerPartId value(s).
-  Note: this build's SchLib round-trip does not preserve per-pin OwnerPartId ...
+Reloaded from MultiPart.SchLib (PartCount = 2):
+  Part 1: 5 pins (1:A, 2:B, 3:Y, 14:VCC, 7:GND)
+  Part 2: 3 pins (4:A, 5:B, 6:Y)
 ```
+
+The save/reload confirms the per-part assignment survives the round-trip: pins come back
+split across their parts exactly as built.
 
 ## Notes
 
-- **Known limitation:** in the current build the SchLib writer/reader does not round-trip
-  per-pin `OwnerPartId`, so a re-read collapses the parts. The in-memory assignment shown
-  above is the correct way to author parts; the persistence gap is a library issue, not a
-  usage error. The example reports this honestly rather than hiding it.
+- `PartCount` and per-pin `OwnerPartId` both round-trip through the SchLib writer/reader.
+- Pins with `OwnerPartId` left at its default are written as part 1 (parts are 1-based).
 
 See the [guides index](../../guides/README.md) for the full set of examples.

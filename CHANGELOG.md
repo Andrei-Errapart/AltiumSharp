@@ -33,6 +33,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - `ParameterCollection` is now a value-type-friendly immutable record supporting efficient serialization round-trips.
 - `Coord` conversions use `checked()` arithmetic and throw `OverflowException` on values that exceed the internal fixed-point range.
 
+### Fixed
+
+- Renderers now write to the output stream asynchronously (the image/SVG is encoded in memory, then written with `WriteAsync`), so `RenderAsync` works with streams that disallow synchronous I/O such as an ASP.NET Core response body.
+- Raster rendering now produces JPEG as well as PNG: configure `RasterRenderer.Format` and `Quality`, or render to a `.jpg`/`.jpeg`/`.png` path (the format is inferred from the extension). Previously only PNG was produced despite the documented JPG support.
+- `SchLibWriter` now preserves each pin's `OwnerPartId`, so multi-part component symbols round-trip with their pins correctly assigned to their parts (previously every pin was written as part 1).
+
 ### Removed
 
 - `System.Drawing.Common` dependency removed from the core library; rendering is now handled exclusively by the optional rendering packages.
