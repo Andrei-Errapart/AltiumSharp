@@ -20,7 +20,6 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-          include-prerelease: true
 
       - name: Install native dependencies for SkiaSharp (rendering tests)
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1
@@ -33,6 +32,20 @@ jobs:
 
       - name: Test
         run: dotnet test tests/OriginalCircuit.Altium.Tests/ --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --results-directory ./test-results
+
+      - name: Report failed tests
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          ns = {'t': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
+          for path in glob.glob('test-results/*.trx'):
+              for r in ET.parse(path).getroot().findall('.//t:UnitTestResult', ns):
+                  if r.get('outcome') == 'Failed':
+                      m = r.find('.//t:Message', ns)
+                      msg = ' '.join((m.text or '').split()) if m is not None else ''
+                      print(f"::error::FAILED {r.get('testName')} :: {msg[:300]}")
+          PY
 
       - name: Run examples (smoke test)
         run: |
