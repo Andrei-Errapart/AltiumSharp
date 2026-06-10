@@ -113,6 +113,78 @@ dotnet run --project examples/ExtractEmbeddedAssets
 
 See [ExtractEmbeddedAssets/README.md](ExtractEmbeddedAssets/README.md) for the walkthrough.
 
+### InspectBoard
+
+Reports a PCB's outline size, layer stack, primitive/net counts, and design rules.
+See [InspectBoard/README.md](InspectBoard/README.md).
+
+```
+dotnet run --project examples/InspectBoard
+```
+
+### NetReport
+
+Counts the copper objects on each net (resolving `NetIndex` into the net list).
+See [NetReport/README.md](NetReport/README.md).
+
+```
+dotnet run --project examples/NetReport
+```
+
+### BuildFootprintGenerator
+
+Generates parametric QFN/DIP footprints into a PcbLib using the fluent builders.
+See [BuildFootprintGenerator/README.md](BuildFootprintGenerator/README.md).
+
+```
+dotnet run --project examples/BuildFootprintGenerator
+```
+
+### BuildMultiPartComponent
+
+Builds a multi-part symbol with `PartCount` and per-primitive `OwnerPartId`.
+See [BuildMultiPartComponent/README.md](BuildMultiPartComponent/README.md).
+
+```
+dotnet run --project examples/BuildMultiPartComponent
+```
+
+### LibraryCatalog
+
+Renders every component in a library to a PNG/SVG thumbnail gallery (`index.html`).
+See [LibraryCatalog/README.md](LibraryCatalog/README.md).
+
+```
+dotnet run --project examples/LibraryCatalog
+```
+
+### WalkHierarchy
+
+Walks a hierarchical schematic from its top sheet through sheet symbols into child sheets.
+See [WalkHierarchy/README.md](WalkHierarchy/README.md).
+
+```
+dotnet run --project examples/WalkHierarchy
+```
+
+### DiffLibraries
+
+Reports added/removed/changed components between two libraries of the same type.
+See [DiffLibraries/README.md](DiffLibraries/README.md).
+
+```
+dotnet run --project examples/DiffLibraries
+```
+
+### ValidateLibrary
+
+Surfaces reader diagnostics plus library-hygiene lint over a PcbLib/SchLib.
+See [ValidateLibrary/README.md](ValidateLibrary/README.md).
+
+```
+dotnet run --project examples/ValidateLibrary
+```
+
 ## Test Data
 
 The examples expect Altium files in a `TestData/` directory at the repository root. A set of sample files is provided there. You can also point the examples at your own files by editing the file paths at the top of `Program.cs` in each project.

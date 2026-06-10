@@ -23,46 +23,50 @@ For installation, the quick-start, and the coordinate system, see the top-level
 
 ## Guides
 
-### Reading & extracting
+### Reading & inspecting
 
 | Guide | What you get | Example |
 |-------|--------------|---------|
 | [Loading & inspecting files](../examples/LoadFiles/) | Open all four file types and walk their contents | `LoadFiles` |
+| [Inspecting a PCB](../examples/InspectBoard/) | Board size, layer stack, primitive/net counts, rule summary | `InspectBoard` |
+| [Nets & connectivity](../examples/NetReport/) | Per-net copper membership, and what the model does/doesn't track | `NetReport` |
+
+### Extracting
+
+| Guide | What you get | Example |
+|-------|--------------|---------|
 | [Extracting a bill of materials](../examples/ExtractBom/) | Grouped BOM (CSV + HTML) from a `.SchDoc` | `ExtractBom` |
 | [Pick-and-place / centroid file](../examples/GeneratePickAndPlace/) | Assembly centroid CSV from a `.PcbDoc` | `GeneratePickAndPlace` |
 | [Extracting embedded assets](../examples/ExtractEmbeddedAssets/) | STEP 3D models and bitmap images to disk | `ExtractEmbeddedAssets` |
 
-### Creating & modifying
+### Creating & authoring
 
 | Guide | What you get | Example |
 |-------|--------------|---------|
 | [Creating files from scratch](../examples/CreateFiles/) | Build PcbLib, SchLib, SchDoc, PcbDoc with the fluent builders | `CreateFiles` |
 | [Modifying existing files](../examples/ModifyFiles/) | Load → change → save round-trips for all four types | `ModifyFiles` |
+| [Programmatic footprint generation](../examples/BuildFootprintGenerator/) | Parametric QFN/DIP footprint families | `BuildFootprintGenerator` |
+| [Multi-part components](../examples/BuildMultiPartComponent/) | Symbols with `PartCount > 1` and `OwnerPartId` | `BuildMultiPartComponent` |
 
 ### Rendering
 
 | Guide | What you get | Example |
 |-------|--------------|---------|
 | [Rendering components & boards](../examples/RenderFiles/) | PNG/SVG output, board view sides, layer filtering | `RenderFiles` |
+| [Component catalogs](../examples/LibraryCatalog/) | Render a whole library to a thumbnail gallery | `LibraryCatalog` |
 
-## Planned guides
+### Navigating & tooling
 
-These topics are on the roadmap; each will ship as a new example project plus its own
-guide, following the same pattern:
-
-- **Inspecting a board** — outline, layer stackup, net/primitive stats, design-rule
-  summary (`GetBoardOutline()`, `LayerStack`, `Rules`).
-- **Nets & connectivity** — querying PCB net membership, and what the model does and
-  does not track (the schematic side is geometric; there is no pin-to-net API).
-- **Component catalogs** — render every component in a library to a thumbnail gallery.
-- **Programmatic footprint generation** — parametric footprint families.
-- **Multi-part components** — symbols with `PartCount > 1` and `OwnerPartId`.
-- **Hierarchical schematics** — walking sheet symbols into child sheets.
-- **Diffing & validating libraries** — comparing libraries and surfacing diagnostics.
+| Guide | What you get | Example |
+|-------|--------------|---------|
+| [Hierarchical schematics](../examples/WalkHierarchy/) | Walk sheet symbols into child sheets | `WalkHierarchy` |
+| [Diffing libraries](../examples/DiffLibraries/) | Added / removed / changed components between two libraries | `DiffLibraries` |
+| [Validating & linting](../examples/ValidateLibrary/) | Reader diagnostics plus library-hygiene checks | `ValidateLibrary` |
 
 ## A note on scope
 
 The library reads and writes the four document/library types; there is **no project-file
 (`.PrjPcb`/`.PrjScr`) reader**, and the schematic model is geometric (no built-in
 pin-to-net connectivity). Guides call out these boundaries where they matter rather than
-implying capabilities that aren't there.
+implying capabilities that aren't there. The PCB side *does* model net membership (by
+`NetIndex`), which is what the [nets guide](../examples/NetReport/) uses.

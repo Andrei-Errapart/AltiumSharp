@@ -133,6 +133,14 @@ walkthrough README. The [guides index](guides/README.md) lists them by topic.
 - `ExtractBom` — read a schematic and produce a grouped bill of materials (CSV + HTML)
 - `GeneratePickAndPlace` — read a board and write an assembly pick-and-place (centroid) CSV
 - `ExtractEmbeddedAssets` — extract embedded 3D STEP models and images to disk
+- `InspectBoard` — report a board's outline size, layer stack, counts, and design rules
+- `NetReport` — count the copper objects on each net
+- `BuildFootprintGenerator` — generate parametric QFN/DIP footprints into a PcbLib
+- `BuildMultiPartComponent` — build a multi-part symbol with `PartCount` / `OwnerPartId`
+- `LibraryCatalog` — render a whole library to a PNG/SVG thumbnail gallery
+- `WalkHierarchy` — walk a hierarchical schematic through its sheet symbols
+- `DiffLibraries` — report added/removed/changed components between two libraries
+- `ValidateLibrary` — surface reader diagnostics plus library-hygiene lint
 
 Run any example with:
 
