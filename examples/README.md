@@ -185,6 +185,16 @@ See [ValidateLibrary/README.md](ValidateLibrary/README.md).
 dotnet run --project examples/ValidateLibrary
 ```
 
+### WebPreviewService
+
+Renders components to an HTTP response (minimal API); the default run renders to a stream
+and exits, `serve` starts the server. See [WebPreviewService/README.md](WebPreviewService/README.md).
+
+```
+dotnet run --project examples/WebPreviewService          # render + exit
+dotnet run --project examples/WebPreviewService -- serve # HTTP server
+```
+
 ## Test Data
 
 The examples expect Altium files in a `TestData/` directory at the repository root. A set of sample files is provided there. You can also point the examples at your own files by editing the file paths at the top of `Program.cs` in each project.

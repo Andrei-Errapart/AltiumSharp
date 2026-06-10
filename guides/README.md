@@ -55,6 +55,12 @@ For installation, the quick-start, and the coordinate system, see the top-level
 | [Rendering components & boards](../examples/RenderFiles/) | PNG/SVG output, board view sides, layer filtering | `RenderFiles` |
 | [Component catalogs](../examples/LibraryCatalog/) | Render a whole library to a thumbnail gallery | `LibraryCatalog` |
 
+### Integration
+
+| Guide | What you get | Example |
+|-------|--------------|---------|
+| [Serving previews from a web app](../examples/WebPreviewService/) | Render components to an HTTP response (minimal API) | `WebPreviewService` |
+
 ### Navigating & tooling
 
 | Guide | What you get | Example |

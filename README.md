@@ -141,6 +141,7 @@ walkthrough README. The [guides index](guides/README.md) lists them by topic.
 - `WalkHierarchy` — walk a hierarchical schematic through its sheet symbols
 - `DiffLibraries` — report added/removed/changed components between two libraries
 - `ValidateLibrary` — surface reader diagnostics plus library-hygiene lint
+- `WebPreviewService` — render component previews to an HTTP response (minimal API)
 
 Run any example with:
 
