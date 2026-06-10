@@ -11,35 +11,16 @@ using SkiaSharp;
 namespace OriginalCircuit.Altium.Rendering.Raster;
 
 /// <summary>
-/// Output image format for <see cref="RasterRenderer"/>.
-/// </summary>
-public enum RasterImageFormat
-{
-    /// <summary>PNG — lossless (the default).</summary>
-    Png = 0,
-
-    /// <summary>JPEG — lossy; honours <see cref="RasterRenderer.Quality"/>.</summary>
-    Jpeg = 1
-}
-
-/// <summary>
 /// Renders components and whole documents to raster images (PNG or JPEG) using SkiaSharp.
 /// </summary>
 /// <remarks>
-/// The image is encoded into memory and written to the output stream asynchronously, so the
-/// renderer works with streams that disallow synchronous I/O (e.g. an ASP.NET response body).
+/// The output format is taken from <see cref="RenderOptions.Format"/> (PNG by default); the
+/// file-path overloads infer it from the extension (.png / .jpg / .jpeg). The image is encoded
+/// into memory and written to the output stream asynchronously, so the renderer works with
+/// streams that disallow synchronous I/O (e.g. an ASP.NET response body).
 /// </remarks>
 public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
 {
-    /// <summary>
-    /// Output image format (default <see cref="RasterImageFormat.Png"/>). When rendering to a file
-    /// path, the format is taken from the extension (.png / .jpg / .jpeg) and overrides this value.
-    /// </summary>
-    public RasterImageFormat Format { get; set; } = RasterImageFormat.Png;
-
-    /// <summary>Encoder quality (1-100) for JPEG output. Ignored for PNG. Default 100.</summary>
-    public int Quality { get; set; } = 100;
-
     /// <inheritdoc />
     public async ValueTask RenderAsync(
         IComponent component,
@@ -51,7 +32,7 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         ArgumentNullException.ThrowIfNull(output);
 
         options ??= new RenderOptions();
-        var bytes = RenderToBytes(Format, options, PrepareComponent(component));
+        var bytes = RenderToBytes(options, PrepareComponent(component));
         await output.WriteAsync(bytes, cancellationToken);
     }
 
@@ -68,7 +49,7 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         ArgumentNullException.ThrowIfNull(output);
 
         options ??= new RenderOptions();
-        var bytes = RenderToBytes(Format, options, PrepareDocument(document, settings));
+        var bytes = RenderToBytes(options, PrepareDocument(document, settings));
         await output.WriteAsync(bytes, cancellationToken);
     }
 
@@ -83,7 +64,7 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         ArgumentNullException.ThrowIfNull(output);
 
         options ??= new RenderOptions();
-        var bytes = RenderToBytes(Format, options, PrepareSheet(document));
+        var bytes = RenderToBytes(options, PrepareSheet(document));
         await output.WriteAsync(bytes, cancellationToken);
     }
 
@@ -94,8 +75,8 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         RenderOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        options ??= new RenderOptions();
-        var bytes = RenderToBytes(FormatForPath(path), options, PrepareComponent(component));
+        options = ApplyPathFormat(options, path);
+        var bytes = RenderToBytes(options, PrepareComponent(component));
         await WriteFileAsync(path, bytes, cancellationToken);
     }
 
@@ -108,8 +89,8 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         PcbRenderSettings? settings = null,
         CancellationToken cancellationToken = default)
     {
-        options ??= new RenderOptions();
-        var bytes = RenderToBytes(FormatForPath(path), options, PrepareDocument(document, settings));
+        options = ApplyPathFormat(options, path);
+        var bytes = RenderToBytes(options, PrepareDocument(document, settings));
         await WriteFileAsync(path, bytes, cancellationToken);
     }
 
@@ -120,8 +101,8 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         RenderOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        options ??= new RenderOptions();
-        var bytes = RenderToBytes(FormatForPath(path), options, PrepareSheet(document));
+        options = ApplyPathFormat(options, path);
+        var bytes = RenderToBytes(options, PrepareSheet(document));
         await WriteFileAsync(path, bytes, cancellationToken);
     }
 
@@ -186,7 +167,7 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
 
     // Renders to an in-memory bitmap and returns the encoded image bytes. Encoding is CPU-bound
     // and synchronous; the caller writes the result to the destination stream asynchronously.
-    private byte[] RenderToBytes(RasterImageFormat format, RenderOptions options, Scene scene)
+    private static byte[] RenderToBytes(RenderOptions options, Scene scene)
     {
         using var bitmap = new SKBitmap(options.Width, options.Height);
         using var canvas = new SKCanvas(bitmap);
@@ -206,23 +187,24 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         scene.Draw(transform, context);
 
         using var image = SKImage.FromBitmap(bitmap);
-        var (skFormat, quality) = format == RasterImageFormat.Jpeg
-            ? (SKEncodedImageFormat.Jpeg, Math.Clamp(Quality, 1, 100))
+        var (skFormat, quality) = options.Format == RasterImageFormat.Jpeg
+            ? (SKEncodedImageFormat.Jpeg, Math.Clamp(options.Quality, 1, 100))
             : (SKEncodedImageFormat.Png, 100);
         using var data = image.Encode(skFormat, quality);
         return data.ToArray();
     }
 
-    // .jpg/.jpeg -> JPEG, .png -> PNG; any other extension keeps the configured Format.
-    private RasterImageFormat FormatForPath(string path)
+    // For file output, pick the format from the extension (.jpg/.jpeg/.png) unless already chosen.
+    private static RenderOptions ApplyPathFormat(RenderOptions? options, string path)
     {
+        options ??= new RenderOptions();
         var ext = Path.GetExtension(path);
         if (ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
             ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
-            return RasterImageFormat.Jpeg;
+            return options with { Format = RasterImageFormat.Jpeg };
         if (ext.Equals(".png", StringComparison.OrdinalIgnoreCase))
-            return RasterImageFormat.Png;
-        return Format;
+            return options with { Format = RasterImageFormat.Png };
+        return options;
     }
 
     private static async ValueTask WriteFileAsync(string path, byte[] bytes, CancellationToken cancellationToken)

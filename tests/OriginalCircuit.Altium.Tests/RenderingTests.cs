@@ -110,9 +110,10 @@ public sealed class RenderingTests
                 .Layer(1))
             .Build();
 
-        var renderer = new RasterRenderer { Format = RasterImageFormat.Jpeg, Quality = 85 };
+        var renderer = new RasterRenderer();
         using var ms = new MemoryStream();
-        await renderer.RenderAsync(component, ms, new RenderOptions { Width = 256, Height = 256 });
+        await renderer.RenderAsync(component, ms,
+            new RenderOptions { Width = 256, Height = 256, Format = RasterImageFormat.Jpeg, Quality = 85 });
 
         Assert.True(ms.Length > 0, "JPEG output should be non-empty");
         ms.Position = 0;

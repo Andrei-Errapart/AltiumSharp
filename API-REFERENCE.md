@@ -746,9 +746,9 @@ await renderer.RenderAsync(pcbComponent, ms, new RenderOptions { Width = 512, He
 // Render to file
 await renderer.RenderAsync(pcbComponent, "output.png", new RenderOptions { Width = 2048, Height = 2048 });
 
-// JPEG output: configure the renderer's Format/Quality, or render to a .jpg/.jpeg path
-var jpegRenderer = new RasterRenderer { Format = RasterImageFormat.Jpeg, Quality = 85 };
-await jpegRenderer.RenderAsync(pcbComponent, ms, new RenderOptions { Width = 512, Height = 512 });
+// JPEG output: set RenderOptions.Format (with optional Quality), or render to a .jpg/.jpeg path
+await renderer.RenderAsync(pcbComponent, ms,
+    new RenderOptions { Width = 512, Height = 512, Format = RasterImageFormat.Jpeg, Quality = 85 });
 await renderer.RenderAsync(pcbComponent, "output.jpg");   // format inferred from the extension
 
 // Render a schematic component
@@ -789,10 +789,10 @@ var options = new RenderOptions
     Height = 768,                       // Output height in pixels (default: 768)
     BackgroundColor = EdaColor.White,   // Background (EdaColor; default: white)
     AutoZoom = true,                    // Auto-fit component to viewport (default: true)
-    Scale = 1.0                         // Scale factor (default: 1.0)
+    Scale = 1.0,                        // Scale factor (default: 1.0)
+    Format = RasterImageFormat.Png,     // Raster output: Png (default) or Jpeg
+    Quality = 100                       // JPEG quality 1-100 (ignored for PNG)
 };
-// Raster format/quality are configured on RasterRenderer (PNG by default):
-//   new RasterRenderer { Format = RasterImageFormat.Jpeg, Quality = 85 }
 ```
 
 ### CoordTransform

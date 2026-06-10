@@ -36,7 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Fixed
 
 - Renderers now write to the output stream asynchronously (the image/SVG is encoded in memory, then written with `WriteAsync`), so `RenderAsync` works with streams that disallow synchronous I/O such as an ASP.NET Core response body.
-- Raster rendering now produces JPEG as well as PNG: configure `RasterRenderer.Format` and `Quality`, or render to a `.jpg`/`.jpeg`/`.png` path (the format is inferred from the extension). Previously only PNG was produced despite the documented JPG support.
+- Raster rendering now produces JPEG as well as PNG: set `RenderOptions.Format` and `Quality`, or render to a `.jpg`/`.jpeg`/`.png` path (the format is inferred from the extension). Previously only PNG was produced despite the documented JPG support.
 - `SchLibWriter` now preserves each pin's `OwnerPartId`, so multi-part component symbols round-trip with their pins correctly assigned to their parts (previously every pin was written as part 1).
 
 ### Removed
