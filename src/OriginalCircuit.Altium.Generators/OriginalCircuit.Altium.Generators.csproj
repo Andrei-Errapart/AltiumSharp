@@ -7,9 +7,11 @@
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <IsRoslynComponent>true</IsRoslynComponent>
 
-    <!-- Don't include as a lib dependency -->
+    <!-- Don't include as a lib dependency, and never pack it: it is a build-time analyzer consumed
+         via ProjectReference, not a shipped package (packing it produces NU5017 with no content). -->
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <DevelopmentDependency>true</DevelopmentDependency>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
