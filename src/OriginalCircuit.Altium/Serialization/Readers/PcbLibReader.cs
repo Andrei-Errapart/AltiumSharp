@@ -956,17 +956,17 @@ public sealed class PcbLibReader
         pad.PowerPlaneClearance = Coord.FromRaw(powerPlaneClearance);
         pad.PowerPlaneReliefExpansion = Coord.FromRaw(powerPlaneReliefExpansion);
 
-        pad.LayerXSizes = layerXSizes;
-        pad.LayerYSizes = layerYSizes;
-        pad.InternalLayerShapes = internalLayerShapes;
+        Array.Copy(layerXSizes, pad.LayerXSizes, Math.Min(layerXSizes.Length, pad.LayerXSizes.Length));
+        Array.Copy(layerYSizes, pad.LayerYSizes, Math.Min(layerYSizes.Length, pad.LayerYSizes.Length));
+        Array.Copy(internalLayerShapes, pad.InternalLayerShapes, Math.Min(internalLayerShapes.Length, pad.InternalLayerShapes.Length));
         pad.HoleType = (PadHoleType)holeShapeByte;
         pad.HoleSlotLength = holeSlotLength;
         pad.HoleRotation = holeRotation;
-        pad.OffsetXFromHoleCenter = offsetX;
-        pad.OffsetYFromHoleCenter = offsetY;
+        Array.Copy(offsetX, pad.OffsetXFromHoleCenter, Math.Min(offsetX.Length, pad.OffsetXFromHoleCenter.Length));
+        Array.Copy(offsetY, pad.OffsetYFromHoleCenter, Math.Min(offsetY.Length, pad.OffsetYFromHoleCenter.Length));
         pad.HasRoundedRectByte = hasRoundedRectByte;
-        pad.PerLayerShapes = perLayerShapes;
-        pad.PerLayerCornerRadii = perLayerCornerRadii;
+        Array.Copy(perLayerShapes, pad.PerLayerShapes, Math.Min(perLayerShapes.Length, pad.PerLayerShapes.Length));
+        Array.Copy(perLayerCornerRadii, pad.PerLayerCornerRadii, Math.Min(perLayerCornerRadii.Length, pad.PerLayerCornerRadii.Length));
         pad.HasSizeShapeBlock = hasSizeShapeBlock;
         pad.FullStackEntries.AddRange(fullStackEntries);
         return pad;

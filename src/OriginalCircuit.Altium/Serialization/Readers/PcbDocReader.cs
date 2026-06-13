@@ -1046,7 +1046,6 @@ public sealed class PcbDocReader
     }
 
     /// <summary>
-    /// <summary>
     /// Reads a primitive storage section. Each storage has a Header stream (record count)
     /// and a Data stream. Each record is prefixed with an object ID byte (same as PcbLib),
     /// followed by the type-specific binary data.

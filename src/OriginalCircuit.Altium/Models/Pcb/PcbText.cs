@@ -551,9 +551,30 @@ public sealed class PcbText : IPcbText
     {
         get
         {
-            // Approximate bounds based on height and text length
+            // Approximate text extent based on height and text length.
             var estimatedWidth = Height * Text.Length * 0.6; // rough estimate
-            return new CoordRect(Location.X, Location.Y, Location.X + estimatedWidth, Location.Y + Height);
+            if (Rotation == 0 && !Mirrored)
+                return new CoordRect(Location.X, Location.Y, Location.X + estimatedWidth, Location.Y + Height);
+
+            // Axis-aligned bounding box of the rotated (and possibly mirrored) text box anchored at
+            // Location. Without this, rotated silkscreen designators (commonly at 90/270 deg) report a
+            // too-small extent and get clipped by AutoZoom framing.
+            var rad = Rotation * System.Math.PI / 180.0;
+            var cos = System.Math.Cos(rad);
+            var sin = System.Math.Sin(rad);
+            var w = (Mirrored ? -estimatedWidth.ToRaw() : estimatedWidth.ToRaw());
+            var h = Height.ToRaw();
+            int minX = 0, minY = 0, maxX = 0, maxY = 0;
+            foreach (var (cx, cy) in new[] { (0, 0), (w, 0), (w, h), (0, h) })
+            {
+                var rx = (int)System.Math.Round(cx * cos - cy * sin);
+                var ry = (int)System.Math.Round(cx * sin + cy * cos);
+                minX = System.Math.Min(minX, rx); maxX = System.Math.Max(maxX, rx);
+                minY = System.Math.Min(minY, ry); maxY = System.Math.Max(maxY, ry);
+            }
+            return new CoordRect(
+                Location.X + Coord.FromRaw(minX), Location.Y + Coord.FromRaw(minY),
+                Location.X + Coord.FromRaw(maxX), Location.Y + Coord.FromRaw(maxY));
         }
     }
 

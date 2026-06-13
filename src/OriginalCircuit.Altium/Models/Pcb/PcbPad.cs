@@ -551,19 +551,19 @@ public sealed class PcbPad : IPcbPad
     /// Per-layer X sizes for 29 internal copper layers (raw coord values).
     /// Index 0 = first internal layer, index 28 = last internal layer.
     /// </summary>
-    public int[] LayerXSizes { get; set; } = new int[29];
+    public int[] LayerXSizes { get; } = new int[29];
 
     /// <summary>
     /// Per-layer Y sizes for 29 internal copper layers (raw coord values).
     /// Index 0 = first internal layer, index 28 = last internal layer.
     /// </summary>
-    public int[] LayerYSizes { get; set; } = new int[29];
+    public int[] LayerYSizes { get; } = new int[29];
 
     /// <summary>
     /// Per-layer shapes for 29 internal copper layers.
     /// Values correspond to <see cref="PadShape"/> enum values.
     /// </summary>
-    public byte[] InternalLayerShapes { get; set; } = new byte[29];
+    public byte[] InternalLayerShapes { get; } = new byte[29];
 
     /// <summary>
     /// Hole slot length for slot holes (raw coord value).
@@ -575,13 +575,13 @@ public sealed class PcbPad : IPcbPad
     /// Per-layer X offsets from hole center (32 layers, raw coord values).
     /// Index 0 = top, index 31 = bottom.
     /// </summary>
-    public int[] OffsetXFromHoleCenter { get; set; } = new int[32];
+    public int[] OffsetXFromHoleCenter { get; } = new int[32];
 
     /// <summary>
     /// Per-layer Y offsets from hole center (32 layers, raw coord values).
     /// Index 0 = top, index 31 = bottom.
     /// </summary>
-    public int[] OffsetYFromHoleCenter { get; set; } = new int[32];
+    public int[] OffsetYFromHoleCenter { get; } = new int[32];
 
     /// <summary>
     /// Flag indicating per-layer rounded rectangle shape overrides are active.
@@ -594,13 +594,13 @@ public sealed class PcbPad : IPcbPad
     /// Index 0 = top copper, index 31 = bottom copper.
     /// Values correspond to <see cref="PadShape"/> enum values.
     /// </summary>
-    public byte[] PerLayerShapes { get; set; } = new byte[32];
+    public byte[] PerLayerShapes { get; } = new byte[32];
 
     /// <summary>
     /// Per-layer corner radius percentages (32 layers, 0-100).
     /// Index 0 = top copper, index 31 = bottom copper.
     /// </summary>
-    public byte[] PerLayerCornerRadii { get; set; } = new byte[32];
+    public byte[] PerLayerCornerRadii { get; } = new byte[32];
 
     /// <summary>
     /// Whether the extended size/shape block is present.
@@ -636,7 +636,23 @@ public sealed class PcbPad : IPcbPad
     public List<PadFullStackEntry> FullStackEntries { get; } = new();
 
     /// <inheritdoc />
-    public CoordRect Bounds => CoordRect.FromCenter(Location, SizeTop.X, SizeTop.Y);
+    public CoordRect Bounds
+    {
+        get
+        {
+            if (Rotation == 0)
+                return CoordRect.FromCenter(Location, SizeTop.X, SizeTop.Y);
+            // Axis-aligned bounding box of the rotated pad rectangle: a rotated W x H rectangle
+            // spans (W*|cos| + H*|sin|) x (W*|sin| + H*|cos|). Without this, a rotated pad reports
+            // a too-small extent and gets clipped by AutoZoom framing.
+            var rad = Rotation * System.Math.PI / 180.0;
+            var cos = System.Math.Abs(System.Math.Cos(rad));
+            var sin = System.Math.Abs(System.Math.Sin(rad));
+            var width = SizeTop.X * cos + SizeTop.Y * sin;
+            var height = SizeTop.X * sin + SizeTop.Y * cos;
+            return CoordRect.FromCenter(Location, width, height);
+        }
+    }
 
     /// <summary>
     /// Creates a fluent builder for a new pad.
