@@ -12,6 +12,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\OriginalCircuit.Altium\OriginalCircuit.Altium.csproj" />
+    <!-- Altium APIs return Eda types (ISchComponent, IPcbComponent, etc.). Those are bundled into
+         the Altium package with PrivateAssets=all, so in-repo consumers reference them directly. -->
+    <ProjectReference Include="..\..\shared\OriginalCircuit.Eda.Abstractions\src\OriginalCircuit.Eda.Abstractions\OriginalCircuit.Eda.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

@@ -9,4 +9,13 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- The Altium packages reference the shared Eda projects with PrivateAssets=all (bundled into
+       the published packages, not exposed transitively). In-repo example apps that use Eda types
+       (Coord, CoordPoint, enums, the Eda.Rendering abstractions) must reference them directly.
+       Paths are anchored to this file so they resolve from each example's subdirectory. -->
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\shared\OriginalCircuit.Eda.Abstractions\src\OriginalCircuit.Eda.Abstractions\OriginalCircuit.Eda.Abstractions.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\shared\OriginalCircuit.Eda.Rendering\src\OriginalCircuit.Eda.Rendering.Core\OriginalCircuit.Eda.Rendering.Core.csproj" />
+  </ItemGroup>
+
 </Project>
