@@ -776,7 +776,9 @@ namespace OriginalCircuit.Altium.Primitives
                 break;
 
             default:
-                assignment = $"// TODO: Unsupported type for property {prop.Name}: {prop.TypeName}";
+                // No reader is generated for an unsupported type, so the property would silently
+                // fail to round-trip. Surface it as a build warning instead of a silent comment.
+                assignment = $"#warning AltiumRecordGenerator: property '{prop.Name}' has unsupported type '{prop.TypeName}'; it will NOT be read from parameters (no round-trip). Add support in GetPropertyTypeKind.";
                 break;
         }
 
@@ -900,7 +902,9 @@ namespace OriginalCircuit.Altium.Primitives
                 break;
 
             default:
-                assignment = $"// TODO: Unsupported type for property {prop.Name}: {prop.TypeName}";
+                // No writer is generated for an unsupported type, so the property would silently
+                // fail to round-trip. Surface it as a build warning instead of a silent comment.
+                assignment = $"#warning AltiumRecordGenerator: property '{prop.Name}' has unsupported type '{prop.TypeName}'; it will NOT be written to parameters (no round-trip). Add support in GetPropertyTypeKind.";
                 break;
         }
 
