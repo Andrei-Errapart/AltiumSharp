@@ -1,0 +1,12 @@
+<Project>
+
+  <!-- Inherit the repo-root settings (analyzers, nullable, langversion, shared metadata)... -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!-- ...but examples are sample apps, never NuGet packages. Without this they would be packed
+       and pushed to NuGet.org by the release workflow (it packs the whole solution). -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

@@ -48,4 +48,22 @@
     <None Include="$(MSBuildThisFileDirectory)assets\icon.png" Pack="true" PackagePath="\" />
   </ItemGroup>
 
+  <!--
+    The publishable packages reference the shared OriginalCircuit.Eda.* projects via
+    ProjectReference with PrivateAssets="all". Those projects are NOT published as standalone
+    NuGet packages, so without this they would be emitted as unresolvable package dependencies
+    (NU1101 on restore). Instead we bundle their built assemblies directly into our lib/ folder.
+    Same-version duplicates across our own packages are resolved harmlessly by the consumer.
+  -->
+  <PropertyGroup Condition="'$(IsPackable)' != 'false' and '$(DevelopmentDependency)' != 'true'">
+    <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);_IncludeSharedEdaAssemblies</TargetsForTfmSpecificBuildOutput>
+  </PropertyGroup>
+
+  <Target Name="_IncludeSharedEdaAssemblies" DependsOnTargets="ResolveReferences">
+    <ItemGroup>
+      <BuildOutputInPackage Include="@(ReferenceCopyLocalPaths)"
+                            Condition="'%(Extension)' == '.dll' and $([System.String]::Copy('%(Filename)').StartsWith('OriginalCircuit.Eda.'))" />
+    </ItemGroup>
+  </Target>
+
 </Project>

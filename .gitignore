@@ -367,4 +367,7 @@ roundtrip-output/
 # Local render comparison output
 render-output/
 
+# Review / planning / working markdown (not part of project documentation)
+reviews/
+
 PrivateTestData/
