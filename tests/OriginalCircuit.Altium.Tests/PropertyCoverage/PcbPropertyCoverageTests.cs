@@ -155,18 +155,12 @@ public class PcbPropertyCoverageTests : CoverageTestBase
             }
         }
 
-        // Report failures but don't hard-fail — many test files use format features
-        // the v2 reader doesn't support yet. Track improvement over time.
-        // Uncomment to enforce: Assert.Empty(failures);
-        if (failures.Count > 0)
-        {
-            var total = Directory.GetFiles(dir, "*.json")
-                .Count(f => File.Exists(Path.ChangeExtension(f, ".PcbLib")));
-            var succeeded = total - failures.Count;
-            // Just ensure we can read at least some files
-            Assert.True(true,
-                $"PCB read results: {succeeded}/{total} succeeded, {failures.Count} failed");
-        }
+        // Every committed PcbLib test file must read without exceptions and with a matching
+        // component count. If a new file genuinely uses an unsupported feature, add it to an
+        // explicit skip list with a comment rather than weakening this assertion.
+        Assert.True(failures.Count == 0,
+            $"{failures.Count} PcbLib file(s) failed to read or had mismatched component counts:\n"
+            + string.Join("\n", failures));
     }
 
     /// <summary>

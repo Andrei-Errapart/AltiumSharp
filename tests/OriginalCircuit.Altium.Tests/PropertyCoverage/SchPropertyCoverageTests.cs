@@ -279,15 +279,12 @@ public class SchPropertyCoverageTests : CoverageTestBase
             }
         }
 
-        // Report failures but don't hard-fail — track improvement over time.
-        if (failures.Count > 0)
-        {
-            var total = Directory.GetFiles(dir, "*.json")
-                .Count(f => File.Exists(Path.ChangeExtension(f, ".SchLib")));
-            var succeeded = total - failures.Count;
-            Assert.True(true,
-                $"SchLib read results: {succeeded}/{total} succeeded, {failures.Count} failed");
-        }
+        // Every committed SchLib test file must read without exceptions and with a matching
+        // component count. If a new file genuinely uses an unsupported feature, add it to an
+        // explicit skip list with a comment rather than weakening this assertion.
+        Assert.True(failures.Count == 0,
+            $"{failures.Count} SchLib file(s) failed to read or had mismatched component counts:\n"
+            + string.Join("\n", failures));
     }
 
     /// <summary>

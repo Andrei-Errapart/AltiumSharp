@@ -169,7 +169,11 @@ public sealed class ValueVerificationTests : CoverageTestBase
                     .Where(p => p.GetProperty("objectType").GetString() == "Rectangle")
                     .ToList();
 
-                if (comp.Rectangles.Count != jsonRects.Count) continue;
+                if (comp.Rectangles.Count != jsonRects.Count)
+                {
+                    errors.Add($"{fileName}/{comp.Name}: rectangle count mismatch: JSON={jsonRects.Count}, reader={comp.Rectangles.Count}");
+                    continue;
+                }
 
                 for (var ri = 0; ri < jsonRects.Count; ri++)
                 {
@@ -223,7 +227,11 @@ public sealed class ValueVerificationTests : CoverageTestBase
                     .Where(p => p.GetProperty("objectType").GetString() == "Line")
                     .ToList();
 
-                if (comp.Lines.Count != jsonLines.Count) continue;
+                if (comp.Lines.Count != jsonLines.Count)
+                {
+                    errors.Add($"{fileName}/{comp.Name}: line count mismatch: JSON={jsonLines.Count}, reader={comp.Lines.Count}");
+                    continue;
+                }
 
                 for (var li = 0; li < jsonLines.Count; li++)
                 {
@@ -275,7 +283,11 @@ public sealed class ValueVerificationTests : CoverageTestBase
                     .Where(p => p.GetProperty("objectType").GetString() == "Arc")
                     .ToList();
 
-                if (comp.Arcs.Count != jsonArcs.Count) continue;
+                if (comp.Arcs.Count != jsonArcs.Count)
+                {
+                    errors.Add($"{fileName}/{comp.Name}: arc count mismatch: JSON={jsonArcs.Count}, reader={comp.Arcs.Count}");
+                    continue;
+                }
 
                 for (var ai = 0; ai < jsonArcs.Count; ai++)
                 {
@@ -328,7 +340,11 @@ public sealed class ValueVerificationTests : CoverageTestBase
                     .Where(p => p.GetProperty("objectType").GetString() == "Polygon")
                     .ToList();
 
-                if (comp.Polygons.Count != jsonPolys.Count) continue;
+                if (comp.Polygons.Count != jsonPolys.Count)
+                {
+                    errors.Add($"{fileName}/{comp.Name}: polygon count mismatch: JSON={jsonPolys.Count}, reader={comp.Polygons.Count}");
+                    continue;
+                }
 
                 for (var pi = 0; pi < jsonPolys.Count; pi++)
                 {
@@ -384,7 +400,11 @@ public sealed class ValueVerificationTests : CoverageTestBase
                     .Where(p => p.GetProperty("objectType").GetString() == "Pad")
                     .ToList();
 
-                if (comp.Pads.Count != jsonPads.Count) continue;
+                if (comp.Pads.Count != jsonPads.Count)
+                {
+                    errors.Add($"{fileName}/{comp.Name}: pad count mismatch: JSON={jsonPads.Count}, reader={comp.Pads.Count}");
+                    continue;
+                }
 
                 for (var pi = 0; pi < jsonPads.Count; pi++)
                 {
@@ -445,7 +465,11 @@ public sealed class ValueVerificationTests : CoverageTestBase
                     .Where(p => p.GetProperty("objectType").GetString() == "Track")
                     .ToList();
 
-                if (comp.Tracks.Count != jsonTracks.Count) continue;
+                if (comp.Tracks.Count != jsonTracks.Count)
+                {
+                    errors.Add($"{fileName}/{comp.Name}: track count mismatch: JSON={jsonTracks.Count}, reader={comp.Tracks.Count}");
+                    continue;
+                }
 
                 for (var ti = 0; ti < jsonTracks.Count; ti++)
                 {
@@ -496,7 +520,11 @@ public sealed class ValueVerificationTests : CoverageTestBase
                     .Where(p => p.GetProperty("objectType").GetString() == "Via")
                     .ToList();
 
-                if (comp.Vias.Count != jsonVias.Count) continue;
+                if (comp.Vias.Count != jsonVias.Count)
+                {
+                    errors.Add($"{fileName}/{comp.Name}: via count mismatch: JSON={jsonVias.Count}, reader={comp.Vias.Count}");
+                    continue;
+                }
 
                 for (var vi = 0; vi < jsonVias.Count; vi++)
                 {
@@ -547,7 +575,11 @@ public sealed class ValueVerificationTests : CoverageTestBase
                     .Where(p => p.GetProperty("objectType").GetString() == "Arc")
                     .ToList();
 
-                if (comp.Arcs.Count != jsonArcs.Count) continue;
+                if (comp.Arcs.Count != jsonArcs.Count)
+                {
+                    errors.Add($"{fileName}/{comp.Name}: arc count mismatch: JSON={jsonArcs.Count}, reader={comp.Arcs.Count}");
+                    continue;
+                }
 
                 for (var ai = 0; ai < jsonArcs.Count; ai++)
                 {
@@ -599,7 +631,11 @@ public sealed class ValueVerificationTests : CoverageTestBase
                     .Where(p => p.GetProperty("objectType").GetString() == "Text")
                     .ToList();
 
-                if (comp.Texts.Count != jsonTexts.Count) continue;
+                if (comp.Texts.Count != jsonTexts.Count)
+                {
+                    errors.Add($"{fileName}/{comp.Name}: text count mismatch: JSON={jsonTexts.Count}, reader={comp.Texts.Count}");
+                    continue;
+                }
 
                 for (var ti = 0; ti < jsonTexts.Count; ti++)
                 {
@@ -653,7 +689,11 @@ public sealed class ValueVerificationTests : CoverageTestBase
                     .Where(p => p.GetProperty("objectType").GetString() == "Region")
                     .ToList();
 
-                if (comp.Regions.Count != jsonRegions.Count) continue;
+                if (comp.Regions.Count != jsonRegions.Count)
+                {
+                    errors.Add($"{fileName}/{comp.Name}: region count mismatch: JSON={jsonRegions.Count}, reader={comp.Regions.Count}");
+                    continue;
+                }
 
                 for (var ri = 0; ri < jsonRegions.Count; ri++)
                 {
