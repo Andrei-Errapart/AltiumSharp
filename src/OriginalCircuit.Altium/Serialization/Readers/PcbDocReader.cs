@@ -409,7 +409,7 @@ public sealed class PcbDocReader
         });
     }
 
-    private static void ReadArcs(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
+    private void ReadArcs(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
     {
         ReadPrimitiveStorage(accessor, "Arcs6", reader =>
         {
@@ -419,7 +419,7 @@ public sealed class PcbDocReader
         }, cancellationToken);
     }
 
-    private static void ReadPads(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
+    private void ReadPads(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
     {
         ReadPrimitiveStorage(accessor, "Pads6", reader =>
         {
@@ -450,7 +450,7 @@ public sealed class PcbDocReader
         }
     }
 
-    private static void ReadVias(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
+    private void ReadVias(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
     {
         ReadPrimitiveStorage(accessor, "Vias6", reader =>
         {
@@ -460,7 +460,7 @@ public sealed class PcbDocReader
         }, cancellationToken);
     }
 
-    private static void ReadTracks(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
+    private void ReadTracks(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
     {
         ReadPrimitiveStorage(accessor, "Tracks6", reader =>
         {
@@ -470,7 +470,7 @@ public sealed class PcbDocReader
         }, cancellationToken);
     }
 
-    private static void ReadTexts(CompoundFileAccessor accessor, PcbDocument document, List<string> wideStrings, CancellationToken cancellationToken)
+    private void ReadTexts(CompoundFileAccessor accessor, PcbDocument document, List<string> wideStrings, CancellationToken cancellationToken)
     {
         ReadPrimitiveStorage(accessor, "Texts6", reader =>
         {
@@ -480,7 +480,7 @@ public sealed class PcbDocReader
         }, cancellationToken);
     }
 
-    private static void ReadFills(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
+    private void ReadFills(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
     {
         ReadPrimitiveStorage(accessor, "Fills6", reader =>
         {
@@ -490,7 +490,7 @@ public sealed class PcbDocReader
         }, cancellationToken);
     }
 
-    private static void ReadRegions(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
+    private void ReadRegions(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
     {
         ReadPrimitiveStorage(accessor, "Regions6", reader =>
         {
@@ -500,7 +500,7 @@ public sealed class PcbDocReader
         }, cancellationToken);
     }
 
-    private static void ReadComponentBodies(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
+    private void ReadComponentBodies(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
     {
         ReadPrimitiveStorage(accessor, "ComponentBodies6", reader =>
         {
@@ -1051,7 +1051,7 @@ public sealed class PcbDocReader
     /// and a Data stream. Each record is prefixed with an object ID byte (same as PcbLib),
     /// followed by the type-specific binary data.
     /// </summary>
-    private static void ReadPrimitiveStorage(
+    private void ReadPrimitiveStorage(
         CompoundFileAccessor accessor,
         string storageName,
         Action<BinaryFormatReader> readPrimitive,
@@ -1073,6 +1073,7 @@ public sealed class PcbDocReader
         using var ms = new MemoryStream(data);
         using var reader = new BinaryFormatReader(ms, leaveOpen: true);
 
+        var recordIndex = 0;
         while (reader.HasMore)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1081,9 +1082,15 @@ public sealed class PcbDocReader
                 // Each record is prefixed with an object ID byte
                 reader.ReadByte();
                 readPrimitive(reader);
+                recordIndex++;
             }
             catch (EndOfStreamException)
             {
+                // A truncated/corrupt record aborts this storage; surface it instead of silently
+                // dropping every remaining primitive (which would make a partial parse look complete).
+                _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                    $"Truncated or corrupt record at index {recordIndex} in '{storageName}'; remaining primitives in this storage were skipped.",
+                    storageName, recordIndex));
                 break;
             }
         }

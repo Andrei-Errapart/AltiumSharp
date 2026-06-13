@@ -510,7 +510,12 @@ public sealed class PcbLibReader
                         break;
 
                     default:
-                        // Unknown primitive - try to skip
+                        // Unknown primitive: skip one size-prefixed block and record it. For
+                        // multi-block primitives this may misalign the stream, so later primitives
+                        // in this footprint could be affected - surface it rather than failing silently.
+                        _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                            $"Unknown PCB primitive object id {(int)objectId} in footprint '{component.Name}'; skipped one block.",
+                            sectionKey));
                         reader.SkipBlock();
                         break;
                 }

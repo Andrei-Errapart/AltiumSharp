@@ -314,7 +314,13 @@ public sealed class SchLibReader
         {
             cancellationToken.ThrowIfCancellationRequested();
             var parameters = ReadRecordParameters(reader);
-            if (parameters == null || parameters.Count == 0)
+            if (parameters == null)
+            {
+                _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                    "Skipped a malformed or truncated record while reading component primitives.", sectionKey));
+                continue;
+            }
+            if (parameters.Count == 0)
                 continue;
 
             if (!parameters.TryGetValue("RECORD", out var recordTypeStr) ||
@@ -364,6 +370,13 @@ public sealed class SchLibReader
                     // Skip string markers (ImplementationList, MapDefinerList, ImplementationParameters)
                     AddPrimitiveToComponent(component, primitive);
                 }
+                else if (primitive == null)
+                {
+                    // Record type is not modelled for SchLib (e.g. Note/Hyperlink/Harness): it is
+                    // dropped rather than silently lost, so a partial parse is observable.
+                    _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                        $"Unsupported SchLib record type {recordType} was dropped.", sectionKey));
+                }
             }
         }
 
@@ -412,7 +425,14 @@ public sealed class SchLibReader
             var dataSize = sizeHeader & 0x00FFFFFF;
 
             if (dataSize <= 0 || dataSize > 1_000_000)
+            {
+                // Skip the declared payload when it lies within the stream so the record loop stays
+                // aligned (returning after only the 4-byte header would mis-frame every later record);
+                // a wild size beyond the remaining data is genuinely unrecoverable.
+                if (dataSize > 0 && dataSize <= reader.Length - reader.Position)
+                    reader.Skip(dataSize);
                 return null;
+            }
 
             if (flags == 0x01)
             {
