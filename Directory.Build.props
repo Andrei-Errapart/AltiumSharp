@@ -10,6 +10,24 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
+  <!-- Dependency vulnerability auditing: surface advisories and fail the build on any NEW one.
+       The two known OpenMcdf 2.3.0 advisories are suppressed below with a justification while the
+       (breaking) migration to OpenMcdf 3.x is scheduled. -->
+  <PropertyGroup>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- OpenMcdf 2.3.0 cyclic directory-entry DoS advisories. Fixed only in the 3.x line, which is
+         a breaking API rewrite tracked as a dedicated migration. Suppressed so the build stays green
+         and so NEW advisories still fail; remove these two lines once OpenMcdf is upgraded. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-5qwm-7pvp-w988" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-jxpf-xq2m-q525" />
+  </ItemGroup>
+
   <!-- Deterministic and reproducible builds -->
   <PropertyGroup>
     <Deterministic>true</Deterministic>
