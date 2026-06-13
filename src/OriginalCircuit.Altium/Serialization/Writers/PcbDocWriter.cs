@@ -1,3 +1,4 @@
+using System.Globalization;
 using OpenMcdf;
 using OriginalCircuit.Altium.Models.Pcb;
 using OriginalCircuit.Eda.Primitives;
@@ -442,9 +443,9 @@ public sealed class PcbDocWriter
         }
 
         // Basic identity
-        parameters["LAYER"] = polygon.Layer.ToString();
+        parameters["LAYER"] = polygon.Layer.ToString(CultureInfo.InvariantCulture);
         parameters["NET"] = polygon.Net ?? string.Empty;
-        parameters["POLYGONTYPE"] = polygon.PolygonType.ToString();
+        parameters["POLYGONTYPE"] = polygon.PolygonType.ToString(CultureInfo.InvariantCulture);
 
         if (!string.IsNullOrEmpty(polygon.Name))
             parameters["NAME"] = polygon.Name;
@@ -452,12 +453,12 @@ public sealed class PcbDocWriter
             parameters["UNIQUEID"] = polygon.UniqueId;
 
         // Hatch/pour settings - use DTO keys
-        parameters["HATCHSTYLE"] = polygon.PolyHatchStyle.ToString();
-        parameters["POURMODE"] = polygon.PourOver.ToString();
+        parameters["HATCHSTYLE"] = polygon.PolyHatchStyle.ToString(CultureInfo.InvariantCulture);
+        parameters["POURMODE"] = polygon.PourOver.ToString(CultureInfo.InvariantCulture);
 
         // Boolean flags - use DTO keys
         parameters["REMOVEISLANDSBYAREA"] = polygon.RemoveIslandsByArea ? "TRUE" : "FALSE";
-        parameters["ISLANDAREATHRESHOLD"] = polygon.IslandAreaThreshold.ToString();
+        parameters["ISLANDAREATHRESHOLD"] = polygon.IslandAreaThreshold.ToString(CultureInfo.InvariantCulture);
         parameters["REMOVEDEAD"] = polygon.RemoveDead ? "TRUE" : "FALSE";
         parameters["REMOVENECKS"] = polygon.RemoveNarrowNecks ? "TRUE" : "FALSE";
         parameters["USEOCTAGONS"] = polygon.UseOctagons ? "TRUE" : "FALSE";
@@ -465,41 +466,41 @@ public sealed class PcbDocWriter
 
         // Coord properties
         if (polygon.Grid.ToRaw() != 0)
-            parameters["GRIDSIZE"] = polygon.Grid.ToRaw().ToString();
+            parameters["GRIDSIZE"] = polygon.Grid.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (polygon.TrackSize.ToRaw() != 0)
-            parameters["TRACKWIDTH"] = polygon.TrackSize.ToRaw().ToString();
+            parameters["TRACKWIDTH"] = polygon.TrackSize.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (polygon.MinTrack.ToRaw() != 0)
-            parameters["MINPRIMLENGTH"] = polygon.MinTrack.ToRaw().ToString();
+            parameters["MINPRIMLENGTH"] = polygon.MinTrack.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (polygon.NeckWidthThreshold.ToRaw() != 0)
-            parameters["NECKWIDTH"] = polygon.NeckWidthThreshold.ToRaw().ToString();
+            parameters["NECKWIDTH"] = polygon.NeckWidthThreshold.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (polygon.ArcApproximation.ToRaw() != 0)
-            parameters["ARCAPPROXIMATION"] = polygon.ArcApproximation.ToRaw().ToString();
+            parameters["ARCAPPROXIMATION"] = polygon.ArcApproximation.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (polygon.BorderWidth.ToRaw() != 0)
-            parameters["BORDERWIDTH"] = polygon.BorderWidth.ToRaw().ToString();
+            parameters["BORDERWIDTH"] = polygon.BorderWidth.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (polygon.SolderMaskExpansion.ToRaw() != 0)
-            parameters["SOLDERMASKEXPANSION"] = polygon.SolderMaskExpansion.ToRaw().ToString();
+            parameters["SOLDERMASKEXPANSION"] = polygon.SolderMaskExpansion.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (polygon.PasteMaskExpansion.ToRaw() != 0)
-            parameters["PASTEMASKEXPANSION"] = polygon.PasteMaskExpansion.ToRaw().ToString();
+            parameters["PASTEMASKEXPANSION"] = polygon.PasteMaskExpansion.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (polygon.ReliefAirGap.ToRaw() != 0)
-            parameters["RELIEFAIRGAP"] = polygon.ReliefAirGap.ToRaw().ToString();
+            parameters["RELIEFAIRGAP"] = polygon.ReliefAirGap.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (polygon.ReliefConductorWidth.ToRaw() != 0)
-            parameters["RELIEFCONDUCTORWIDTH"] = polygon.ReliefConductorWidth.ToRaw().ToString();
+            parameters["RELIEFCONDUCTORWIDTH"] = polygon.ReliefConductorWidth.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (polygon.PowerPlaneClearance.ToRaw() != 0)
-            parameters["POWERPLANECLEARANCE"] = polygon.PowerPlaneClearance.ToRaw().ToString();
+            parameters["POWERPLANECLEARANCE"] = polygon.PowerPlaneClearance.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (polygon.PowerPlaneReliefExpansion.ToRaw() != 0)
-            parameters["POWERPLANERELIEFEXPANSION"] = polygon.PowerPlaneReliefExpansion.ToRaw().ToString();
+            parameters["POWERPLANERELIEFEXPANSION"] = polygon.PowerPlaneReliefExpansion.ToRaw().ToString(CultureInfo.InvariantCulture);
 
         // Integer properties
         if (polygon.PourIndex != 0)
-            parameters["POURORDER"] = polygon.PourIndex.ToString();
+            parameters["POURORDER"] = polygon.PourIndex.ToString(CultureInfo.InvariantCulture);
         if (polygon.ReliefEntries != 0)
-            parameters["RELIEFENTRIES"] = polygon.ReliefEntries.ToString();
+            parameters["RELIEFENTRIES"] = polygon.ReliefEntries.ToString(CultureInfo.InvariantCulture);
         if (polygon.PowerPlaneConnectStyle != 0)
-            parameters["POWERPLANECONNECTSTYLE"] = polygon.PowerPlaneConnectStyle.ToString();
+            parameters["POWERPLANECONNECTSTYLE"] = polygon.PowerPlaneConnectStyle.ToString(CultureInfo.InvariantCulture);
 
         // Long properties
         if (polygon.AreaSize != 0)
-            parameters["REPOURAREA"] = polygon.AreaSize.ToString();
+            parameters["REPOURAREA"] = polygon.AreaSize.ToString(CultureInfo.InvariantCulture);
 
         // More boolean flags
         if (polygon.PrimitiveLock)
@@ -544,12 +545,12 @@ public sealed class PcbDocWriter
             parameters["ARCPOURMODE"] = "TRUE";
 
         // Vertices
-        parameters["POINTCOUNT"] = polygon.Vertices.Count.ToString();
+        parameters["POINTCOUNT"] = polygon.Vertices.Count.ToString(CultureInfo.InvariantCulture);
         for (var i = 0; i < polygon.Vertices.Count; i++)
         {
             var prefix = $"SA{i}";
-            parameters[$"{prefix}.X"] = polygon.Vertices[i].X.ToRaw().ToString();
-            parameters[$"{prefix}.Y"] = polygon.Vertices[i].Y.ToRaw().ToString();
+            parameters[$"{prefix}.X"] = polygon.Vertices[i].X.ToRaw().ToString(CultureInfo.InvariantCulture);
+            parameters[$"{prefix}.Y"] = polygon.Vertices[i].Y.ToRaw().ToString(CultureInfo.InvariantCulture);
         }
 
         writer.WriteCStringParameterBlock(parameters);
@@ -601,39 +602,39 @@ public sealed class PcbDocWriter
         if (!string.IsNullOrEmpty(comp.Description))
             parameters["DESCRIPTION"] = comp.Description;
         if (comp.Height.ToRaw() != 0)
-            parameters["HEIGHT"] = comp.Height.ToRaw().ToString();
+            parameters["HEIGHT"] = comp.Height.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (!string.IsNullOrEmpty(comp.Comment))
             parameters["COMMENT"] = comp.Comment;
         if (comp.X.ToRaw() != 0)
-            parameters["X"] = comp.X.ToRaw().ToString();
+            parameters["X"] = comp.X.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (comp.Y.ToRaw() != 0)
-            parameters["Y"] = comp.Y.ToRaw().ToString();
+            parameters["Y"] = comp.Y.ToRaw().ToString(CultureInfo.InvariantCulture);
         if (comp.Rotation != 0)
-            parameters["ROTATION"] = comp.Rotation.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            parameters["ROTATION"] = comp.Rotation.ToString(CultureInfo.InvariantCulture);
         if (comp.Layer != 0)
-            parameters["LAYER"] = comp.Layer.ToString();
+            parameters["LAYER"] = comp.Layer.ToString(CultureInfo.InvariantCulture);
 
         // Display
         if (comp.CommentOn)
             parameters["COMMENTON"] = "TRUE";
         if (comp.CommentAutoPosition != 0)
-            parameters["COMMENTAUTOPOSITION"] = comp.CommentAutoPosition.ToString();
+            parameters["COMMENTAUTOPOSITION"] = comp.CommentAutoPosition.ToString(CultureInfo.InvariantCulture);
         if (comp.NameOn)
             parameters["NAMEON"] = "TRUE";
         if (comp.NameAutoPosition != 0)
-            parameters["NAMEAUTOPOSITION"] = comp.NameAutoPosition.ToString();
+            parameters["NAMEAUTOPOSITION"] = comp.NameAutoPosition.ToString(CultureInfo.InvariantCulture);
         if (comp.LockStrings)
             parameters["LOCKSTRINGS"] = "TRUE";
 
         // Component state
         if (comp.ComponentKind != 0)
-            parameters["COMPONENTKIND"] = comp.ComponentKind.ToString();
+            parameters["COMPONENTKIND"] = comp.ComponentKind.ToString(CultureInfo.InvariantCulture);
         if (!comp.Enabled)
             parameters["ENABLED"] = "FALSE";
         if (comp.FlippedOnLayer)
             parameters["FLIPPEDONLAYER"] = "TRUE";
         if (comp.GroupNum != 0)
-            parameters["GROUPNUM"] = comp.GroupNum.ToString();
+            parameters["GROUPNUM"] = comp.GroupNum.ToString(CultureInfo.InvariantCulture);
         if (comp.IsBGA)
             parameters["ISBGA"] = "TRUE";
 
@@ -726,11 +727,11 @@ public sealed class PcbDocWriter
         parameters["LAYER"] = LayerByteToName(board.Layer);
 
         // Integer properties
-        parameters["UNIONINDEX"] = board.UnionIndex.ToString();
+        parameters["UNIONINDEX"] = board.UnionIndex.ToString(CultureInfo.InvariantCulture);
         if (board.OriginMode != 0)
-            parameters["ORIGINMODE"] = board.OriginMode.ToString();
-        parameters["COLCOUNT"] = board.ColCount.ToString();
-        parameters["ROWCOUNT"] = board.RowCount.ToString();
+            parameters["ORIGINMODE"] = board.OriginMode.ToString(CultureInfo.InvariantCulture);
+        parameters["COLCOUNT"] = board.ColCount.ToString(CultureInfo.InvariantCulture);
+        parameters["ROWCOUNT"] = board.RowCount.ToString(CultureInfo.InvariantCulture);
 
         // Coord properties (stored as "NNNNmil" format)
         parameters["X1"] = FormatMilCoord(board.X1Location);
@@ -743,7 +744,7 @@ public sealed class PcbDocWriter
         parameters["ROWSPACING"] = FormatMilCoord(board.RowSpacing);
 
         // Rotation (scientific notation)
-        parameters["ROTATION"] = $" {board.Rotation:E14}";
+        parameters["ROTATION"] = " " + board.Rotation.ToString("E14", CultureInfo.InvariantCulture);
 
         // Viewport properties
         parameters["ISVIEWPORT"] = board.IsViewport ? "TRUE" : "FALSE";
@@ -751,15 +752,15 @@ public sealed class PcbDocWriter
         if (!string.IsNullOrEmpty(board.ViewportTitle))
             parameters["VIEWPORTTITLE"] = board.ViewportTitle;
         if (board.Scale != 0)
-            parameters["VIEWPORTSCALE"] = board.Scale.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+            parameters["VIEWPORTSCALE"] = board.Scale.ToString("F3", CultureInfo.InvariantCulture);
 
         // Font properties
         if (!string.IsNullOrEmpty(board.TitleFontName))
             parameters["FONTNAME"] = board.TitleFontName;
         if (board.TitleFontSize != 0)
-            parameters["FONTSIZE"] = board.TitleFontSize.ToString();
+            parameters["FONTSIZE"] = board.TitleFontSize.ToString(CultureInfo.InvariantCulture);
         if (board.TitleFontColor != 0)
-            parameters["FONTCOLOR"] = board.TitleFontColor.ToString();
+            parameters["FONTCOLOR"] = board.TitleFontColor.ToString(CultureInfo.InvariantCulture);
 
         // Document path
         if (!string.IsNullOrEmpty(board.DocumentPath))
@@ -770,7 +771,7 @@ public sealed class PcbDocWriter
 
     private static string FormatMilCoord(Coord coord)
     {
-        return $"{coord.ToMils():F4}mil";
+        return coord.ToMils().ToString("F4", CultureInfo.InvariantCulture) + "mil";
     }
 
     private static string LayerByteToName(int layer)
@@ -792,7 +793,7 @@ public sealed class PcbDocWriter
             _ when layer >= 2 && layer <= 31 => $"MIDLAYER{layer - 1}",
             _ when layer >= 39 && layer <= 54 => $"INTERNALPLANE{layer - 38}",
             _ when layer >= 57 && layer <= 72 => $"MECHANICAL{layer - 56}",
-            _ => layer.ToString()
+            _ => layer.ToString(CultureInfo.InvariantCulture)
         };
     }
 

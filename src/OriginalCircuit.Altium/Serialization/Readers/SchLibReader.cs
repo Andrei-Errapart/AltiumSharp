@@ -6,6 +6,7 @@ using OriginalCircuit.Altium.Primitives;
 using OriginalCircuit.Altium.Serialization.Binary;
 using OriginalCircuit.Altium.Serialization.Compound;
 using OriginalCircuit.Altium.Serialization.Dto.Sch;
+using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using PinElectricalType = OriginalCircuit.Altium.Models.Sch.PinElectricalType;
@@ -198,7 +199,7 @@ public sealed class SchLibReader
             var parameters = ReadParameterBlock(reader);
 
             if (parameters.TryGetValue("KEYCOUNT", out var keyCountStr) &&
-                int.TryParse(keyCountStr, out var keyCount))
+                int.TryParse(keyCountStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var keyCount))
             {
                 for (var i = 0; i < keyCount; i++)
                 {
@@ -254,7 +255,7 @@ public sealed class SchLibReader
         {
             // Read from parameters
             if (parameters.TryGetValue("COMPCOUNT", out var countStr) &&
-                int.TryParse(countStr, out var count))
+                int.TryParse(countStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count))
             {
                 for (var i = 0; i < count; i++)
                 {
@@ -317,7 +318,7 @@ public sealed class SchLibReader
                 continue;
 
             if (!parameters.TryGetValue("RECORD", out var recordTypeStr) ||
-                !int.TryParse(recordTypeStr, out var recordType))
+                !int.TryParse(recordTypeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var recordType))
                 continue;
 
             if (isFirstRecord)
@@ -338,11 +339,11 @@ public sealed class SchLibReader
                     {
                         // Only set frac values if they're non-zero (binary records don't include frac)
                         if (frac.x != 0)
-                            parameters["LOCATION.X_FRAC"] = frac.x.ToString();
+                            parameters["LOCATION.X_FRAC"] = frac.x.ToString(CultureInfo.InvariantCulture);
                         if (frac.y != 0)
-                            parameters["LOCATION.Y_FRAC"] = frac.y.ToString();
+                            parameters["LOCATION.Y_FRAC"] = frac.y.ToString(CultureInfo.InvariantCulture);
                         if (frac.length != 0)
-                            parameters["PINLENGTH_FRAC"] = frac.length.ToString();
+                            parameters["PINLENGTH_FRAC"] = frac.length.ToString(CultureInfo.InvariantCulture);
                     }
                     pinIndex++;
                 }
@@ -486,20 +487,20 @@ public sealed class SchLibReader
         var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["RECORD"] = "2",
-            ["OWNERPARTID"] = ownerPartId.ToString(),
-            ["OWNERPARTDISPLAYMODE"] = ownerPartDisplayMode.ToString(),
-            ["SYMBOL_INNEREDGE"] = symbolInnerEdge.ToString(),
-            ["SYMBOL_OUTEREDGE"] = symbolOuterEdge.ToString(),
-            ["SYMBOL_INSIDE"] = symbolInside.ToString(),
-            ["SYMBOL_OUTSIDE"] = symbolOutside.ToString(),
+            ["OWNERPARTID"] = ownerPartId.ToString(CultureInfo.InvariantCulture),
+            ["OWNERPARTDISPLAYMODE"] = ownerPartDisplayMode.ToString(CultureInfo.InvariantCulture),
+            ["SYMBOL_INNEREDGE"] = symbolInnerEdge.ToString(CultureInfo.InvariantCulture),
+            ["SYMBOL_OUTEREDGE"] = symbolOuterEdge.ToString(CultureInfo.InvariantCulture),
+            ["SYMBOL_INSIDE"] = symbolInside.ToString(CultureInfo.InvariantCulture),
+            ["SYMBOL_OUTSIDE"] = symbolOutside.ToString(CultureInfo.InvariantCulture),
             ["DESCRIPTION"] = description,
-            ["FORMALTYPE"] = formalType.ToString(),
-            ["ELECTRICAL"] = electrical.ToString(),
-            ["PINCONGLOMERATE"] = pinConglomerate.ToString(),
-            ["PINLENGTH"] = pinLength.ToString(),
-            ["LOCATION.X"] = locationX.ToString(),
-            ["LOCATION.Y"] = locationY.ToString(),
-            ["COLOR"] = color.ToString(),
+            ["FORMALTYPE"] = formalType.ToString(CultureInfo.InvariantCulture),
+            ["ELECTRICAL"] = electrical.ToString(CultureInfo.InvariantCulture),
+            ["PINCONGLOMERATE"] = pinConglomerate.ToString(CultureInfo.InvariantCulture),
+            ["PINLENGTH"] = pinLength.ToString(CultureInfo.InvariantCulture),
+            ["LOCATION.X"] = locationX.ToString(CultureInfo.InvariantCulture),
+            ["LOCATION.Y"] = locationY.ToString(CultureInfo.InvariantCulture),
+            ["COLOR"] = color.ToString(CultureInfo.InvariantCulture),
             ["NAME"] = name,
             ["DESIGNATOR"] = designator,
             ["SWAPIDGROUP"] = swapIdGroup,
@@ -558,7 +559,7 @@ public sealed class SchLibReader
     {
         var fonts = new List<OriginalCircuit.Altium.Models.Sch.SchFontDefinition>();
         if (!parameters.TryGetValue("FONTIDCOUNT", out var countStr) ||
-            !int.TryParse(countStr, out var count) || count <= 0)
+            !int.TryParse(countStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) || count <= 0)
             return fonts;
 
         for (var i = 1; i <= count; i++)
@@ -838,7 +839,7 @@ public sealed class SchLibReader
                         zlibStream.CopyTo(decompressedMs);
                         var decompressed = decompressedMs.ToArray();
 
-                        if (decompressed.Length >= 12 && int.TryParse(pinIndexStr, out var idx))
+                        if (decompressed.Length >= 12 && int.TryParse(pinIndexStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx))
                         {
                             var fracX = BitConverter.ToInt32(decompressed, 0);
                             var fracY = BitConverter.ToInt32(decompressed, 4);
@@ -935,8 +936,8 @@ public sealed class SchLibReader
                                 var paramString = Encoding.Unicode.GetString(decompressed, 4, innerSize);
                                 var parameters = ParseParameters(paramString);
                                 if (parameters.TryGetValue("SYMBOL_LINEWIDTH", out var lwStr) &&
-                                    int.TryParse(lwStr, out var lineWidth) &&
-                                    int.TryParse(pinIndexStr, out var idx) &&
+                                    int.TryParse(lwStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var lineWidth) &&
+                                    int.TryParse(pinIndexStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx) &&
                                     idx >= 0 && idx < component.Pins.Count)
                                 {
                                     ((SchPin)component.Pins[idx]).SymbolLineWidth = lineWidth;
@@ -1148,7 +1149,7 @@ public sealed class SchLibReader
         pin.SymbolInside = dto.SymbolInside;
         pin.SymbolOutside = dto.SymbolOutside;
         pin.SymbolLineWidth = dto.SymbolLineWidth;
-        pin.SwapIdPart = dto.SwapIdPart.ToString();
+        pin.SwapIdPart = dto.SwapIdPart.ToString(CultureInfo.InvariantCulture);
         pin.PinPropagationDelay = (int)dto.PinPropagationDelay;
         pin.DesignatorCustomFontId = dto.DesignatorCustomFontId;
         pin.NameCustomFontId = dto.NameCustomFontId;
@@ -2137,7 +2138,7 @@ public sealed class SchLibReader
         parameters.TryGetValue(key, out var value) ? value : null;
 
     private static int TryGetInt(Dictionary<string, string> parameters, string key) =>
-        parameters.TryGetValue(key, out var value) && int.TryParse(value, out var result) ? result : 0;
+        parameters.TryGetValue(key, out var value) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var result) ? result : 0;
 
     private static bool TryGetBool(Dictionary<string, string> parameters, string key) =>
         parameters.TryGetValue(key, out var value) && string.Equals(value, "T", StringComparison.OrdinalIgnoreCase);
@@ -2248,7 +2249,7 @@ public sealed class SchLibReader
             return false;
 
         // Schematic uses 10 units per mil (different from PCB's 10000)
-        if (int.TryParse(value, out var intValue))
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue))
         {
             // Convert from schematic units to internal units
             result = Coord.FromRaw(intValue * 1000); // Scale up

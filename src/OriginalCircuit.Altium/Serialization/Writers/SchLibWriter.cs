@@ -2,6 +2,7 @@ using OpenMcdf;
 using OriginalCircuit.Altium.Models.Sch;
 using OriginalCircuit.Eda.Primitives;
 using OriginalCircuit.Altium.Serialization.Binary;
+using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 
@@ -94,7 +95,7 @@ public sealed class SchLibWriter
             var defaults = new Dictionary<string, string>
             {
                 ["HEADER"] = "Protel for Windows - Schematic Library Editor Binary File Version 5.0",
-                ["Weight"] = library.Components.Count.ToString()
+                ["Weight"] = library.Components.Count.ToString(CultureInfo.InvariantCulture)
             };
             writer.WriteCStringParameterBlock(defaults);
 
@@ -145,7 +146,7 @@ public sealed class SchLibWriter
         // Write as parameter block format - Altium uses mixed case keys
         var parameters = new Dictionary<string, string>
         {
-            ["KeyCount"] = componentsNeedingKeys.Count.ToString()
+            ["KeyCount"] = componentsNeedingKeys.Count.ToString(CultureInfo.InvariantCulture)
         };
 
         for (var i = 0; i < componentsNeedingKeys.Count; i++)
@@ -258,7 +259,7 @@ public sealed class SchLibWriter
             ["RECORD"] = "1",
             ["LibReference"] = component.Name,
             ["ComponentDescription"] = component.Description ?? string.Empty,
-            ["PartCount"] = (component.PartCount + 1).ToString(),
+            ["PartCount"] = (component.PartCount + 1).ToString(CultureInfo.InvariantCulture),
             ["DisplayModeCount"] = "1",
             ["IndexInSheet"] = "-1",
             ["OwnerPartId"] = "-1",
@@ -275,11 +276,11 @@ public sealed class SchLibWriter
                 parameters["UniqueID"] = schComp.UniqueId;
 
             if (schComp.DisplayModeCount > 1)
-                parameters["DisplayModeCount"] = schComp.DisplayModeCount.ToString();
+                parameters["DisplayModeCount"] = schComp.DisplayModeCount.ToString(CultureInfo.InvariantCulture);
             AddNonZero(parameters, "DisplayMode", schComp.DisplayMode);
             AddNonZero(parameters, "Orientation", schComp.Orientation);
             if (schComp.CurrentPartId > 1)
-                parameters["CurrentPartId"] = schComp.CurrentPartId.ToString();
+                parameters["CurrentPartId"] = schComp.CurrentPartId.ToString(CultureInfo.InvariantCulture);
             AddBool(parameters, "ShowHiddenPins", schComp.ShowHiddenPins);
             AddBool(parameters, "ShowHiddenFields", schComp.ShowHiddenFields);
             if (!string.IsNullOrEmpty(schComp.LibraryPath) && schComp.LibraryPath != "*")
@@ -424,7 +425,7 @@ public sealed class SchLibWriter
         {
             pinsSymbolLineWidth[pinIndex] = new Dictionary<string, string>
             {
-                ["SYMBOL_LINEWIDTH"] = pin.SymbolLineWidth.ToString()
+                ["SYMBOL_LINEWIDTH"] = pin.SymbolLineWidth.ToString(CultureInfo.InvariantCulture)
             };
         }
     }
@@ -460,7 +461,7 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.Y", line.Start.Y);
         AddCoordParam(parameters, "Corner.X", line.End.X);
         AddCoordParam(parameters, "Corner.Y", line.End.Y);
-        parameters["LineWidth"] = LineWidthToIndex(line.Width).ToString();
+        parameters["LineWidth"] = LineWidthToIndex(line.Width).ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "LineStyle", line.LineStyle);
         AddNonZero(parameters, "Color", line.Color);
         AddNonZero(parameters, "LineStyleExt", line.LineStyle); // Altium writes both, LineStyleExt after Color
@@ -487,7 +488,7 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Corner.X", rect.Corner2.X);
         AddCoordParam(parameters, "Corner.Y", rect.Corner2.Y);
         AddNonZero(parameters, "LineStyleExt", rect.LineStyle); // rectangles store the style in LineStyleExt only, before LineWidth
-        parameters["LineWidth"] = LineWidthToIndex(rect.LineWidth).ToString();
+        parameters["LineWidth"] = LineWidthToIndex(rect.LineWidth).ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "Color", rect.Color);
         AddNonZero(parameters, "AreaColor", rect.FillColor); // omitted when 0
         AddBool(parameters, "IsSolid", rect.IsFilled);
@@ -514,7 +515,7 @@ public sealed class SchLibWriter
         AddNonZero(parameters, "Orientation", (int)(label.Rotation / 90) % 4); // Orientation precedes Justification
         AddNonZero(parameters, "Justification", (int)label.Justification);
         AddNonZero(parameters, "Color", label.Color); // Color precedes FontID
-        parameters["FontID"] = label.FontId.ToString();
+        parameters["FontID"] = label.FontId.ToString(CultureInfo.InvariantCulture);
         parameters["Text"] = label.Text;
         AddNonZero(parameters, "AreaColor", label.AreaColor);
         AddBool(parameters, "IsHidden", label.IsHidden);
@@ -539,7 +540,7 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.X", arc.Center.X);
         AddCoordParam(parameters, "Location.Y", arc.Center.Y);
         AddCoordParam(parameters, "Radius", arc.Radius);
-        parameters["LineWidth"] = arc.LineWidth.ToString();
+        parameters["LineWidth"] = arc.LineWidth.ToString(CultureInfo.InvariantCulture);
         if (arc.StartAngle != 0)
             parameters["StartAngle"] = FormatAngle(arc.StartAngle);
         parameters["EndAngle"] = FormatAngle(arc.EndAngle);
@@ -563,12 +564,12 @@ public sealed class SchLibWriter
             polygon.OwnerPartId, polygon.OwnerPartDisplayMode, polygon.GraphicallyLocked,
             polygon.Disabled, polygon.Dimmed, polygon.UniqueId, ownerIndex);
 
-        parameters["LineWidth"] = polygon.LineWidth.ToString();
+        parameters["LineWidth"] = polygon.LineWidth.ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "Color", polygon.Color);
-        parameters["AreaColor"] = polygon.FillColor.ToString();
+        parameters["AreaColor"] = polygon.FillColor.ToString(CultureInfo.InvariantCulture);
         AddBool(parameters, "IsSolid", polygon.IsFilled);
         AddBool(parameters, "Transparent", polygon.IsTransparent);
-        parameters["LocationCount"] = polygon.Vertices.Count.ToString();
+        parameters["LocationCount"] = polygon.Vertices.Count.ToString(CultureInfo.InvariantCulture);
 
         for (var i = 0; i < polygon.Vertices.Count; i++)
         {
@@ -595,7 +596,7 @@ public sealed class SchLibWriter
 
         // Altium order: LineWidth, LineStyle, StartLineShape, EndLineShape, LineShapeSize, Color,
         // [Transparent, AreaColor, IsSolid], LocationCount, vertices, then LineStyleExt at the end.
-        parameters["LineWidth"] = polyline.LineWidth.ToString();
+        parameters["LineWidth"] = polyline.LineWidth.ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "LineStyle", (int)polyline.LineStyle);
         AddNonZero(parameters, "StartLineShape", polyline.StartLineShape);
         AddNonZero(parameters, "EndLineShape", polyline.EndLineShape);
@@ -604,7 +605,7 @@ public sealed class SchLibWriter
         AddBool(parameters, "Transparent", polyline.IsTransparent);
         AddNonZero(parameters, "AreaColor", polyline.AreaColor);
         AddBool(parameters, "IsSolid", polyline.IsSolid);
-        parameters["LocationCount"] = polyline.Vertices.Count.ToString();
+        parameters["LocationCount"] = polyline.Vertices.Count.ToString(CultureInfo.InvariantCulture);
 
         for (var i = 0; i < polyline.Vertices.Count; i++)
         {
@@ -630,10 +631,10 @@ public sealed class SchLibWriter
             bezier.OwnerPartId, bezier.OwnerPartDisplayMode, bezier.GraphicallyLocked,
             bezier.Disabled, bezier.Dimmed, bezier.UniqueId, ownerIndex);
 
-        parameters["LineWidth"] = bezier.LineWidth.ToString();
+        parameters["LineWidth"] = bezier.LineWidth.ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "Color", bezier.Color);
         AddNonZero(parameters, "AreaColor", bezier.AreaColor);
-        parameters["LocationCount"] = bezier.ControlPoints.Count.ToString();
+        parameters["LocationCount"] = bezier.ControlPoints.Count.ToString(CultureInfo.InvariantCulture);
 
         for (var i = 0; i < bezier.ControlPoints.Count; i++)
         {
@@ -661,9 +662,9 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.Y", ellipse.Center.Y);
         AddCoordParam(parameters, "Radius", ellipse.RadiusX);
         AddCoordParam(parameters, "SecondaryRadius", ellipse.RadiusY);
-        parameters["LineWidth"] = ellipse.LineWidth.ToString();
+        parameters["LineWidth"] = ellipse.LineWidth.ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "Color", ellipse.Color);
-        parameters["AreaColor"] = ellipse.FillColor.ToString();
+        parameters["AreaColor"] = ellipse.FillColor.ToString(CultureInfo.InvariantCulture);
         AddBool(parameters, "IsSolid", ellipse.IsFilled);
         AddBool(parameters, "Transparent", ellipse.IsTransparent);
         AddUniqueId(parameters, ellipse.UniqueId);
@@ -689,10 +690,10 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Corner.Y", roundedRect.Corner2.Y);
         AddCoordParam(parameters, "CornerXRadius", roundedRect.CornerRadiusX);
         AddCoordParam(parameters, "CornerYRadius", roundedRect.CornerRadiusY);
-        parameters["LineWidth"] = roundedRect.LineWidth.ToString();
+        parameters["LineWidth"] = roundedRect.LineWidth.ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "LineStyle", roundedRect.LineStyle);
         AddNonZero(parameters, "Color", roundedRect.Color);
-        parameters["AreaColor"] = roundedRect.FillColor.ToString();
+        parameters["AreaColor"] = roundedRect.FillColor.ToString(CultureInfo.InvariantCulture);
         AddBool(parameters, "IsSolid", roundedRect.IsFilled);
         AddBool(parameters, "Transparent", roundedRect.IsTransparent);
         AddUniqueId(parameters, roundedRect.UniqueId);
@@ -715,12 +716,12 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.X", pie.Center.X);
         AddCoordParam(parameters, "Location.Y", pie.Center.Y);
         AddCoordParam(parameters, "Radius", pie.Radius);
-        parameters["LineWidth"] = pie.LineWidth.ToString();
+        parameters["LineWidth"] = pie.LineWidth.ToString(CultureInfo.InvariantCulture);
         if (pie.StartAngle != 0)
             parameters["StartAngle"] = FormatAngle(pie.StartAngle);
         parameters["EndAngle"] = FormatAngle(pie.EndAngle);
         AddNonZero(parameters, "Color", pie.Color);
-        parameters["AreaColor"] = pie.FillColor.ToString();
+        parameters["AreaColor"] = pie.FillColor.ToString(CultureInfo.InvariantCulture);
         AddBool(parameters, "IsSolid", pie.IsFilled);
         AddBool(parameters, "Transparent", pie.IsTransparent);
         AddUniqueId(parameters, pie.UniqueId);
@@ -775,7 +776,7 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.X", param.Location.X);
         AddCoordParam(parameters, "Location.Y", param.Location.Y);
         AddNonZero(parameters, "Color", param.Color);
-        parameters["FontID"] = param.FontId.ToString();
+        parameters["FontID"] = param.FontId.ToString(CultureInfo.InvariantCulture);
         // Preserve %UTF8% prefix for round-trip fidelity
         var textKey = param.TextIsUtf8 ? "%UTF8%Text" : "Text";
         parameters[textKey] = param.Value;
@@ -816,7 +817,7 @@ public sealed class SchLibWriter
         var parameters = new Dictionary<string, string>
         {
             ["RECORD"] = "27",
-            ["LOCATIONCOUNT"] = wire.Vertices.Count.ToString()
+            ["LOCATIONCOUNT"] = wire.Vertices.Count.ToString(CultureInfo.InvariantCulture)
         };
 
         AddCommonProperties(parameters, wire.OwnerIndex, wire.IsNotAccessible, wire.IndexInSheet,
@@ -857,7 +858,7 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.X", netLabel.Location.X);
         AddCoordParam(parameters, "Location.Y", netLabel.Location.Y);
         AddNonZero(parameters, "Color", netLabel.Color);
-        parameters["FontID"] = netLabel.FontId.ToString();
+        parameters["FontID"] = netLabel.FontId.ToString(CultureInfo.InvariantCulture);
         parameters["Text"] = netLabel.Text;
         AddNonZero(parameters, "Orientation", netLabel.Orientation);
         AddNonZero(parameters, "Justification", (int)netLabel.Justification);
@@ -911,9 +912,9 @@ public sealed class SchLibWriter
         // Altium order: [Color] AreaColor [TextColor] FontID [LineWidth LineStyle] ShowBorder
         // [Orientation] Alignment WordWrap ClipToRect Text TextMargin[_Frac]
         AddNonZero(parameters, "Color", textFrame.BorderColor);
-        parameters["AreaColor"] = textFrame.FillColor.ToString();
+        parameters["AreaColor"] = textFrame.FillColor.ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "TextColor", textFrame.TextColor);
-        parameters["FontID"] = textFrame.FontId.ToString();
+        parameters["FontID"] = textFrame.FontId.ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "LineWidth", textFrame.LineWidth); // omitted when 0
         AddNonZero(parameters, "LineStyle", textFrame.LineStyle);
         AddBool(parameters, "ShowBorder", textFrame.ShowBorder);
@@ -948,7 +949,7 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Corner.X", image.Corner2.X);
         AddCoordParam(parameters, "Corner.Y", image.Corner2.Y);
         AddNonZero(parameters, "Color", image.BorderColor);
-        parameters["LineWidth"] = image.LineWidth.ToString();
+        parameters["LineWidth"] = image.LineWidth.ToString(CultureInfo.InvariantCulture);
         AddBool(parameters, "KeepAspect", image.KeepAspect);
         AddBool(parameters, "EmbedImage", image.EmbedImage);
         if (!string.IsNullOrEmpty(image.Filename))
@@ -978,10 +979,10 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.X", symbol.Location.X);
         AddCoordParam(parameters, "Location.Y", symbol.Location.Y);
         AddNonZero(parameters, "Color", symbol.Color);
-        parameters["Symbol"] = symbol.SymbolType.ToString();
+        parameters["Symbol"] = symbol.SymbolType.ToString(CultureInfo.InvariantCulture);
         AddBool(parameters, "IsMirrored", symbol.IsMirrored);
         AddNonZero(parameters, "Orientation", symbol.Orientation);
-        parameters["LineWidth"] = symbol.LineWidth.ToString();
+        parameters["LineWidth"] = symbol.LineWidth.ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "ScaleFactor", symbol.ScaleFactor);
         AddUniqueId(parameters, symbol.UniqueId);
 
@@ -1004,11 +1005,11 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.Y", powerObj.Location.Y);
         AddNonZero(parameters, "Color", powerObj.Color);
         parameters["Text"] = powerObj.Text;
-        parameters["Style"] = ((int)powerObj.Style).ToString();
-        parameters["Orientation"] = ((int)(powerObj.Rotation / 90.0)).ToString();
+        parameters["Style"] = ((int)powerObj.Style).ToString(CultureInfo.InvariantCulture);
+        parameters["Orientation"] = ((int)(powerObj.Rotation / 90.0)).ToString(CultureInfo.InvariantCulture);
         parameters["ShowNetName"] = powerObj.ShowNetName ? "T" : "F";
         parameters["IsCrossSheetConnector"] = powerObj.IsCrossSheetConnector ? "T" : "F";
-        parameters["FontID"] = powerObj.FontId.ToString();
+        parameters["FontID"] = powerObj.FontId.ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "AreaColor", powerObj.AreaColor);
         AddBool(parameters, "IsCustomStyle", powerObj.IsCustomStyle);
         AddBool(parameters, "IsMirrored", powerObj.IsMirrored);
@@ -1062,7 +1063,7 @@ public sealed class SchLibWriter
         AddNonZero(parameters, "LineStyle", bus.LineStyle);
         AddNonZero(parameters, "Color", bus.Color);
         AddNonZero(parameters, "AreaColor", bus.AreaColor);
-        parameters["LocationCount"] = bus.Vertices.Count.ToString();
+        parameters["LocationCount"] = bus.Vertices.Count.ToString(CultureInfo.InvariantCulture);
         var busConv = vertexUnits ?? CoordToSchematicUnits;
         for (var i = 0; i < bus.Vertices.Count; i++)
         {
@@ -1157,7 +1158,7 @@ public sealed class SchLibWriter
             parameters["FileName"] = sheetSymbol.FileName;
         if (!string.IsNullOrEmpty(sheetSymbol.SheetName))
             parameters["SheetName"] = sheetSymbol.SheetName;
-        parameters["LineWidth"] = sheetSymbol.LineWidth.ToString();
+        parameters["LineWidth"] = sheetSymbol.LineWidth.ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "Color", sheetSymbol.Color);
         AddNonZero(parameters, "AreaColor", sheetSymbol.AreaColor);
         AddBool(parameters, "IsSolid", sheetSymbol.IsSolid);
@@ -1197,8 +1198,8 @@ public sealed class SchLibWriter
         // DistanceFromTop is stored in 100-mil steps (1 step = 100 mils = 1,000,000 raw units), with any
         // sub-step remainder in DistanceFromTop_Frac1 (raw coord units). NOT the DXP convention.
         var dftRaw = entry.DistanceFromTop.ToRaw();
-        if (dftRaw / 1_000_000 != 0) parameters["DistanceFromTop"] = (dftRaw / 1_000_000).ToString();
-        if (dftRaw % 1_000_000 != 0) parameters["DistanceFromTop_Frac1"] = (dftRaw % 1_000_000).ToString();
+        if (dftRaw / 1_000_000 != 0) parameters["DistanceFromTop"] = (dftRaw / 1_000_000).ToString(CultureInfo.InvariantCulture);
+        if (dftRaw % 1_000_000 != 0) parameters["DistanceFromTop_Frac1"] = (dftRaw % 1_000_000).ToString(CultureInfo.InvariantCulture);
         parameters["Name"] = entry.Name;
         AddNonZero(parameters, "IOType", entry.IoType);
         AddNonZero(parameters, "Style", entry.Style);
@@ -1264,7 +1265,7 @@ public sealed class SchLibWriter
         AddBool(parameters, "Transparent", blanket.IsTransparent);
         AddNonZero(parameters, "Color", blanket.Color);
         AddNonZero(parameters, "AreaColor", blanket.AreaColor);
-        parameters["LocationCount"] = blanket.Vertices.Count.ToString();
+        parameters["LocationCount"] = blanket.Vertices.Count.ToString(CultureInfo.InvariantCulture);
         var blanketConv = vertexUnits ?? CoordToSchematicUnits;
         for (var i = 0; i < blanket.Vertices.Count; i++)
         {
@@ -1334,7 +1335,7 @@ public sealed class SchLibWriter
         if (!string.IsNullOrEmpty(impl.ModelType))
             parameters["MODELTYPE"] = impl.ModelType;
 
-        parameters["DATAFILECOUNT"] = impl.DataFileKinds.Count.ToString();
+        parameters["DATAFILECOUNT"] = impl.DataFileKinds.Count.ToString(CultureInfo.InvariantCulture);
         for (var i = 0; i < impl.DataFileKinds.Count; i++)
         {
             parameters[$"MODELDATAFILEKIND{i + 1}"] = impl.DataFileKinds[i];
@@ -1364,7 +1365,7 @@ public sealed class SchLibWriter
         if (!string.IsNullOrEmpty(mapDefiner.DesignatorInterface))
             parameters["DESINTF"] = mapDefiner.DesignatorInterface;
 
-        parameters["DESIMPCOUNT"] = mapDefiner.DesignatorImplementations.Count.ToString();
+        parameters["DESIMPCOUNT"] = mapDefiner.DesignatorImplementations.Count.ToString(CultureInfo.InvariantCulture);
         for (var i = 0; i < mapDefiner.DesignatorImplementations.Count; i++)
         {
             parameters[$"DESIMP{i}"] = mapDefiner.DesignatorImplementations[i];
@@ -1390,14 +1391,14 @@ public sealed class SchLibWriter
         var headerParams = new Dictionary<string, string>
         {
             ["HEADER"] = "PinFrac",
-            ["Weight"] = data.Count.ToString()
+            ["Weight"] = data.Count.ToString(CultureInfo.InvariantCulture)
         };
         writer.WriteCStringParameterBlock(headerParams);
 
         // Write each pin's fractional data
         foreach (var kvp in data)
         {
-            WriteCompressedStorage(writer, kvp.Key.ToString(), w =>
+            WriteCompressedStorage(writer, kvp.Key.ToString(CultureInfo.InvariantCulture), w =>
             {
                 w.Write(kvp.Value.x);
                 w.Write(kvp.Value.y);
@@ -1421,14 +1422,14 @@ public sealed class SchLibWriter
         var headerParams = new Dictionary<string, string>
         {
             ["HEADER"] = "PinSymbolLineWidth",
-            ["Weight"] = data.Count.ToString()
+            ["Weight"] = data.Count.ToString(CultureInfo.InvariantCulture)
         };
         writer.WriteCStringParameterBlock(headerParams);
 
         // Write each pin's symbol line width
         foreach (var kvp in data)
         {
-            WriteCompressedStorage(writer, kvp.Key.ToString(), w =>
+            WriteCompressedStorage(writer, kvp.Key.ToString(CultureInfo.InvariantCulture), w =>
             {
                 w.WriteUnicodeParameterBlock(kvp.Value);
             });
@@ -1503,13 +1504,13 @@ public sealed class SchLibWriter
         // (Altium omits Weight entirely when the storage is empty; the key is "Weight", not "WEIGHT").
         var parameters = new Dictionary<string, string> { ["HEADER"] = "Icon storage" };
         if (embeddedImages.Count > 0)
-            parameters["Weight"] = embeddedImages.Count.ToString();
+            parameters["Weight"] = embeddedImages.Count.ToString(CultureInfo.InvariantCulture);
         writer.WriteCStringParameterBlock(parameters);
 
         // Write each embedded image as a compressed storage entry
         for (var i = 0; i < embeddedImages.Count; i++)
         {
-            WriteCompressedStorage(writer, i.ToString(), w =>
+            WriteCompressedStorage(writer, i.ToString(CultureInfo.InvariantCulture), w =>
             {
                 w.Write(embeddedImages[i]);
             });
@@ -1535,14 +1536,14 @@ public sealed class SchLibWriter
     /// where the reader's TryParseCoord() expects schematic units.
     /// </summary>
     internal static string CoordToSchematicUnits(Coord coord) =>
-        (coord.ToRaw() / 1000).ToString();
+        (coord.ToRaw() / 1000).ToString(CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Converts a Coord to whole DXP units (raw / 100,000, i.e. 10 mils per unit). SchDoc vertex
     /// coordinates use this scale — unlike SchLib vertices, which use <see cref="CoordToSchematicUnits"/>.
     /// </summary>
     internal static string CoordToDxpUnits(Coord coord) =>
-        (coord.ToRaw() / 100_000).ToString();
+        (coord.ToRaw() / 100_000).ToString(CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Writes a vertex's X{n}/Y{n} parameters, omitting either when its value is 0
@@ -1571,9 +1572,9 @@ public sealed class SchLibWriter
         var frac = raw % 100_000;
         // Altium omits zero coordinate values
         if (dxp != 0)
-            parameters[name] = dxp.ToString();
+            parameters[name] = dxp.ToString(CultureInfo.InvariantCulture);
         if (frac != 0)
-            parameters[name + "_Frac"] = frac.ToString();
+            parameters[name + "_Frac"] = frac.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>
@@ -1611,7 +1612,7 @@ public sealed class SchLibWriter
         if (isNotAccessible) parameters["IsNotAccesible"] = "T";
 
         if (ownerIndexOverride >= 0)
-            parameters["OwnerIndex"] = ownerIndexOverride.ToString();
+            parameters["OwnerIndex"] = ownerIndexOverride.ToString(CultureInfo.InvariantCulture);
         // Note: when ownerIndexOverride is -1 (default), we intentionally do NOT write
         // the primitive's own OwnerIndex. All callers that need OWNERINDEX pass it explicitly.
         // Writing primitive.OwnerIndex would cause document-level primitives with leftover
@@ -1636,7 +1637,7 @@ public sealed class SchLibWriter
     /// </summary>
     private static void AddNonZero(Dictionary<string, string> parameters, string key, int value)
     {
-        if (value != 0) parameters[key] = value.ToString();
+        if (value != 0) parameters[key] = value.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>

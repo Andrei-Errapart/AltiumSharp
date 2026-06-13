@@ -5,6 +5,7 @@ using OriginalCircuit.Altium.Primitives;
 using OriginalCircuit.Altium.Serialization.Binary;
 using OriginalCircuit.Altium.Serialization.Compound;
 using OriginalCircuit.Altium.Serialization.Dto.Sch;
+using System.Globalization;
 using System.Text;
 using PinElectricalType = OriginalCircuit.Altium.Models.Sch.PinElectricalType;
 
@@ -170,11 +171,11 @@ public sealed class SchDocReader
                 rawRecords.Add(orderedParams);
 
             if (!parameters.TryGetValue("RECORD", out var recordTypeStr) ||
-                !int.TryParse(recordTypeStr, out var recordType))
+                !int.TryParse(recordTypeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var recordType))
                 continue;
 
             var ownerIndex = -1;
-            if (parameters.TryGetValue("OWNERINDEX", out var ownerStr) && int.TryParse(ownerStr, out var oi))
+            if (parameters.TryGetValue("OWNERINDEX", out var ownerStr) && int.TryParse(ownerStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var oi))
                 ownerIndex = oi;
 
             if (recordType == 31)
@@ -182,7 +183,7 @@ public sealed class SchDocReader
                 // Record 31: Sheet settings (font definitions, grid, border, title-block)
                 document.SheetSettings = parameters;
                 // The system (default) font is a 1-based FontID; objects without their own font use it.
-                if (parameters.TryGetValue("SYSTEMFONT", out var sysFontStr) && int.TryParse(sysFontStr, out var sysFont) && sysFont >= 1)
+                if (parameters.TryGetValue("SYSTEMFONT", out var sysFontStr) && int.TryParse(sysFontStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sysFont) && sysFont >= 1)
                     document.SystemFont = sysFont;
             }
             else if (recordType == (int)SchRecordType.Component)
@@ -596,7 +597,7 @@ public sealed class SchDocReader
         pin.SymbolInside = dto.SymbolInside;
         pin.SymbolOutside = dto.SymbolOutside;
         pin.SymbolLineWidth = dto.SymbolLineWidth;
-        pin.SwapIdPart = dto.SwapIdPart.ToString();
+        pin.SwapIdPart = dto.SwapIdPart.ToString(CultureInfo.InvariantCulture);
         pin.PinPropagationDelay = (int)dto.PinPropagationDelay;
         pin.DesignatorCustomFontId = dto.DesignatorCustomFontId;
         pin.NameCustomFontId = dto.NameCustomFontId;
@@ -1517,7 +1518,7 @@ public sealed class SchDocReader
         parameters.TryGetValue(key, out var value) ? value : null;
 
     private static int TryGetInt(Dictionary<string, string> parameters, string key) =>
-        parameters.TryGetValue(key, out var value) && int.TryParse(value, out var result) ? result : 0;
+        parameters.TryGetValue(key, out var value) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var result) ? result : 0;
 
     private static bool TryGetBool(Dictionary<string, string> parameters, string key) =>
         parameters.TryGetValue(key, out var value) && string.Equals(value, "T", StringComparison.OrdinalIgnoreCase);
@@ -1572,7 +1573,7 @@ public sealed class SchDocReader
     {
         result = default;
         if (string.IsNullOrEmpty(value)) return false;
-        if (int.TryParse(value, out var intValue))
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue))
         {
             // SchDoc vertex coords (wires, polylines, polygons, beziers, buses) are stored in DXP
             // units — the same scale as Locations (CoordFromDxp), NOT the SchLib "schematic units"
@@ -1657,8 +1658,8 @@ public sealed class SchDocReader
             {
                 var p = SchLibReader.ReadRecordParameters(reader);
                 if (p == null || p.Count == 0) { index++; continue; }
-                if (!p.TryGetValue("RECORD", out var rts) || !int.TryParse(rts, out var rt)) { index++; continue; }
-                var owner = p.TryGetValue("OWNERINDEX", out var os) && int.TryParse(os, out var oi) ? oi : 0;
+                if (!p.TryGetValue("RECORD", out var rts) || !int.TryParse(rts, NumberStyles.Integer, CultureInfo.InvariantCulture, out var rt)) { index++; continue; }
+                var owner = p.TryGetValue("OWNERINDEX", out var os) && int.TryParse(os, NumberStyles.Integer, CultureInfo.InvariantCulture, out var oi) ? oi : 0;
                 switch (rt)
                 {
                     case 215: connectorsByIndex[index] = CreateAdditionalHarnessConnector(p); break;
@@ -1761,7 +1762,7 @@ public sealed class SchDocReader
     }
 
     private static int GetInt(Dictionary<string, string> p, string key) =>
-        p.TryGetValue(key, out var v) && int.TryParse(v, out var i) ? i : 0;
+        p.TryGetValue(key, out var v) && int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i) ? i : 0;
 
     private static string? GetStr(Dictionary<string, string> p, string key) =>
         p.TryGetValue(key, out var v) ? v : null;

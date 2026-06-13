@@ -1,3 +1,4 @@
+using System.Globalization;
 using OpenMcdf;
 using OriginalCircuit.Altium.Diagnostics;
 using OriginalCircuit.Altium.Models.Pcb;
@@ -333,7 +334,7 @@ public sealed class PcbDocReader
                 rule.UniqueId = uniqueId;
             if (parameters.TryGetValue("ENABLED", out var enabled))
                 rule.Enabled = enabled.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
-            if (parameters.TryGetValue("PRIORITY", out var priority) && int.TryParse(priority, out var p))
+            if (parameters.TryGetValue("PRIORITY", out var priority) && int.TryParse(priority, NumberStyles.Integer, CultureInfo.InvariantCulture, out var p))
                 rule.Priority = p;
             if (parameters.TryGetValue("SCOPE1EXPRESSION", out var scope1))
                 rule.Scope1Expression = scope1;
@@ -544,7 +545,7 @@ public sealed class PcbDocReader
     /// </summary>
     private static int ParseLayerValue(string layerStr)
     {
-        if (int.TryParse(layerStr, out var numeric))
+        if (int.TryParse(layerStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numeric))
             return numeric;
 
         // Fall back to layer name lookup
@@ -575,7 +576,7 @@ public sealed class PcbDocReader
     {
         foreach (var key in keys)
         {
-            if (parameters.TryGetValue(key, out var str) && int.TryParse(str, out value))
+            if (parameters.TryGetValue(key, out var str) && int.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
                 return true;
         }
         value = 0;
@@ -609,7 +610,7 @@ public sealed class PcbDocReader
             polygon.Name = name;
         if (parameters.TryGetValue("UNIQUEID", out var uid))
             polygon.UniqueId = uid;
-        if (parameters.TryGetValue("POLYGONTYPE", out var pt) && int.TryParse(pt, out var polygonType))
+        if (parameters.TryGetValue("POLYGONTYPE", out var pt) && int.TryParse(pt, NumberStyles.Integer, CultureInfo.InvariantCulture, out var polygonType))
             polygon.PolygonType = polygonType;
 
         // Hatch/pour settings - read both old and DTO keys
@@ -625,7 +626,7 @@ public sealed class PcbDocReader
               "AVOIDOBST", "AVOIDOBSTICLES");
         if (TryGetBool(parameters, "REMOVEISLANDSBYAREA", out var ria))
             polygon.RemoveIslandsByArea = ria;
-        if (parameters.TryGetValue("ISLANDAREATHRESHOLD", out var iat) && int.TryParse(iat, out var islandAreaThreshold))
+        if (parameters.TryGetValue("ISLANDAREATHRESHOLD", out var iat) && int.TryParse(iat, NumberStyles.Integer, CultureInfo.InvariantCulture, out var islandAreaThreshold))
             polygon.IslandAreaThreshold = islandAreaThreshold;
         if (TryGetBool(parameters, "REMOVEDEAD", out var rd))
             polygon.RemoveDead = rd;
@@ -671,16 +672,16 @@ public sealed class PcbDocReader
 
         // Integer properties
         Track("POURORDER", "RELIEFENTRIES", "POWERPLANECONNECTSTYLE", "FLAGS");
-        if (parameters.TryGetValue("POURORDER", out var pourOrderStr) && int.TryParse(pourOrderStr, out var pourOrder))
+        if (parameters.TryGetValue("POURORDER", out var pourOrderStr) && int.TryParse(pourOrderStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pourOrder))
             polygon.PourIndex = pourOrder;
-        if (parameters.TryGetValue("RELIEFENTRIES", out var reliefEntriesStr) && int.TryParse(reliefEntriesStr, out var reliefEntries))
+        if (parameters.TryGetValue("RELIEFENTRIES", out var reliefEntriesStr) && int.TryParse(reliefEntriesStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var reliefEntries))
             polygon.ReliefEntries = reliefEntries;
-        if (parameters.TryGetValue("POWERPLANECONNECTSTYLE", out var ppcsStr) && int.TryParse(ppcsStr, out var ppcs))
+        if (parameters.TryGetValue("POWERPLANECONNECTSTYLE", out var ppcsStr) && int.TryParse(ppcsStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ppcs))
             polygon.PowerPlaneConnectStyle = ppcs;
 
         // Long properties
         Track("REPOURAREA");
-        if (parameters.TryGetValue("REPOURAREA", out var areaStr) && long.TryParse(areaStr, out var areaSize))
+        if (parameters.TryGetValue("REPOURAREA", out var areaStr) && long.TryParse(areaStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var areaSize))
             polygon.AreaSize = areaSize;
 
         // More boolean flags
@@ -733,16 +734,16 @@ public sealed class PcbDocReader
 
         // Read vertices
         Track("POINTCOUNT");
-        if (parameters.TryGetValue("POINTCOUNT", out var pcStr) && int.TryParse(pcStr, out var pointCount))
+        if (parameters.TryGetValue("POINTCOUNT", out var pcStr) && int.TryParse(pcStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pointCount))
         {
             for (var i = 0; i < pointCount; i++)
             {
                 var prefix = $"SA{i}";
                 Track($"{prefix}.X", $"{prefix}.Y");
                 Coord x = default, y = default;
-                if (parameters.TryGetValue($"{prefix}.X", out var xStr) && int.TryParse(xStr, out var xVal))
+                if (parameters.TryGetValue($"{prefix}.X", out var xStr) && int.TryParse(xStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var xVal))
                     x = Coord.FromRaw(xVal);
-                if (parameters.TryGetValue($"{prefix}.Y", out var yStr) && int.TryParse(yStr, out var yVal))
+                if (parameters.TryGetValue($"{prefix}.Y", out var yStr) && int.TryParse(yStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var yVal))
                     y = Coord.FromRaw(yVal);
                 polygon.AddVertex(new CoordPoint(x, y));
             }
@@ -843,17 +844,17 @@ public sealed class PcbDocReader
         // Integer properties
         Track("ORIGINMODE", "COLCOUNT", "ROWCOUNT", "UNIONINDEX",
               "FONTSIZE", "FONTCOLOR");
-        if (parameters.TryGetValue("ORIGINMODE", out var omStr) && int.TryParse(omStr, out var om))
+        if (parameters.TryGetValue("ORIGINMODE", out var omStr) && int.TryParse(omStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var om))
             board.OriginMode = om;
-        if (parameters.TryGetValue("COLCOUNT", out var ccStr) && int.TryParse(ccStr, out var cc))
+        if (parameters.TryGetValue("COLCOUNT", out var ccStr) && int.TryParse(ccStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cc))
             board.ColCount = cc;
-        if (parameters.TryGetValue("ROWCOUNT", out var rcStr) && int.TryParse(rcStr, out var rc))
+        if (parameters.TryGetValue("ROWCOUNT", out var rcStr) && int.TryParse(rcStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var rc))
             board.RowCount = rc;
-        if (parameters.TryGetValue("UNIONINDEX", out var uiStr) && int.TryParse(uiStr, out var ui))
+        if (parameters.TryGetValue("UNIONINDEX", out var uiStr) && int.TryParse(uiStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ui))
             board.UnionIndex = ui;
-        if (parameters.TryGetValue("FONTSIZE", out var fsStr) && int.TryParse(fsStr, out var fs))
+        if (parameters.TryGetValue("FONTSIZE", out var fsStr) && int.TryParse(fsStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fs))
             board.TitleFontSize = fs;
-        if (parameters.TryGetValue("FONTCOLOR", out var fcStr) && int.TryParse(fcStr, out var fc))
+        if (parameters.TryGetValue("FONTCOLOR", out var fcStr) && int.TryParse(fcStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fc))
             board.TitleFontColor = fc;
 
         // Coord properties (stored as "1338.5827mil" format)
@@ -900,7 +901,7 @@ public sealed class PcbDocReader
         }
 
         // No "mil" suffix — treat as raw integer (internal coordinate units)
-        if (int.TryParse(trimmed, out var raw))
+        if (int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var raw))
         {
             value = Coord.FromRaw(raw);
             return true;
@@ -965,28 +966,28 @@ public sealed class PcbDocReader
         Track("COMMENTON", "COMMENTAUTOPOSITION", "NAMEON", "NAMEAUTOPOSITION", "LOCKSTRINGS");
         if (TryGetBool(parameters, "COMMENTON", out var commentOn))
             component.CommentOn = commentOn;
-        if (parameters.TryGetValue("COMMENTAUTOPOSITION", out var capStr) && int.TryParse(capStr, out var cap))
+        if (parameters.TryGetValue("COMMENTAUTOPOSITION", out var capStr) && int.TryParse(capStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cap))
             component.CommentAutoPosition = cap;
         if (TryGetBool(parameters, "NAMEON", out var nameOn))
             component.NameOn = nameOn;
-        if (parameters.TryGetValue("NAMEAUTOPOSITION", out var napStr) && int.TryParse(napStr, out var nap))
+        if (parameters.TryGetValue("NAMEAUTOPOSITION", out var napStr) && int.TryParse(napStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var nap))
             component.NameAutoPosition = nap;
         if (TryGetBool(parameters, "LOCKSTRINGS", out var lockStrings))
             component.LockStrings = lockStrings;
 
         // Component state
         Track("COMPONENTKIND", "ENABLED", "FLIPPEDONLAYER", "GROUPNUM", "ISBGA", "CHANNELOFFSET");
-        if (parameters.TryGetValue("COMPONENTKIND", out var ckStr) && int.TryParse(ckStr, out var ck))
+        if (parameters.TryGetValue("COMPONENTKIND", out var ckStr) && int.TryParse(ckStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ck))
             component.ComponentKind = ck;
         if (TryGetBool(parameters, "ENABLED", out var enabled))
             component.Enabled = enabled;
         if (TryGetBool(parameters, "FLIPPEDONLAYER", out var flipped))
             component.FlippedOnLayer = flipped;
-        if (parameters.TryGetValue("GROUPNUM", out var gnStr) && int.TryParse(gnStr, out var gn))
+        if (parameters.TryGetValue("GROUPNUM", out var gnStr) && int.TryParse(gnStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var gn))
             component.GroupNum = gn;
         if (TryGetBool(parameters, "ISBGA", out var isBga))
             component.IsBGA = isBga;
-        if (parameters.TryGetValue("CHANNELOFFSET", out var coStr) && int.TryParse(coStr, out var co))
+        if (parameters.TryGetValue("CHANNELOFFSET", out var coStr) && int.TryParse(coStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var co))
             component.ChannelOffset = co;
 
         // Source info

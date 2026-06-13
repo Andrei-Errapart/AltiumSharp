@@ -5,6 +5,7 @@ using OriginalCircuit.Eda.Primitives;
 using OriginalCircuit.Altium.Serialization.Binary;
 using OriginalCircuit.Altium.Serialization.Compound;
 using System.Buffers;
+using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using PadShape = OriginalCircuit.Altium.Models.Pcb.PadShape;
@@ -344,7 +345,7 @@ public sealed class PcbLibReader
         // Read numbered STEP streams (0, 1, 2, ...) - zlib compressed STEP text
         for (var i = 0; ; i++)
         {
-            if (!modelsStorage.TryGetStream(i.ToString(), out var modelStream))
+            if (!modelsStorage.TryGetStream(i.ToString(CultureInfo.InvariantCulture), out var modelStream))
                 break;
 
             var compressedData = modelStream.GetData();
@@ -361,8 +362,8 @@ public sealed class PcbLibReader
                 if (meta.TryGetValue("ROTX", out var rotx) && double.TryParse(rotx, System.Globalization.CultureInfo.InvariantCulture, out var rx)) model.RotationX = rx;
                 if (meta.TryGetValue("ROTY", out var roty) && double.TryParse(roty, System.Globalization.CultureInfo.InvariantCulture, out var ry)) model.RotationY = ry;
                 if (meta.TryGetValue("ROTZ", out var rotz) && double.TryParse(rotz, System.Globalization.CultureInfo.InvariantCulture, out var rz)) model.RotationZ = rz;
-                if (meta.TryGetValue("DZ", out var dz) && int.TryParse(dz, out var dzVal)) model.Dz = dzVal;
-                if (meta.TryGetValue("CHECKSUM", out var cs) && int.TryParse(cs, out var csVal)) model.Checksum = csVal;
+                if (meta.TryGetValue("DZ", out var dz) && int.TryParse(dz, NumberStyles.Integer, CultureInfo.InvariantCulture, out var dzVal)) model.Dz = dzVal;
+                if (meta.TryGetValue("CHECKSUM", out var cs) && int.TryParse(cs, NumberStyles.Integer, CultureInfo.InvariantCulture, out var csVal)) model.Checksum = csVal;
             }
 
             // Decompress STEP data
@@ -701,7 +702,7 @@ public sealed class PcbLibReader
             return false;
 
         // Try parse as integer (internal units)
-        if (int.TryParse(value, out var intValue))
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue))
         {
             result = Coord.FromRaw(intValue);
             return true;
@@ -711,7 +712,7 @@ public sealed class PcbLibReader
         var span = value.AsSpan();
         if (span.EndsWith("mil", StringComparison.OrdinalIgnoreCase))
         {
-            if (double.TryParse(span.Slice(0, span.Length - 3), out var mils))
+            if (double.TryParse(span.Slice(0, span.Length - 3), NumberStyles.Float, CultureInfo.InvariantCulture, out var mils))
             {
                 result = Coord.FromMils(mils);
                 return true;
@@ -719,7 +720,7 @@ public sealed class PcbLibReader
         }
         else if (span.EndsWith("mm", StringComparison.OrdinalIgnoreCase))
         {
-            if (double.TryParse(span.Slice(0, span.Length - 2), out var mm))
+            if (double.TryParse(span.Slice(0, span.Length - 2), NumberStyles.Float, CultureInfo.InvariantCulture, out var mm))
             {
                 result = Coord.FromMm(mm);
                 return true;
@@ -766,7 +767,7 @@ public sealed class PcbLibReader
 
         for (var i = 0; i < parts.Length; i++)
         {
-            if (int.TryParse(parts[i], out var codePoint))
+            if (int.TryParse(parts[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out var codePoint))
             {
                 chars[i] = (char)codePoint;
             }
@@ -1415,7 +1416,7 @@ public sealed class PcbLibReader
         var vertexCount = reader.ReadUInt32();
         var kind = 0;
         if (parameters.TryGetValue("KIND", out var kindStr))
-            int.TryParse(kindStr, out kind);
+            int.TryParse(kindStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out kind);
 
         var region = PcbRegion.Create()
             .OnLayer(layer)
@@ -1537,23 +1538,23 @@ public sealed class PcbLibReader
             result.LayerName = v7Layer;
         if (parameters.TryGetValue("NAME", out var name))
             result.Name = name;
-        if (parameters.TryGetValue("KIND", out var kindStr) && int.TryParse(kindStr, out var kind))
+        if (parameters.TryGetValue("KIND", out var kindStr) && int.TryParse(kindStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var kind))
             result.Kind = kind;
-        if (parameters.TryGetValue("SUBPOLYINDEX", out var subPoly) && int.TryParse(subPoly, out var subPolyVal))
+        if (parameters.TryGetValue("SUBPOLYINDEX", out var subPoly) && int.TryParse(subPoly, NumberStyles.Integer, CultureInfo.InvariantCulture, out var subPolyVal))
             result.SubPolyIndex = subPolyVal;
-        if (parameters.TryGetValue("UNIONINDEX", out var unionIdx) && int.TryParse(unionIdx, out var unionIdxVal))
+        if (parameters.TryGetValue("UNIONINDEX", out var unionIdx) && int.TryParse(unionIdx, NumberStyles.Integer, CultureInfo.InvariantCulture, out var unionIdxVal))
             result.UnionIndex = unionIdxVal;
         if (parameters.TryGetValue("ARCRESOLUTION", out var arcRes) && double.TryParse(arcRes, System.Globalization.CultureInfo.InvariantCulture, out var arcResVal))
             result.ArcResolution = arcResVal;
         if (parameters.TryGetValue("ISSHAPEBASED", out var isShapeBased))
             result.IsShapeBased = string.Equals(isShapeBased, "TRUE", StringComparison.OrdinalIgnoreCase);
-        if (parameters.TryGetValue("CAVITYHEIGHT", out var cavHeight) && int.TryParse(cavHeight, out var cavHeightVal))
+        if (parameters.TryGetValue("CAVITYHEIGHT", out var cavHeight) && int.TryParse(cavHeight, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cavHeightVal))
             result.CavityHeight = Coord.FromRaw(cavHeightVal);
-        if (parameters.TryGetValue("STANDOFFHEIGHT", out var standoff) && int.TryParse(standoff, out var standoffVal))
+        if (parameters.TryGetValue("STANDOFFHEIGHT", out var standoff) && int.TryParse(standoff, NumberStyles.Integer, CultureInfo.InvariantCulture, out var standoffVal))
             result.StandoffHeight = Coord.FromRaw(standoffVal);
-        if (parameters.TryGetValue("OVERALLHEIGHT", out var overall) && int.TryParse(overall, out var overallVal))
+        if (parameters.TryGetValue("OVERALLHEIGHT", out var overall) && int.TryParse(overall, NumberStyles.Integer, CultureInfo.InvariantCulture, out var overallVal))
             result.OverallHeight = Coord.FromRaw(overallVal);
-        if (parameters.TryGetValue("BODYCOLOR3D", out var bodyColor) && int.TryParse(bodyColor, out var bodyColorVal))
+        if (parameters.TryGetValue("BODYCOLOR3D", out var bodyColor) && int.TryParse(bodyColor, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bodyColorVal))
             result.BodyColor3D = bodyColorVal;
         if (parameters.TryGetValue("BODYOPACITY3D", out var opacity) && double.TryParse(opacity, System.Globalization.CultureInfo.InvariantCulture, out var opacityVal))
             result.BodyOpacity3D = opacityVal;
@@ -1561,9 +1562,9 @@ public sealed class PcbLibReader
             result.ModelId = modelId;
         if (parameters.TryGetValue("MODEL.EMBED", out var modelEmbed))
             result.ModelEmbed = string.Equals(modelEmbed, "TRUE", StringComparison.OrdinalIgnoreCase);
-        if (parameters.TryGetValue("MODEL.2D.X", out var m2dx) && int.TryParse(m2dx, out var m2dxVal))
+        if (parameters.TryGetValue("MODEL.2D.X", out var m2dx) && int.TryParse(m2dx, NumberStyles.Integer, CultureInfo.InvariantCulture, out var m2dxVal))
             result.Model2DLocation = new CoordPoint(Coord.FromRaw(m2dxVal),
-                parameters.TryGetValue("MODEL.2D.Y", out var m2dy) && int.TryParse(m2dy, out var m2dyVal)
+                parameters.TryGetValue("MODEL.2D.Y", out var m2dy) && int.TryParse(m2dy, NumberStyles.Integer, CultureInfo.InvariantCulture, out var m2dyVal)
                     ? Coord.FromRaw(m2dyVal) : Coord.FromRaw(0));
         if (parameters.TryGetValue("MODEL.2D.ROTATION", out var m2dRot) && double.TryParse(m2dRot, System.Globalization.CultureInfo.InvariantCulture, out var m2dRotVal))
             result.Model2DRotation = m2dRotVal;
@@ -1573,17 +1574,17 @@ public sealed class PcbLibReader
             result.Model3DRotY = m3dRotYVal;
         if (parameters.TryGetValue("MODEL.3D.ROTZ", out var m3dRotZ) && double.TryParse(m3dRotZ, System.Globalization.CultureInfo.InvariantCulture, out var m3dRotZVal))
             result.Model3DRotZ = m3dRotZVal;
-        if (parameters.TryGetValue("MODEL.3D.DZ", out var m3dDz) && int.TryParse(m3dDz, out var m3dDzVal))
+        if (parameters.TryGetValue("MODEL.3D.DZ", out var m3dDz) && int.TryParse(m3dDz, NumberStyles.Integer, CultureInfo.InvariantCulture, out var m3dDzVal))
             result.Model3DDz = Coord.FromRaw(m3dDzVal);
-        if (parameters.TryGetValue("MODEL.CHECKSUM", out var modelCs) && int.TryParse(modelCs, out var modelCsVal))
+        if (parameters.TryGetValue("MODEL.CHECKSUM", out var modelCs) && int.TryParse(modelCs, NumberStyles.Integer, CultureInfo.InvariantCulture, out var modelCsVal))
             result.ModelChecksum = modelCsVal;
         if (parameters.TryGetValue("MODEL.NAME", out var modelName))
             result.ModelName = modelName;
-        if (parameters.TryGetValue("MODEL.MODELTYPE", out var modelType) && int.TryParse(modelType, out var modelTypeVal))
+        if (parameters.TryGetValue("MODEL.MODELTYPE", out var modelType) && int.TryParse(modelType, NumberStyles.Integer, CultureInfo.InvariantCulture, out var modelTypeVal))
             result.ModelType = modelTypeVal;
         if (parameters.TryGetValue("MODEL.MODELSOURCE", out var modelSource))
             result.ModelSource = modelSource;
-        if (parameters.TryGetValue("BODYPROJECTION", out var bodyProj) && int.TryParse(bodyProj, out var bodyProjVal))
+        if (parameters.TryGetValue("BODYPROJECTION", out var bodyProj) && int.TryParse(bodyProj, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bodyProjVal))
             result.BodyProjection = bodyProjVal;
         if (parameters.TryGetValue("IDENTIFIER", out var identifier))
             result.Identifier = identifier;

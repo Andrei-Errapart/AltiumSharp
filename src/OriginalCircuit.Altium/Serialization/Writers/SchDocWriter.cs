@@ -1,3 +1,4 @@
+using System.Globalization;
 using OpenMcdf;
 using OriginalCircuit.Altium.Models.Sch;
 using OriginalCircuit.Altium.Serialization.Binary;
@@ -65,7 +66,7 @@ public sealed class SchDocWriter
             ["RECORD"] = "39",
         };
         if (template.IsNotAccessible) parameters["IsNotAccesible"] = "T";
-        parameters["OwnerPartId"] = template.OwnerPartId.ToString();
+        parameters["OwnerPartId"] = template.OwnerPartId.ToString(CultureInfo.InvariantCulture);
         if (!string.IsNullOrEmpty(template.FileName)) parameters["FileName"] = template.FileName;
 
         writer.WriteCStringParameterBlock(parameters);
@@ -77,19 +78,19 @@ public sealed class SchDocWriter
         var parameters = new Dictionary<string, string>
         {
             ["RECORD"] = "218",
-            ["LOCATIONCOUNT"] = harness.Vertices.Count.ToString(),
+            ["LOCATIONCOUNT"] = harness.Vertices.Count.ToString(CultureInfo.InvariantCulture),
         };
-        if (harness.OwnerIndex >= 0) parameters["OWNERINDEX"] = harness.OwnerIndex.ToString();
+        if (harness.OwnerIndex >= 0) parameters["OWNERINDEX"] = harness.OwnerIndex.ToString(CultureInfo.InvariantCulture);
         for (var i = 0; i < harness.Vertices.Count; i++)
         {
             parameters[$"X{i + 1}"] = SchLibWriter.CoordToDxpUnits(harness.Vertices[i].X);
             parameters[$"Y{i + 1}"] = SchLibWriter.CoordToDxpUnits(harness.Vertices[i].Y);
         }
-        if (harness.Color != 0) parameters["Color"] = harness.Color.ToString();
-        if (harness.LineWidth != 0) parameters["LineWidth"] = harness.LineWidth.ToString();
+        if (harness.Color != 0) parameters["Color"] = harness.Color.ToString(CultureInfo.InvariantCulture);
+        if (harness.LineWidth != 0) parameters["LineWidth"] = harness.LineWidth.ToString(CultureInfo.InvariantCulture);
         if (harness.IsNotAccessible) parameters["IsNotAccesible"] = "T";
-        if (harness.IndexInSheet != 0) parameters["IndexInSheet"] = harness.IndexInSheet.ToString();
-        if (harness.OwnerPartId != 0) parameters["OwnerPartId"] = harness.OwnerPartId.ToString();
+        if (harness.IndexInSheet != 0) parameters["IndexInSheet"] = harness.IndexInSheet.ToString(CultureInfo.InvariantCulture);
+        if (harness.OwnerPartId != 0) parameters["OwnerPartId"] = harness.OwnerPartId.ToString(CultureInfo.InvariantCulture);
         if (!string.IsNullOrEmpty(harness.UniqueId)) parameters["UniqueID"] = harness.UniqueId;
 
         writer.WriteCStringParameterBlock(parameters);
@@ -99,16 +100,16 @@ public sealed class SchDocWriter
     private static void WriteHarnessConnectorRecord(BinaryFormatWriter writer, SchHarnessConnector c, ref int index)
     {
         var parameters = new Dictionary<string, string> { ["RECORD"] = "215" };
-        if (c.OwnerIndex >= 0) parameters["OWNERINDEX"] = c.OwnerIndex.ToString();
+        if (c.OwnerIndex >= 0) parameters["OWNERINDEX"] = c.OwnerIndex.ToString(CultureInfo.InvariantCulture);
         if (c.IsNotAccessible) parameters["IsNotAccesible"] = "T";
-        if (c.IndexInSheet != 0) parameters["IndexInSheet"] = c.IndexInSheet.ToString();
-        if (c.OwnerPartId != 0) parameters["OwnerPartId"] = c.OwnerPartId.ToString();
+        if (c.IndexInSheet != 0) parameters["IndexInSheet"] = c.IndexInSheet.ToString(CultureInfo.InvariantCulture);
+        if (c.OwnerPartId != 0) parameters["OwnerPartId"] = c.OwnerPartId.ToString(CultureInfo.InvariantCulture);
         SchLibWriter.AddCoordParam(parameters, "Location.X", c.Corner1.X);
         SchLibWriter.AddCoordParam(parameters, "Location.Y", c.Corner1.Y);
         SchLibWriter.AddCoordParam(parameters, "Corner.X", c.Corner2.X);
         SchLibWriter.AddCoordParam(parameters, "Corner.Y", c.Corner2.Y);
-        if (c.Color != 0) parameters["Color"] = c.Color.ToString();
-        if (c.AreaColor != 0) parameters["AreaColor"] = c.AreaColor.ToString();
+        if (c.Color != 0) parameters["Color"] = c.Color.ToString(CultureInfo.InvariantCulture);
+        if (c.AreaColor != 0) parameters["AreaColor"] = c.AreaColor.ToString(CultureInfo.InvariantCulture);
         if (!string.IsNullOrEmpty(c.UniqueId)) parameters["UniqueID"] = c.UniqueId;
 
         writer.WriteCStringParameterBlock(parameters);
@@ -118,19 +119,19 @@ public sealed class SchDocWriter
     private static void WriteHarnessEntryRecord(BinaryFormatWriter writer, SchHarnessEntry e, ref int index)
     {
         var parameters = new Dictionary<string, string> { ["RECORD"] = "216" };
-        if (e.OwnerIndex >= 0) parameters["OWNERINDEX"] = e.OwnerIndex.ToString();
+        if (e.OwnerIndex >= 0) parameters["OWNERINDEX"] = e.OwnerIndex.ToString(CultureInfo.InvariantCulture);
         if (e.IsNotAccessible) parameters["IsNotAccesible"] = "T";
-        if (e.IndexInSheet != 0) parameters["IndexInSheet"] = e.IndexInSheet.ToString();
-        if (e.OwnerPartId != 0) parameters["OwnerPartId"] = e.OwnerPartId.ToString();
-        if (e.Side != 0) parameters["Side"] = e.Side.ToString();
+        if (e.IndexInSheet != 0) parameters["IndexInSheet"] = e.IndexInSheet.ToString(CultureInfo.InvariantCulture);
+        if (e.OwnerPartId != 0) parameters["OwnerPartId"] = e.OwnerPartId.ToString(CultureInfo.InvariantCulture);
+        if (e.Side != 0) parameters["Side"] = e.Side.ToString(CultureInfo.InvariantCulture);
         var dftRaw = e.DistanceFromTop.ToRaw();
-        if (dftRaw / 100_000 != 0) parameters["DistanceFromTop"] = (dftRaw / 100_000).ToString();
-        if (dftRaw % 100_000 != 0) parameters["DistanceFromTop_Frac1"] = (dftRaw % 100_000).ToString();
+        if (dftRaw / 100_000 != 0) parameters["DistanceFromTop"] = (dftRaw / 100_000).ToString(CultureInfo.InvariantCulture);
+        if (dftRaw % 100_000 != 0) parameters["DistanceFromTop_Frac1"] = (dftRaw % 100_000).ToString(CultureInfo.InvariantCulture);
         parameters["Text"] = e.Text;
-        if (e.Color != 0) parameters["Color"] = e.Color.ToString();
-        if (e.AreaColor != 0) parameters["AreaColor"] = e.AreaColor.ToString();
-        if (e.TextColor != 0) parameters["TextColor"] = e.TextColor.ToString();
-        if (e.TextFontId != 0) parameters["TextFontID"] = e.TextFontId.ToString();
+        if (e.Color != 0) parameters["Color"] = e.Color.ToString(CultureInfo.InvariantCulture);
+        if (e.AreaColor != 0) parameters["AreaColor"] = e.AreaColor.ToString(CultureInfo.InvariantCulture);
+        if (e.TextColor != 0) parameters["TextColor"] = e.TextColor.ToString(CultureInfo.InvariantCulture);
+        if (e.TextFontId != 0) parameters["TextFontID"] = e.TextFontId.ToString(CultureInfo.InvariantCulture);
         if (!string.IsNullOrEmpty(e.UniqueId)) parameters["UniqueID"] = e.UniqueId;
 
         writer.WriteCStringParameterBlock(parameters);
@@ -140,16 +141,16 @@ public sealed class SchDocWriter
     private static void WriteHarnessTypeRecord(BinaryFormatWriter writer, SchHarnessType t, ref int index)
     {
         var parameters = new Dictionary<string, string> { ["RECORD"] = "217" };
-        if (t.OwnerIndex >= 0) parameters["OWNERINDEX"] = t.OwnerIndex.ToString();
+        if (t.OwnerIndex >= 0) parameters["OWNERINDEX"] = t.OwnerIndex.ToString(CultureInfo.InvariantCulture);
         if (t.IsNotAccessible) parameters["IsNotAccesible"] = "T";
-        if (t.IndexInSheet != 0) parameters["IndexInSheet"] = t.IndexInSheet.ToString();
-        if (t.OwnerPartId != 0) parameters["OwnerPartId"] = t.OwnerPartId.ToString();
+        if (t.IndexInSheet != 0) parameters["IndexInSheet"] = t.IndexInSheet.ToString(CultureInfo.InvariantCulture);
+        if (t.OwnerPartId != 0) parameters["OwnerPartId"] = t.OwnerPartId.ToString(CultureInfo.InvariantCulture);
         SchLibWriter.AddCoordParam(parameters, "Location.X", t.Location.X);
         SchLibWriter.AddCoordParam(parameters, "Location.Y", t.Location.Y);
         parameters["Text"] = t.Text;
-        if (t.Color != 0) parameters["Color"] = t.Color.ToString();
-        if (t.TextColor != 0) parameters["TextColor"] = t.TextColor.ToString();
-        parameters["FontID"] = t.FontId.ToString();
+        if (t.Color != 0) parameters["Color"] = t.Color.ToString(CultureInfo.InvariantCulture);
+        if (t.TextColor != 0) parameters["TextColor"] = t.TextColor.ToString(CultureInfo.InvariantCulture);
+        parameters["FontID"] = t.FontId.ToString(CultureInfo.InvariantCulture);
         if (!string.IsNullOrEmpty(t.UniqueId)) parameters["UniqueID"] = t.UniqueId;
 
         writer.WriteCStringParameterBlock(parameters);
@@ -160,14 +161,14 @@ public sealed class SchDocWriter
     {
         var parameters = new Dictionary<string, string> { ["RECORD"] = "211" };
         if (mask.IsNotAccessible) parameters["IsNotAccesible"] = "T";
-        if (mask.IndexInSheet != 0) parameters["IndexInSheet"] = mask.IndexInSheet.ToString();
-        if (mask.OwnerPartId != 0) parameters["OwnerPartId"] = mask.OwnerPartId.ToString();
+        if (mask.IndexInSheet != 0) parameters["IndexInSheet"] = mask.IndexInSheet.ToString(CultureInfo.InvariantCulture);
+        if (mask.OwnerPartId != 0) parameters["OwnerPartId"] = mask.OwnerPartId.ToString(CultureInfo.InvariantCulture);
         SchLibWriter.AddCoordParam(parameters, "Location.X", mask.Corner1.X);
         SchLibWriter.AddCoordParam(parameters, "Location.Y", mask.Corner1.Y);
         SchLibWriter.AddCoordParam(parameters, "Corner.X", mask.Corner2.X);
         SchLibWriter.AddCoordParam(parameters, "Corner.Y", mask.Corner2.Y);
-        if (mask.Color != 0) parameters["Color"] = mask.Color.ToString();
-        if (mask.AreaColor != 0) parameters["AreaColor"] = mask.AreaColor.ToString();
+        if (mask.Color != 0) parameters["Color"] = mask.Color.ToString(CultureInfo.InvariantCulture);
+        if (mask.AreaColor != 0) parameters["AreaColor"] = mask.AreaColor.ToString(CultureInfo.InvariantCulture);
         if (!string.IsNullOrEmpty(mask.UniqueId)) parameters["UniqueID"] = mask.UniqueId;
 
         writer.WriteCStringParameterBlock(parameters);
@@ -178,18 +179,18 @@ public sealed class SchDocWriter
     {
         var parameters = new Dictionary<string, string> { ["RECORD"] = "209" };
         if (note.IsNotAccessible) parameters["IsNotAccesible"] = "T";
-        if (note.IndexInSheet != 0) parameters["IndexInSheet"] = note.IndexInSheet.ToString();
-        if (note.OwnerPartId != 0) parameters["OwnerPartId"] = note.OwnerPartId.ToString();
+        if (note.IndexInSheet != 0) parameters["IndexInSheet"] = note.IndexInSheet.ToString(CultureInfo.InvariantCulture);
+        if (note.OwnerPartId != 0) parameters["OwnerPartId"] = note.OwnerPartId.ToString(CultureInfo.InvariantCulture);
         SchLibWriter.AddCoordParam(parameters, "Location.X", note.Corner1.X);
         SchLibWriter.AddCoordParam(parameters, "Location.Y", note.Corner1.Y);
         SchLibWriter.AddCoordParam(parameters, "Corner.X", note.Corner2.X);
         SchLibWriter.AddCoordParam(parameters, "Corner.Y", note.Corner2.Y);
-        if (note.Color != 0) parameters["Color"] = note.Color.ToString();
-        if (note.AreaColor != 0) parameters["AreaColor"] = note.AreaColor.ToString();
-        if (note.TextColor != 0) parameters["TextColor"] = note.TextColor.ToString();
+        if (note.Color != 0) parameters["Color"] = note.Color.ToString(CultureInfo.InvariantCulture);
+        if (note.AreaColor != 0) parameters["AreaColor"] = note.AreaColor.ToString(CultureInfo.InvariantCulture);
+        if (note.TextColor != 0) parameters["TextColor"] = note.TextColor.ToString(CultureInfo.InvariantCulture);
         parameters["Text"] = note.Text;
-        parameters["FontID"] = note.FontId.ToString();
-        if (note.Alignment != 0) parameters["Alignment"] = note.Alignment.ToString();
+        parameters["FontID"] = note.FontId.ToString(CultureInfo.InvariantCulture);
+        if (note.Alignment != 0) parameters["Alignment"] = note.Alignment.ToString(CultureInfo.InvariantCulture);
         if (note.WordWrap) parameters["WordWrap"] = "T";
         if (note.ClipToRect) parameters["ClipToRect"] = "T";
         if (!string.IsNullOrEmpty(note.Author)) parameters["Author"] = note.Author;
@@ -203,17 +204,17 @@ public sealed class SchDocWriter
     {
         var parameters = new Dictionary<string, string> { ["RECORD"] = "226" };
         if (hyperlink.IsNotAccessible) parameters["IsNotAccesible"] = "T";
-        if (hyperlink.IndexInSheet != 0) parameters["IndexInSheet"] = hyperlink.IndexInSheet.ToString();
-        if (hyperlink.OwnerPartId != 0) parameters["OwnerPartId"] = hyperlink.OwnerPartId.ToString();
+        if (hyperlink.IndexInSheet != 0) parameters["IndexInSheet"] = hyperlink.IndexInSheet.ToString(CultureInfo.InvariantCulture);
+        if (hyperlink.OwnerPartId != 0) parameters["OwnerPartId"] = hyperlink.OwnerPartId.ToString(CultureInfo.InvariantCulture);
         SchLibWriter.AddCoordParam(parameters, "Location.X", hyperlink.Location.X);
         SchLibWriter.AddCoordParam(parameters, "Location.Y", hyperlink.Location.Y);
-        if (hyperlink.Color != 0) parameters["Color"] = hyperlink.Color.ToString();
+        if (hyperlink.Color != 0) parameters["Color"] = hyperlink.Color.ToString(CultureInfo.InvariantCulture);
         parameters["Text"] = hyperlink.Text;
         if (!string.IsNullOrEmpty(hyperlink.Url)) parameters["URL"] = hyperlink.Url;
-        parameters["FontID"] = hyperlink.FontId.ToString();
-        if (hyperlink.Orientation != 0) parameters["Orientation"] = hyperlink.Orientation.ToString();
-        if (hyperlink.Justification != 0) parameters["Justification"] = hyperlink.Justification.ToString();
-        if (hyperlink.AreaColor != 0) parameters["AreaColor"] = hyperlink.AreaColor.ToString();
+        parameters["FontID"] = hyperlink.FontId.ToString(CultureInfo.InvariantCulture);
+        if (hyperlink.Orientation != 0) parameters["Orientation"] = hyperlink.Orientation.ToString(CultureInfo.InvariantCulture);
+        if (hyperlink.Justification != 0) parameters["Justification"] = hyperlink.Justification.ToString(CultureInfo.InvariantCulture);
+        if (hyperlink.AreaColor != 0) parameters["AreaColor"] = hyperlink.AreaColor.ToString(CultureInfo.InvariantCulture);
         if (!string.IsNullOrEmpty(hyperlink.UniqueId)) parameters["UniqueID"] = hyperlink.UniqueId;
 
         writer.WriteCStringParameterBlock(parameters);
@@ -381,7 +382,7 @@ public sealed class SchDocWriter
             var emptyParams = new Dictionary<string, string>
             {
                 ["RECORD"] = "44",
-                ["OWNERINDEX"] = componentIndex.ToString()
+                ["OWNERINDEX"] = componentIndex.ToString(CultureInfo.InvariantCulture)
             };
             writer.WriteCStringParameterBlock(emptyParams);
             index++;
@@ -393,7 +394,7 @@ public sealed class SchDocWriter
         var implListParams = new Dictionary<string, string>
         {
             ["RECORD"] = "44",
-            ["OWNERINDEX"] = componentIndex.ToString()
+            ["OWNERINDEX"] = componentIndex.ToString(CultureInfo.InvariantCulture)
         };
         writer.WriteCStringParameterBlock(implListParams);
         index++;
@@ -410,7 +411,7 @@ public sealed class SchDocWriter
             var mdlParams = new Dictionary<string, string>
             {
                 ["RECORD"] = "46",
-                ["OWNERINDEX"] = implIndex.ToString()
+                ["OWNERINDEX"] = implIndex.ToString(CultureInfo.InvariantCulture)
             };
             writer.WriteCStringParameterBlock(mdlParams);
             index++;
@@ -425,7 +426,7 @@ public sealed class SchDocWriter
             var ipParams = new Dictionary<string, string>
             {
                 ["RECORD"] = "48",
-                ["OWNERINDEX"] = implIndex.ToString()
+                ["OWNERINDEX"] = implIndex.ToString(CultureInfo.InvariantCulture)
             };
             writer.WriteCStringParameterBlock(ipParams);
             index++;
@@ -577,14 +578,14 @@ public sealed class SchDocWriter
         var parameters = new Dictionary<string, string>
         {
             ["RECORD"] = "2",
-            ["OWNERINDEX"] = ownerIndex.ToString(),
-            ["OWNERPARTID"] = pin.OwnerPartId != 0 ? pin.OwnerPartId.ToString() : "1",
-            ["OWNERPARTDISPLAYMODE"] = pin.OwnerPartDisplayMode.ToString(),
+            ["OWNERINDEX"] = ownerIndex.ToString(CultureInfo.InvariantCulture),
+            ["OWNERPARTID"] = pin.OwnerPartId != 0 ? pin.OwnerPartId.ToString(CultureInfo.InvariantCulture) : "1",
+            ["OWNERPARTDISPLAYMODE"] = pin.OwnerPartDisplayMode.ToString(CultureInfo.InvariantCulture),
             ["NAME"] = pin.Name ?? string.Empty,
             ["DESIGNATOR"] = pin.Designator ?? string.Empty,
-            ["ELECTRICAL"] = ((int)pin.ElectricalType).ToString(),
-            ["PINCONGLOMERATE"] = SchLibWriter.GetPinConglomerate(pin).ToString(),
-            ["COLOR"] = pin.Color.ToString()
+            ["ELECTRICAL"] = ((int)pin.ElectricalType).ToString(CultureInfo.InvariantCulture),
+            ["PINCONGLOMERATE"] = SchLibWriter.GetPinConglomerate(pin).ToString(CultureInfo.InvariantCulture),
+            ["COLOR"] = pin.Color.ToString(CultureInfo.InvariantCulture)
         };
         SchLibWriter.AddCoordParam(parameters, "PINLENGTH", pin.Length);
         SchLibWriter.AddCoordParam(parameters, "LOCATION.X", pin.Location.X);
@@ -614,7 +615,7 @@ public sealed class SchDocWriter
             parameters["SWAPID_PIN"] = pin.SwapIdPin;
 
         // Propagation delay — always write, using scientific notation format to match Altium's "0.000000E+000"
-        parameters["PINPROPAGATIONDELAY"] = ((double)pin.PinPropagationDelay).ToString("0.000000E+000");
+        parameters["PINPROPAGATIONDELAY"] = ((double)pin.PinPropagationDelay).ToString("0.000000E+000", CultureInfo.InvariantCulture);
 
         // Font/position customization
         AddNonZero(parameters, "DESIGNATOR.CUSTOMFONTID", pin.DesignatorCustomFontId);
@@ -661,11 +662,11 @@ public sealed class SchDocWriter
         var parameters = new Dictionary<string, string>
         {
             ["RECORD"] = "27",
-            ["COLOR"] = wire.Color.ToString(),
-            ["LOCATIONCOUNT"] = wire.Vertices.Count.ToString()
+            ["COLOR"] = wire.Color.ToString(CultureInfo.InvariantCulture),
+            ["LOCATIONCOUNT"] = wire.Vertices.Count.ToString(CultureInfo.InvariantCulture)
         };
 
-        if (ownerIndex >= 0) parameters["OWNERINDEX"] = ownerIndex.ToString();
+        if (ownerIndex >= 0) parameters["OWNERINDEX"] = ownerIndex.ToString(CultureInfo.InvariantCulture);
 
         for (var i = 0; i < wire.Vertices.Count; i++)
         {
@@ -762,7 +763,7 @@ public sealed class SchDocWriter
 
     private static void AddNonZero(Dictionary<string, string> parameters, string key, int value)
     {
-        if (value != 0) parameters[key] = value.ToString();
+        if (value != 0) parameters[key] = value.ToString(CultureInfo.InvariantCulture);
     }
 
     private static void AddBool(Dictionary<string, string> parameters, string key, bool value)
