@@ -6,6 +6,7 @@ using OriginalCircuit.Altium.Primitives;
 using OriginalCircuit.Altium.Serialization.Binary;
 using OriginalCircuit.Altium.Serialization.Compound;
 using OriginalCircuit.Altium.Serialization.Dto.Sch;
+using System.Buffers;
 using System.Globalization;
 using System.IO.Compression;
 using System.Text;
@@ -497,6 +498,11 @@ public sealed class SchLibReader
         var partAndSequence = reader.ReadPascalShortString();
         var defaultValue = reader.ReadPascalShortString();
 
+        // SwapIdPart is encoded as "{Part}|&|{Sequence}"; recover the Part so it round-trips
+        // (binary pins otherwise always read back SwapIdPart = 0).
+        var swapSepIndex = partAndSequence.IndexOf("|&|", StringComparison.Ordinal);
+        var swapIdPart = swapSepIndex >= 0 ? partAndSequence[..swapSepIndex] : partAndSequence;
+
         // Consume any remaining bytes in the block
         var consumed = (int)(reader.Position - startPos);
         if (consumed < dataSize)
@@ -527,6 +533,9 @@ public sealed class SchLibReader
             ["DEFAULTVALUE"] = defaultValue
         };
 
+        if (!string.IsNullOrEmpty(swapIdPart))
+            parameters["SWAPIDPART"] = swapIdPart;
+
         return parameters;
     }
 
@@ -543,26 +552,38 @@ public sealed class SchLibReader
         if (dataSize <= 0)
             return null;
 
-        byte[] buffer;
+        // C-string (null-terminated) record. Decode directly from the read buffer with no
+        // intermediate copy: the common small case stays on the stack, larger blocks use a pool.
+        string paramString;
         if (dataSize <= 512)
         {
             Span<byte> stackBuffer = stackalloc byte[dataSize];
             reader.ReadExact(stackBuffer);
-            buffer = stackBuffer.ToArray();
+            var nullIndex = stackBuffer.IndexOf((byte)0);
+            var length = nullIndex >= 0 ? nullIndex : dataSize;
+            if (length == 0)
+                return null;
+            paramString = AltiumEncoding.Windows1252.GetString(stackBuffer[..length]);
         }
         else
         {
-            buffer = new byte[dataSize];
-            reader.ReadExact(buffer);
+            var rented = ArrayPool<byte>.Shared.Rent(dataSize);
+            try
+            {
+                var span = rented.AsSpan(0, dataSize);
+                reader.ReadExact(span);
+                var nullIndex = span.IndexOf((byte)0);
+                var length = nullIndex >= 0 ? nullIndex : dataSize;
+                if (length == 0)
+                    return null;
+                paramString = AltiumEncoding.Windows1252.GetString(span[..length]);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(rented);
+            }
         }
 
-        // Find null terminator (if present) and decode the string
-        var nullIndex = Array.IndexOf(buffer, (byte)0);
-        var length = nullIndex >= 0 ? nullIndex : dataSize;
-        if (length == 0)
-            return null;
-
-        var paramString = AltiumEncoding.Windows1252.GetString(buffer, 0, length);
         rawString = paramString;
         return ParseParameters(paramString);
     }

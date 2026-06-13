@@ -546,25 +546,34 @@ public sealed class PcbLibReader
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
 
-        // PCB parameter blocks are C-strings (null-terminated, no length prefix).
-        // Read the entire block as raw bytes and decode as a string.
-        byte[] buffer;
+        // PCB parameter blocks are C-strings (null-terminated, no length prefix). Decode directly
+        // from the read buffer (no intermediate copy); the common small case stays on the stack and
+        // larger blocks use a pooled buffer rather than a fresh allocation per record.
+        string paramString;
         if (sanitizedSize <= 512)
         {
             Span<byte> stackBuffer = stackalloc byte[sanitizedSize];
             reader.ReadExact(stackBuffer);
-            buffer = stackBuffer.ToArray();
+            var nullIndex = stackBuffer.IndexOf((byte)0);
+            var length = nullIndex >= 0 ? nullIndex : sanitizedSize;
+            paramString = AltiumEncoding.Windows1252.GetString(stackBuffer[..length]);
         }
         else
         {
-            buffer = new byte[sanitizedSize];
-            reader.ReadExact(buffer);
+            var rented = ArrayPool<byte>.Shared.Rent(sanitizedSize);
+            try
+            {
+                var span = rented.AsSpan(0, sanitizedSize);
+                reader.ReadExact(span);
+                var nullIndex = span.IndexOf((byte)0);
+                var length = nullIndex >= 0 ? nullIndex : sanitizedSize;
+                paramString = AltiumEncoding.Windows1252.GetString(span[..length]);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(rented);
+            }
         }
-
-        // Find the null terminator (if present) and decode the string
-        var nullIndex = Array.IndexOf(buffer, (byte)0);
-        var length = nullIndex >= 0 ? nullIndex : sanitizedSize;
-        var paramString = AltiumEncoding.Windows1252.GetString(buffer, 0, length);
 
         rawString = paramString;
         return ParseParameters(paramString);

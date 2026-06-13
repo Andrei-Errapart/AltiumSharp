@@ -132,8 +132,11 @@ internal sealed class BinaryFormatWriter : IDisposable
     {
         data ??= string.Empty;
         var bytes = AltiumEncoding.Windows1252.GetBytes(data);
-        _writer.Write((byte)Math.Min(bytes.Length, 255));
-        _writer.Write(bytes);
+        // A Pascal short string is capped at 255 bytes. Write only the bytes the length prefix
+        // claims; emitting the full payload after a clamped length desynchronises every later field.
+        var length = Math.Min(bytes.Length, 255);
+        _writer.Write((byte)length);
+        _writer.Write(bytes, 0, length);
     }
 
     /// <summary>

@@ -648,10 +648,14 @@ public sealed class PcbLibWriter
         b[66] = (byte)via.SolderMaskExpansionMode;
         b[74] = (byte)via.Mode;
         var defaultDiameter = via.Diameter.ToRaw();
+        // Write per-layer diameters verbatim when the array is populated so a genuine zero on one
+        // layer of a full stack round-trips. Only fall back to the via diameter for a from-scratch
+        // via whose array is entirely zero (otherwise simple vias would be written with 0 diameter).
+        var hasPerLayerDiameters = via.Diameters.Any(d => d.ToRaw() != 0);
         for (var i = 0; i < 32; i++)
         {
             var d = via.Diameters[i].ToRaw();
-            PutI32(75 + i * 4, d != 0 ? d : defaultDiameter); // simple vias: all layers = via diameter
+            PutI32(75 + i * 4, hasPerLayerDiameters ? d : defaultDiameter);
         }
         PutI32(242, via.SolderMaskExpansion.ToRaw()); // back-side mask (symmetric)
         b[258] = (byte)(via.SolderMaskExpansionFromHoleEdge ? 1 : 0);
