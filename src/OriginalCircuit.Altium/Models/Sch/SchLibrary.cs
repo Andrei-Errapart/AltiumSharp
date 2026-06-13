@@ -83,14 +83,14 @@ public sealed class SchLibrary : ISchLibrary
     public async ValueTask SaveAsync(string path, OriginalCircuit.Eda.Models.SaveOptions? options = null, CancellationToken cancellationToken = default)
     {
         await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
-        await SaveAsync(stream, options, cancellationToken);
+        await SaveAsync(stream, options, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async ValueTask SaveAsync(Stream stream, OriginalCircuit.Eda.Models.SaveOptions? options = null, CancellationToken cancellationToken = default)
     {
         var writer = new SchLibWriter();
-        await writer.WriteAsync(this, stream, cancellationToken);
+        await writer.WriteAsync(this, stream, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

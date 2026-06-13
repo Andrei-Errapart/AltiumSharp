@@ -22,7 +22,7 @@ public sealed class PcbLibWriter
     {
         var mode = overwrite ? FileMode.Create : FileMode.CreateNew;
         await using var stream = new FileStream(path, mode, FileAccess.Write, FileShare.None, 4096, useAsync: true);
-        await WriteAsync(library, stream, cancellationToken);
+        await WriteAsync(library, stream, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -38,7 +38,7 @@ public sealed class PcbLibWriter
         using var ms = new MemoryStream();
         Write(library, ms, cancellationToken);
         ms.Position = 0;
-        await ms.CopyToAsync(stream, cancellationToken);
+        await ms.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

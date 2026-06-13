@@ -25,8 +25,8 @@ public static class AltiumLibrary
 
         return extension switch
         {
-            ".pcblib" => await OpenPcbLibAsync(path, cancellationToken),
-            ".schlib" => await OpenSchLibAsync(path, cancellationToken),
+            ".pcblib" => await OpenPcbLibAsync(path, cancellationToken).ConfigureAwait(false),
+            ".schlib" => await OpenSchLibAsync(path, cancellationToken).ConfigureAwait(false),
             _ => throw new NotSupportedException(
                 $"Unsupported file type: {extension}. " +
                 $"For .SchDoc use OpenSchDocAsync(), for .PcbDoc use OpenPcbDocAsync().")
@@ -41,7 +41,7 @@ public static class AltiumLibrary
         CancellationToken cancellationToken = default)
     {
         var reader = new PcbLibReader();
-        return await reader.ReadAsync(path, cancellationToken);
+        return await reader.ReadAsync(path, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -63,7 +63,7 @@ public static class AltiumLibrary
         CancellationToken cancellationToken = default)
     {
         var reader = new SchLibReader();
-        return await reader.ReadAsync(path, cancellationToken);
+        return await reader.ReadAsync(path, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -85,7 +85,7 @@ public static class AltiumLibrary
         CancellationToken cancellationToken = default)
     {
         var reader = new SchDocReader();
-        return await reader.ReadAsync(path, cancellationToken);
+        return await reader.ReadAsync(path, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -107,7 +107,7 @@ public static class AltiumLibrary
         CancellationToken cancellationToken = default)
     {
         var reader = new PcbDocReader();
-        return await reader.ReadAsync(path, cancellationToken);
+        return await reader.ReadAsync(path, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

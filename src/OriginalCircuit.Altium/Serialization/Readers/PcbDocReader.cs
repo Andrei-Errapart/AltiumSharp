@@ -29,7 +29,7 @@ public sealed class PcbDocReader
     {
         try
         {
-            await using var accessor = await CompoundFileAccessor.OpenAsync(path, writable: false, cancellationToken);
+            await using var accessor = await CompoundFileAccessor.OpenAsync(path, writable: false, cancellationToken).ConfigureAwait(false);
             return Read(accessor, cancellationToken);
         }
         catch (Exception ex) when (ex is not AltiumFileException and not OperationCanceledException

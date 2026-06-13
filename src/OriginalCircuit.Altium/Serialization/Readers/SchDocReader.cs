@@ -32,7 +32,7 @@ public sealed class SchDocReader
     {
         try
         {
-            await using var accessor = await CompoundFileAccessor.OpenAsync(path, writable: false, cancellationToken);
+            await using var accessor = await CompoundFileAccessor.OpenAsync(path, writable: false, cancellationToken).ConfigureAwait(false);
             var document = Read(accessor, cancellationToken);
             document.FileName = Path.GetFileName(path);
             document.FilePath = path;

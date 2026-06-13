@@ -24,7 +24,7 @@ public sealed class SchDocWriter
     {
         var mode = overwrite ? FileMode.Create : FileMode.CreateNew;
         await using var stream = new FileStream(path, mode, FileAccess.Write, FileShare.None, 4096, useAsync: true);
-        await WriteAsync(document, stream, cancellationToken);
+        await WriteAsync(document, stream, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -39,7 +39,7 @@ public sealed class SchDocWriter
         using var ms = new MemoryStream();
         Write(document, ms, cancellationToken);
         ms.Position = 0;
-        await ms.CopyToAsync(stream, cancellationToken);
+        await ms.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

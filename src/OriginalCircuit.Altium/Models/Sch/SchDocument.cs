@@ -454,13 +454,13 @@ public sealed class SchDocument : ISchDocument
     /// <inheritdoc />
     public async ValueTask SaveAsync(string path, OriginalCircuit.Eda.Models.SaveOptions? options = null, CancellationToken cancellationToken = default)
     {
-        await new SchDocWriter().WriteAsync(this, path, overwrite: true, cancellationToken);
+        await new SchDocWriter().WriteAsync(this, path, overwrite: true, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async ValueTask SaveAsync(Stream stream, OriginalCircuit.Eda.Models.SaveOptions? options = null, CancellationToken cancellationToken = default)
     {
-        await new SchDocWriter().WriteAsync(this, stream, cancellationToken);
+        await new SchDocWriter().WriteAsync(this, stream, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

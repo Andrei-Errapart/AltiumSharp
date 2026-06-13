@@ -61,7 +61,7 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
         }
         catch
         {
-            await stream.DisposeAsync();
+            await stream.DisposeAsync().ConfigureAwait(false);
             throw;
         }
     }
@@ -157,7 +157,7 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
 
         await using var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
         memStream.Position = 0;
-        await memStream.CopyToAsync(fileStream, cancellationToken);
+        await memStream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -224,7 +224,7 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
 
         if (_stream != null && !_leaveStreamOpen)
         {
-            await _stream.DisposeAsync();
+            await _stream.DisposeAsync().ConfigureAwait(false);
         }
     }
 }
