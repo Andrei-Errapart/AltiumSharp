@@ -1613,10 +1613,17 @@ public sealed class SchLibReader
         var paramCollection = ToParameterCollection(parameters);
         var dto = SchParameterDto.FromParameters(paramCollection);
 
+        // The Text value is UTF-8 when its key carried the %UTF8% prefix; the dictionary keeps the
+        // raw key, so detect it here and decode the (otherwise Windows-1252-mis-decoded) value.
+        var isUtf8 = parameters.ContainsKey("%UTF8%Text");
+        var value = dto.Text ?? string.Empty;
+        if (isUtf8) value = AltiumEncoding.DecodeUtf8ParameterValue(value);
+
         return new SchParameter
         {
             Name = dto.Name ?? string.Empty,
-            Value = dto.Text ?? string.Empty,
+            Value = value,
+            TextIsUtf8 = isUtf8,
             Location = new CoordPoint(CoordFromDxp(dto.LocationX, dto.LocationXFrac), CoordFromDxp(dto.LocationY, dto.LocationYFrac)),
             Orientation = dto.Orientation,
             Justification = (TextJustification)dto.Justification,

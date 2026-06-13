@@ -777,9 +777,12 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.Y", param.Location.Y);
         AddNonZero(parameters, "Color", param.Color);
         parameters["FontID"] = param.FontId.ToString(CultureInfo.InvariantCulture);
-        // Preserve %UTF8% prefix for round-trip fidelity
-        var textKey = param.TextIsUtf8 ? "%UTF8%Text" : "Text";
-        parameters[textKey] = param.Value;
+        // Preserve the %UTF8% prefix for round-trip fidelity, and auto-promote any value that
+        // Windows-1252 cannot represent (otherwise the block encoder would replace those chars
+        // with '?'). When UTF-8, the value is encoded so the block emits its UTF-8 byte sequence.
+        var useUtf8 = param.TextIsUtf8 || RequiresUtf8(param.Value);
+        parameters[useUtf8 ? "%UTF8%Text" : "Text"] =
+            useUtf8 ? AltiumEncoding.EncodeUtf8ParameterValue(param.Value) : param.Value;
         parameters["Name"] = param.Name;
         if (param.IsReadOnly) parameters["ReadOnlyState"] = "1";
         AddNonZero(parameters, "ParamType", param.ParamType);
@@ -1638,6 +1641,17 @@ public sealed class SchLibWriter
     private static void AddNonZero(Dictionary<string, string> parameters, string key, int value)
     {
         if (value != 0) parameters[key] = value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="value"/> contains characters that Windows-1252 cannot
+    /// represent (so the value must be written as a %UTF8% parameter to avoid lossy '?' substitution).
+    /// </summary>
+    private static bool RequiresUtf8(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+        var enc = AltiumEncoding.Windows1252;
+        return enc.GetString(enc.GetBytes(value)) != value;
     }
 
     /// <summary>

@@ -1004,11 +1004,14 @@ public sealed class SchDocReader
     private static SchParameter CreateParameter(ParameterCollection p, Dictionary<string, string>? rawParameters = null)
     {
         var dto = Dto.Sch.SchParameterDto.FromParameters(p);
+        var isUtf8 = rawParameters?.ContainsKey("%UTF8%TEXT") == true;
+        var value = dto.Text ?? string.Empty;
+        if (isUtf8) value = AltiumEncoding.DecodeUtf8ParameterValue(value);
         return new SchParameter
         {
             Name = dto.Name ?? string.Empty,
-            Value = dto.Text ?? string.Empty,
-            TextIsUtf8 = rawParameters?.ContainsKey("%UTF8%TEXT") == true,
+            Value = value,
+            TextIsUtf8 = isUtf8,
             Location = new CoordPoint(CoordFromDxp(dto.LocationX, dto.LocationXFrac), CoordFromDxp(dto.LocationY, dto.LocationYFrac)),
             Orientation = dto.Orientation,
             Justification = (TextJustification)dto.Justification,
