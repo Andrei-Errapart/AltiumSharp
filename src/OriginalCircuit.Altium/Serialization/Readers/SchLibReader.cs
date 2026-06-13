@@ -603,6 +603,11 @@ public sealed class SchLibReader
             !int.TryParse(countStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) || count <= 0)
             return fonts;
 
+        // Guard against a corrupt/hostile FONTIDCOUNT driving an unbounded allocation loop; real
+        // font tables hold a handful of entries, far below this bound.
+        const int maxFonts = 1000;
+        if (count > maxFonts) count = maxFonts;
+
         for (var i = 1; i <= count; i++)
         {
             var name = parameters.TryGetValue($"FONTNAME{i}", out var n) && !string.IsNullOrWhiteSpace(n)

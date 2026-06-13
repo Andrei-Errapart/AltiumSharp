@@ -7,34 +7,24 @@ namespace OriginalCircuit.Altium.Serialization;
 /// </summary>
 internal static class AltiumEncoding
 {
-    private static bool _initialized;
-    private static Encoding? _windows1252;
+    // Lazy<T> (thread-safe by default) guarantees the provider is registered and the encoding
+    // resolved exactly once, even when multiple reader/writer threads first touch it concurrently.
+    private static readonly Lazy<Encoding> _windows1252 = new(() =>
+    {
+        // Register the code pages encoding provider for Windows-1252 support.
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        return Encoding.GetEncoding(1252);
+    });
 
     /// <summary>
     /// Gets the Windows-1252 encoding used by Altium for ASCII strings.
     /// </summary>
-    public static Encoding Windows1252
-    {
-        get
-        {
-            EnsureInitialized();
-            return _windows1252!;
-        }
-    }
+    public static Encoding Windows1252 => _windows1252.Value;
 
     /// <summary>
     /// Ensures encoding providers are registered.
     /// </summary>
-    public static void EnsureInitialized()
-    {
-        if (_initialized)
-            return;
-
-        // Register the code pages encoding provider for Windows-1252 support
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        _windows1252 = Encoding.GetEncoding(1252);
-        _initialized = true;
-    }
+    public static void EnsureInitialized() => _ = _windows1252.Value;
 
     /// <summary>
     /// Decodes a parameter value that carried the <c>%UTF8%</c> key prefix. The surrounding

@@ -278,7 +278,8 @@ internal sealed class BinaryFormatReader : IDisposable
     }
 
     /// <summary>
-    /// Reads a Pascal-style short string (length-prefixed with Int32, but only up to 255 chars used).
+    /// Reads a Pascal-style short string: a single-byte length prefix (0-255) followed by that
+    /// many bytes, decoded with the given encoding.
     /// </summary>
     /// <param name="encoding">Optional encoding (defaults to Windows-1252).</param>
     public string ReadPascalShortString(Encoding? encoding = null)
