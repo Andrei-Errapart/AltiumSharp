@@ -1093,6 +1093,107 @@ public sealed class BinaryComparisonTests
         _output.WriteLine($"  Content: {str}");
     }
 
+    /// <summary>
+    /// Round-trips every generated PcbLib/SchLib fixture and asserts each MCDF stream is
+    /// byte-identical, turning the documented byte-fidelity milestones into an enforced baseline.
+    /// The known-deliberate divergences (PcbLib pad/via identity-GUID blocks in the Data stream;
+    /// SchLib zlib-compressed pin-aux streams that decompress identically) are allowlisted.
+    /// </summary>
+    [Fact]
+    public void AllGeneratedFiles_EveryStream_ByteIdentical_ExceptKnownDivergences()
+    {
+        var divergences = new List<string>();
+        var files = GetPcbLibFiles().Concat(GetSchLibFiles())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        Skip.If(files.Count == 0, "Generated test data not available");
+
+        foreach (var file in files)
+        {
+            var name = Path.GetFileName(file);
+            var isSch = name.EndsWith(".SchLib", StringComparison.OrdinalIgnoreCase);
+            var originalBytes = File.ReadAllBytes(file);
+
+            var originalStreams = new Dictionary<string, byte[]>();
+            using (var ocf = new OpenMcdf.CompoundFile(new MemoryStream(originalBytes)))
+                EnumerateStreams(ocf.RootStorage, "", originalStreams);
+
+            byte[] rtBytes;
+            using (var inStream = new MemoryStream(originalBytes))
+            using (var outMs = new MemoryStream())
+            {
+                if (isSch)
+                {
+                    var lib = new SchLibReader().Read(inStream);
+                    new SchLibWriter().Write(lib, outMs);
+                }
+                else
+                {
+                    var lib = new PcbLibReader().Read(inStream);
+                    new PcbLibWriter().Write(lib, outMs);
+                }
+                rtBytes = outMs.ToArray();
+            }
+
+            var rtStreams = new Dictionary<string, byte[]>();
+            using (var rcf = new OpenMcdf.CompoundFile(new MemoryStream(rtBytes)))
+                EnumerateStreams(rcf.RootStorage, "", rtStreams);
+
+            foreach (var kvp in originalStreams)
+            {
+                if (!rtStreams.TryGetValue(kvp.Key, out var rt))
+                {
+                    divergences.Add($"{name}::{kvp.Key}::MISSING");
+                    continue;
+                }
+                if (kvp.Value.AsSpan().SequenceEqual(rt))
+                    continue;
+                var sameSize = kvp.Value.Length == rt.Length;
+                if (IsAllowedDivergence(kvp.Key, sameSize))
+                    continue;
+                divergences.Add($"{name}::{kvp.Key}::{(sameSize ? "CONTENT" : "SIZE")}(orig={kvp.Value.Length},rt={rt.Length})");
+            }
+        }
+
+        Assert.True(divergences.Count == 0,
+            $"{divergences.Count} unexpected byte-level stream divergences (a regression in byte fidelity):\n"
+            + string.Join("\n", divergences));
+    }
+
+    /// <summary>
+    /// The known-deliberate byte divergences (documented as out of scope). Everything else -- a
+    /// missing stream, a size change, a FileHeader change -- is a real byte-fidelity regression.
+    /// </summary>
+    private static bool IsAllowedDivergence(string streamKey, bool sameSize)
+    {
+        // PCB 3D STEP models and SchLib pin-aux/storage streams are zlib-compressed; .NET's deflate
+        // emits different bytes than Altium's (madler) zlib, but the payload decompresses identically.
+        if (streamKey.Contains("/Models/", StringComparison.OrdinalIgnoreCase))
+            return true;
+        foreach (var aux in new[] { "PinFrac", "PinSymbolLineWidth", "PinWideText", "PinTextData", "Storage" })
+            if (streamKey.Contains(aux, StringComparison.OrdinalIgnoreCase))
+                return true;
+        // Pad/via records carry a 32-byte opaque identity-GUID block that is template-hardcoded/random
+        // and not recoverable; it perturbs the Data stream content without changing its size.
+        if (sameSize && streamKey.EndsWith("/Data", StringComparison.OrdinalIgnoreCase))
+            return true;
+        // A handful of real-world SchLib fixtures do not yet round-trip their Data stream byte-for-byte
+        // (it grows by a few bytes). This is a pre-existing limitation (present on master, unrelated to
+        // any change here), tracked separately; allowlisted so this guard still catches NEW regressions.
+        if (KnownSchLibDataSizeDivergences.Contains(streamKey))
+            return true;
+        return false;
+    }
+
+    private static readonly HashSet<string> KnownSchLibDataSizeDivergences = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ST MICROELECTRONICS STM32U535CB/Data", // STM32U535CBUX + STM32U535CBUXQ (same truncated key)
+        "AD ADL5801/Data",
+        "PSEMI PE42442/Data",
+        "AD AD8367/Data",
+        "POWER_GND/Data",
+        "POWER_VCC/Data",
+    };
+
     private static void EnumerateStreams(OpenMcdf.CFStorage storage, string path, Dictionary<string, byte[]> result)
     {
         storage.VisitEntries(entry =>
