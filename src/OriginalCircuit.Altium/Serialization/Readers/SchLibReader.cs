@@ -373,10 +373,11 @@ public sealed class SchLibReader
                 }
                 else if (primitive == null)
                 {
-                    // Record type is not modelled for SchLib (e.g. Note/Hyperlink/Harness): it is
-                    // dropped rather than silently lost, so a partial parse is observable.
+                    // Record type is not modelled for SchLib (e.g. Note/Hyperlink/Harness): preserve it
+                    // as an opaque record at its original position so it still round-trips, and note it.
+                    component.ReadOrderedPrimitives.Add(new SchOpaqueRecord(parameters));
                     _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
-                        $"Unsupported SchLib record type {recordType} was dropped.", sectionKey));
+                        $"Unsupported SchLib record type {recordType} preserved as an opaque record.", sectionKey));
                 }
             }
         }

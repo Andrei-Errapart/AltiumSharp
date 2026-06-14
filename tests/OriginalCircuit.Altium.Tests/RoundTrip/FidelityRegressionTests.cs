@@ -33,4 +33,33 @@ public sealed class FidelityRegressionTests
         var roundTripped = (SchPin)readBack.Components.First().Pins[0];
         Assert.Equal("5", roundTripped.SwapIdPart);
     }
+
+    [Fact]
+    public void SchLib_UnmappedRecord_RoundTripsAsOpaque()
+    {
+        var library = new SchLibrary();
+        var component = new SchComponent { Name = "U1", PartCount = 1 };
+        // RECORD=209 (Note) is not modelled by the SchLib reader. Place it on the ordered-record list
+        // so the writer's byte-fidelity path emits it; the reader must read it back as an opaque record.
+        component.ReadOrderedPrimitives.Add(new SchOpaqueRecord(new Dictionary<string, string>
+        {
+            ["RECORD"] = "209",
+            ["OWNERINDEX"] = "0",
+            ["LOCATION.X"] = "100",
+            ["LOCATION.Y"] = "200",
+            ["TEXT"] = "hello",
+        }));
+        library.Add(component);
+
+        using var ms = new MemoryStream();
+        new SchLibWriter().Write(library, ms);
+        ms.Position = 0;
+        var readBack = (SchLibrary)new SchLibReader().Read(ms);
+
+        var comp = (SchComponent)readBack.Components.First();
+        var opaque = comp.ReadOrderedPrimitives.OfType<SchOpaqueRecord>().FirstOrDefault();
+        Assert.NotNull(opaque);
+        Assert.Equal("209", opaque!.Parameters["RECORD"]);
+        Assert.Equal("hello", opaque.Parameters["TEXT"]);
+    }
 }

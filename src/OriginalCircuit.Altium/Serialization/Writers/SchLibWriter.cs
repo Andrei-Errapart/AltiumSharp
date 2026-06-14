@@ -212,6 +212,7 @@ public sealed class SchLibWriter
                     case SchImage image: WriteImageRecord(writer, image, ref index); break;
                     case SchSymbol symbol: WriteSymbolRecord(writer, symbol, ref index); break;
                     case SchPowerObject powerObj: WritePowerObjectRecord(writer, powerObj, ref index); break;
+                    case SchOpaqueRecord opaque: writer.WriteCStringParameterBlock(opaque.Parameters); index++; break;
                 }
             }
         }
