@@ -1,5 +1,5 @@
-using OpenMcdf;
 using OriginalCircuit.Altium.Models.Sch;
+using OriginalCircuit.Altium.Serialization.Compound;
 using OriginalCircuit.Eda.Primitives;
 using OriginalCircuit.Altium.Serialization.Binary;
 using System.Globalization;
@@ -52,7 +52,7 @@ public sealed class SchLibWriter
     /// <remarks>This instance is stateless and thread-safe.</remarks>
     public void Write(SchLibrary library, Stream stream, CancellationToken cancellationToken = default)
     {
-        using var cf = new CompoundFile();
+        using var cf = CompoundFileAccessor.Create();
         var sectionKeys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         WriteFileHeader(cf, library);
@@ -70,7 +70,7 @@ public sealed class SchLibWriter
         cf.Save(stream);
     }
 
-    private static void WriteFileHeader(CompoundFile cf, SchLibrary library)
+    private static void WriteFileHeader(CompoundFileAccessor cf, SchLibrary library)
     {
         var headerStream = cf.RootStorage.AddStream("FileHeader");
 
@@ -108,7 +108,7 @@ public sealed class SchLibWriter
         headerStream.SetData(ms.ToArray());
     }
 
-    private static void WriteSectionKeys(CompoundFile cf, SchLibrary library, Dictionary<string, string> sectionKeys)
+    private static void WriteSectionKeys(CompoundFileAccessor cf, SchLibrary library, Dictionary<string, string> sectionKeys)
     {
         // Use preserved section keys if available
         if (library.SectionKeys != null && library.SectionKeys.Count > 0)
@@ -162,7 +162,7 @@ public sealed class SchLibWriter
         sectionKeysStream.SetData(ms.ToArray());
     }
 
-    private static void WriteComponent(CompoundFile cf, SchComponent component, Dictionary<string, string> sectionKeys)
+    private static void WriteComponent(CompoundFileAccessor cf, SchComponent component, Dictionary<string, string> sectionKeys)
     {
         var sectionKey = sectionKeys.TryGetValue(component.Name, out var key)
             ? key
@@ -1383,7 +1383,7 @@ public sealed class SchLibWriter
         index++;
     }
 
-    internal static void WritePinFrac(CFStorage storage, Dictionary<int, (int x, int y, int length)> data)
+    internal static void WritePinFrac(CompoundStorage storage, Dictionary<int, (int x, int y, int length)> data)
     {
         if (data.Count == 0) return;
 
@@ -1414,7 +1414,7 @@ public sealed class SchLibWriter
         pinFracStream.SetData(ms.ToArray());
     }
 
-    internal static void WritePinSymbolLineWidth(CFStorage storage, Dictionary<int, Dictionary<string, string>> data)
+    internal static void WritePinSymbolLineWidth(CompoundStorage storage, Dictionary<int, Dictionary<string, string>> data)
     {
         if (data.Count == 0) return;
 
@@ -1485,7 +1485,7 @@ public sealed class SchLibWriter
         writer.Write(compressed);
     }
 
-    private static void WriteStorage(CompoundFile cf, SchLibrary library)
+    private static void WriteStorage(CompoundFileAccessor cf, SchLibrary library)
     {
         // Collect all embedded images across all components
         var embeddedImages = new List<byte[]>();
@@ -1501,7 +1501,7 @@ public sealed class SchLibWriter
         WriteStorageStream(cf.RootStorage, embeddedImages);
     }
 
-    internal static void WriteStorageStream(CFStorage rootStorage, List<byte[]> embeddedImages)
+    internal static void WriteStorageStream(CompoundStorage rootStorage, List<byte[]> embeddedImages)
     {
         var storageStream = rootStorage.AddStream("Storage");
 

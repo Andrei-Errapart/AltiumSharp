@@ -1,5 +1,4 @@
 using System.Globalization;
-using OpenMcdf;
 using OriginalCircuit.Altium.Diagnostics;
 using OriginalCircuit.Altium.Models.Pcb;
 using OriginalCircuit.Eda.Primitives;
@@ -124,14 +123,15 @@ public sealed class PcbDocReader
         {
             // Record every root entry so the writer can reproduce known storages that were
             // present but empty (e.g. DifferentialPairs6) instead of omitting them.
-            if (item is OpenMcdf.CFStorage)
+            if (item.IsStorage)
                 document.PresentStorages.Add(item.Name);
 
             if (KnownStorageNames.Contains(item.Name))
                 continue;
 
-            if (item is OpenMcdf.CFStorage childStorage)
+            if (item.IsStorage)
             {
+                var childStorage = item.AsStorage();
                 foreach (var stream in accessor.EnumerateStreams(childStorage))
                 {
                     try
@@ -144,8 +144,9 @@ public sealed class PcbDocReader
                     }
                 }
             }
-            else if (item is OpenMcdf.CFStream rootStream)
+            else
             {
+                var rootStream = item.AsStream();
                 try
                 {
                     additional[item.Name] = rootStream.GetData();

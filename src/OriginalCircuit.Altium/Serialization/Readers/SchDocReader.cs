@@ -1601,8 +1601,9 @@ public sealed class SchDocReader
             if (KnownStreamNames.Contains(item.Name))
                 continue;
 
-            if (item is OpenMcdf.CFStorage childStorage)
+            if (item.IsStorage)
             {
+                var childStorage = item.AsStorage();
                 foreach (var stream in accessor.EnumerateStreams(childStorage))
                 {
                     try
@@ -1615,8 +1616,9 @@ public sealed class SchDocReader
                     }
                 }
             }
-            else if (item is OpenMcdf.CFStream rootStream)
+            else
             {
+                var rootStream = item.AsStream();
                 try
                 {
                     additional[item.Name] = rootStream.GetData();

@@ -1,6 +1,6 @@
 using System.Globalization;
-using OpenMcdf;
 using OriginalCircuit.Altium.Models.Sch;
+using OriginalCircuit.Altium.Serialization.Compound;
 using OriginalCircuit.Altium.Serialization.Binary;
 
 namespace OriginalCircuit.Altium.Serialization.Writers;
@@ -50,7 +50,7 @@ public sealed class SchDocWriter
     /// <remarks>This instance is stateless and thread-safe.</remarks>
     public void Write(SchDocument document, Stream stream, CancellationToken cancellationToken = default)
     {
-        using var cf = new CompoundFile();
+        using var cf = CompoundFileAccessor.Create();
 
         WriteFileHeader(cf, document, cancellationToken);
         WriteStorage(cf, document);
@@ -229,7 +229,7 @@ public sealed class SchDocWriter
         return sb.ToString();
     }
 
-    private static void WriteFileHeader(CompoundFile cf, SchDocument document, CancellationToken cancellationToken = default)
+    private static void WriteFileHeader(CompoundFileAccessor cf, SchDocument document, CancellationToken cancellationToken = default)
     {
         var headerStream = cf.RootStorage.AddStream("FileHeader");
         using var ms = new MemoryStream();
@@ -697,7 +697,7 @@ public sealed class SchDocWriter
         index++;
     }
 
-    private static void WriteStorage(CompoundFile cf, SchDocument document)
+    private static void WriteStorage(CompoundFileAccessor cf, SchDocument document)
     {
         // Collect all embedded images from document-level and component-level
         var embeddedImages = new List<byte[]>();
@@ -720,7 +720,7 @@ public sealed class SchDocWriter
         SchLibWriter.WriteStorageStream(cf.RootStorage, embeddedImages);
     }
 
-    private static void WriteAdditionalStreams(CompoundFile cf, SchDocument document)
+    private static void WriteAdditionalStreams(CompoundFileAccessor cf, SchDocument document)
     {
         if (document.AdditionalStreams == null || document.AdditionalStreams.Count == 0)
             return;

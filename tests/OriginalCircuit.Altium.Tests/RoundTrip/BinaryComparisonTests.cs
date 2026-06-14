@@ -578,9 +578,9 @@ public sealed class BinaryComparisonTests
             catch (Exception ex) { _output.WriteLine($"{name}: EXCEPTION {ex.GetType().Name}: {ex.Message}"); continue; }
             var ratio = (double)rtBytes.Length / origBytes.Length * 100;
             _output.WriteLine($"\n=== {name}: {ratio:F1}% (orig={origBytes.Length}, rt={rtBytes.Length}) ===");
-            using var oCf = new CompoundFile(new MemoryStream(origBytes));
-            using var rCf = new CompoundFile(new MemoryStream(rtBytes));
-            CompareStorage(oCf.RootStorage, rCf.RootStorage, "");
+            using var oCf = RootStorage.Open(new MemoryStream(origBytes), StorageModeFlags.LeaveOpen);
+            using var rCf = RootStorage.Open(new MemoryStream(rtBytes), StorageModeFlags.LeaveOpen);
+            CompareStorage(oCf, rCf, "");
         }
     }
 
@@ -598,9 +598,9 @@ public sealed class BinaryComparisonTests
         _output.WriteLine($"=== Stream-level comparison for {fileName} ===\n");
 
         // Open original file with OpenMcdf
-        using var originalCf = new OpenMcdf.CompoundFile(testFile);
+        using var originalCf = RootStorage.OpenRead(testFile);
         var originalStreams = new Dictionary<string, byte[]>();
-        EnumerateStreams(originalCf.RootStorage, "", originalStreams);
+        EnumerateStreams(originalCf, "", originalStreams);
 
         // Round-trip
         PcbLibrary lib;
@@ -613,9 +613,9 @@ public sealed class BinaryComparisonTests
         new PcbLibWriter().Write(lib, ms);
         ms.Position = 0;
 
-        using var rtCf = new OpenMcdf.CompoundFile(ms);
+        using var rtCf = RootStorage.Open(ms, StorageModeFlags.LeaveOpen);
         var rtStreams = new Dictionary<string, byte[]>();
-        EnumerateStreams(rtCf.RootStorage, "", rtStreams);
+        EnumerateStreams(rtCf, "", rtStreams);
 
         // Compare
         _output.WriteLine("ORIGINAL streams:");
@@ -696,9 +696,9 @@ public sealed class BinaryComparisonTests
         var fileName = Path.GetFileName(testFile);
         _output.WriteLine($"=== Stream-level comparison for {fileName} ===\n");
 
-        using var originalCf = new OpenMcdf.CompoundFile(testFile);
+        using var originalCf = RootStorage.OpenRead(testFile);
         var originalStreams = new Dictionary<string, byte[]>();
-        EnumerateStreams(originalCf.RootStorage, "", originalStreams);
+        EnumerateStreams(originalCf, "", originalStreams);
 
         SchLibrary lib;
         using (var stream = File.OpenRead(testFile))
@@ -710,9 +710,9 @@ public sealed class BinaryComparisonTests
         new SchLibWriter().Write(lib, ms);
         ms.Position = 0;
 
-        using var rtCf = new OpenMcdf.CompoundFile(ms);
+        using var rtCf = RootStorage.Open(ms, StorageModeFlags.LeaveOpen);
         var rtStreams = new Dictionary<string, byte[]>();
-        EnumerateStreams(rtCf.RootStorage, "", rtStreams);
+        EnumerateStreams(rtCf, "", rtStreams);
 
         _output.WriteLine("ORIGINAL streams:");
         foreach (var kvp in originalStreams.OrderBy(k => k.Key))
@@ -809,25 +809,28 @@ public sealed class BinaryComparisonTests
             if (schFile == null) continue;
 
             _output.WriteLine($"\n=== {schFileName} ===");
-            using var cf = new OpenMcdf.CompoundFile(schFile);
+            using var cf = RootStorage.OpenRead(schFile);
 
             // Find component storage
             var componentName = Path.GetFileNameWithoutExtension(schFileName);
-            OpenMcdf.CFStorage? compStorage = null;
-            try { compStorage = cf.RootStorage.GetStorage(componentName); }
-            catch
+            Storage? compStorage = null;
+            if (cf.TryOpenStorage(componentName, out var named))
+            {
+                compStorage = named;
+            }
+            else
             {
                 // Try to find any storage that's not FileHeader or Storage
-                cf.RootStorage.VisitEntries(entry =>
+                foreach (var entry in cf.EnumerateEntries().ToList())
                 {
-                    if (entry is OpenMcdf.CFStorage s && entry.Name != "Storage")
-                        compStorage ??= s;
-                }, false);
+                    if (entry.Type == EntryType.Storage && entry.Name != "Storage")
+                        compStorage ??= cf.OpenStorage(entry.Name);
+                }
             }
 
             if (compStorage == null) continue;
 
-            var data = compStorage.GetStream("Data").GetData();
+            var data = compStorage.ReadStreamData("Data");
             var offset = 0;
             var seenRecords = new HashSet<string>();
             while (offset + 4 <= data.Length)
@@ -866,21 +869,21 @@ public sealed class BinaryComparisonTests
         var pcbFile = GetPcbLibFiles().FirstOrDefault(f => Path.GetFileName(f).Equals("PAD_TH_ROUND.PcbLib", StringComparison.OrdinalIgnoreCase));
         if (pcbFile != null)
         {
-            using var cf = new OpenMcdf.CompoundFile(pcbFile);
+            using var cf = RootStorage.OpenRead(pcbFile);
 
             _output.WriteLine("\n=== PcbLib Library/Data header (first 300 chars) ===");
-            var libData = cf.RootStorage.GetStorage("Library").GetStream("Data").GetData();
+            var libData = cf.OpenStorage("Library").ReadStreamData("Data");
             DumpParameterBlock(libData, 0, encoding, 300);
 
             _output.WriteLine("\n=== PcbLib PAD_TH_ROUND/Parameters ===");
-            var compParams = cf.RootStorage.GetStorage("PAD_TH_ROUND").GetStream("Parameters").GetData();
+            var compParams = cf.OpenStorage("PAD_TH_ROUND").ReadStreamData("Parameters");
             DumpParameterBlock(compParams, 0, encoding);
 
             _output.WriteLine("\n=== PcbLib UniqueID ===");
             try
             {
-                var uidData = cf.RootStorage.GetStorage("PAD_TH_ROUND")
-                    .GetStorage("UniqueIDPrimitiveInformation").GetStream("Data").GetData();
+                var uidData = cf.OpenStorage("PAD_TH_ROUND")
+                    .OpenStorage("UniqueIDPrimitiveInformation").ReadStreamData("Data");
                 DumpParameterBlock(uidData, 0, encoding);
             }
             catch { }
@@ -903,7 +906,7 @@ public sealed class BinaryComparisonTests
         if (testFile == null) { _output.WriteLine($"{fileName} not found"); return; }
 
         // Read original
-        using var originalCf = new OpenMcdf.CompoundFile(testFile);
+        using var originalCf = RootStorage.OpenRead(testFile);
 
         // Round-trip
         SchLibrary lib;
@@ -911,15 +914,15 @@ public sealed class BinaryComparisonTests
         using var ms = new MemoryStream();
         new SchLibWriter().Write(lib, ms);
         ms.Position = 0;
-        using var rtCf = new OpenMcdf.CompoundFile(ms);
+        using var rtCf = RootStorage.Open(ms, StorageModeFlags.LeaveOpen);
 
         // Find first component name
         var compName = lib.Components.FirstOrDefault()?.Name ?? Path.GetFileNameWithoutExtension(fileName);
 
         // Compare FileHeader
         _output.WriteLine("=== FileHeader ===");
-        var origFh = originalCf.RootStorage.GetStream("FileHeader").GetData();
-        var rtFh = rtCf.RootStorage.GetStream("FileHeader").GetData();
+        var origFh = originalCf.ReadStreamData("FileHeader");
+        var rtFh = rtCf.ReadStreamData("FileHeader");
         if (origFh.SequenceEqual(rtFh))
             _output.WriteLine($"IDENTICAL ({origFh.Length} bytes)");
         else
@@ -927,8 +930,8 @@ public sealed class BinaryComparisonTests
 
         // Compare Storage
         _output.WriteLine("\n=== Storage ===");
-        var origSt = originalCf.RootStorage.GetStream("Storage").GetData();
-        var rtSt = rtCf.RootStorage.GetStream("Storage").GetData();
+        var origSt = originalCf.ReadStreamData("Storage");
+        var rtSt = rtCf.ReadStreamData("Storage");
         if (origSt.SequenceEqual(rtSt))
             _output.WriteLine($"IDENTICAL ({origSt.Length} bytes)");
         else
@@ -939,7 +942,7 @@ public sealed class BinaryComparisonTests
         byte[] origData, rtData;
         try
         {
-            origData = originalCf.RootStorage.GetStorage(compName).GetStream("Data").GetData();
+            origData = originalCf.OpenStorage(compName).ReadStreamData("Data");
         }
         catch
         {
@@ -948,7 +951,7 @@ public sealed class BinaryComparisonTests
         }
         try
         {
-            rtData = rtCf.RootStorage.GetStorage(compName).GetStream("Data").GetData();
+            rtData = rtCf.OpenStorage(compName).ReadStreamData("Data");
         }
         catch
         {
@@ -989,8 +992,8 @@ public sealed class BinaryComparisonTests
         if (testFile == null) { _output.WriteLine("RESISTOR.SchLib not found"); return; }
 
         // Dump original pin bytes
-        using var cf = new OpenMcdf.CompoundFile(testFile);
-        var data = cf.RootStorage.GetStorage("RESISTOR").GetStream("Data").GetData();
+        using var cf = RootStorage.OpenRead(testFile);
+        var data = cf.OpenStorage("RESISTOR").ReadStreamData("Data");
         var offset = 0;
         var recordIndex = 0;
         while (offset + 4 <= data.Length)
@@ -1022,8 +1025,8 @@ public sealed class BinaryComparisonTests
 
         // Parse the OLE compound file from the round-tripped data
         ms.Position = 0;
-        using var rtCf = new OpenMcdf.CompoundFile(ms);
-        var rtCompData = rtCf.RootStorage.GetStorage("RESISTOR").GetStream("Data").GetData();
+        using var rtCf = RootStorage.Open(ms, StorageModeFlags.LeaveOpen);
+        var rtCompData = rtCf.OpenStorage("RESISTOR").ReadStreamData("Data");
         offset = 0;
         recordIndex = 0;
         while (offset + 4 <= rtCompData.Length)
@@ -1114,8 +1117,8 @@ public sealed class BinaryComparisonTests
             var originalBytes = File.ReadAllBytes(file);
 
             var originalStreams = new Dictionary<string, byte[]>();
-            using (var ocf = new OpenMcdf.CompoundFile(new MemoryStream(originalBytes)))
-                EnumerateStreams(ocf.RootStorage, "", originalStreams);
+            using (var ocf = RootStorage.Open(new MemoryStream(originalBytes), StorageModeFlags.LeaveOpen))
+                EnumerateStreams(ocf, "", originalStreams);
 
             byte[] rtBytes;
             using (var inStream = new MemoryStream(originalBytes))
@@ -1135,8 +1138,8 @@ public sealed class BinaryComparisonTests
             }
 
             var rtStreams = new Dictionary<string, byte[]>();
-            using (var rcf = new OpenMcdf.CompoundFile(new MemoryStream(rtBytes)))
-                EnumerateStreams(rcf.RootStorage, "", rtStreams);
+            using (var rcf = RootStorage.Open(new MemoryStream(rtBytes), StorageModeFlags.LeaveOpen))
+                EnumerateStreams(rcf, "", rtStreams);
 
             foreach (var kvp in originalStreams)
             {
@@ -1194,21 +1197,8 @@ public sealed class BinaryComparisonTests
         "POWER_VCC/Data",
     };
 
-    private static void EnumerateStreams(OpenMcdf.CFStorage storage, string path, Dictionary<string, byte[]> result)
-    {
-        storage.VisitEntries(entry =>
-        {
-            var fullPath = string.IsNullOrEmpty(path) ? entry.Name : $"{path}/{entry.Name}";
-            if (entry is OpenMcdf.CFStream stream)
-            {
-                result[fullPath] = stream.GetData();
-            }
-            else if (entry is OpenMcdf.CFStorage subStorage)
-            {
-                EnumerateStreams(subStorage, fullPath, result);
-            }
-        }, false);
-    }
+    private static void EnumerateStreams(Storage storage, string path, Dictionary<string, byte[]> result)
+        => McdfTestExtensions.CollectStreams(storage, path, result);
 
     private static IEnumerable<string> GetSchLibFiles()
     {
@@ -1274,31 +1264,31 @@ public sealed class BinaryComparisonTests
             _output.WriteLine($"\n=== {fileName}: {ratio:F1}% (orig={originalBytes.Length}, rt={roundTrippedBytes.Length}) ===");
 
             // Compare streams using OpenMcdf
-            using var origCf = new CompoundFile(new MemoryStream(originalBytes));
-            using var rtCf = new CompoundFile(new MemoryStream(roundTrippedBytes));
+            using var origCf = RootStorage.Open(new MemoryStream(originalBytes), StorageModeFlags.LeaveOpen);
+            using var rtCf = RootStorage.Open(new MemoryStream(roundTrippedBytes), StorageModeFlags.LeaveOpen);
 
-            CompareStorage(origCf.RootStorage, rtCf.RootStorage, "");
+            CompareStorage(origCf, rtCf, "");
         }
     }
 
-    private void CompareStorage(CFStorage orig, CFStorage rt, string path)
+    private void CompareStorage(Storage orig, Storage rt, string path)
     {
         var origStreams = new Dictionary<string, byte[]>();
-        var origStorages = new Dictionary<string, CFStorage>();
+        var origStorages = new Dictionary<string, Storage>();
         var rtStreams = new Dictionary<string, byte[]>();
-        var rtStorages = new Dictionary<string, CFStorage>();
+        var rtStorages = new Dictionary<string, Storage>();
 
-        orig.VisitEntries(item =>
+        foreach (var item in orig.EnumerateEntries().ToList())
         {
-            if (item is CFStream s) origStreams[s.Name] = s.GetData();
-            else if (item is CFStorage st) origStorages[st.Name] = st;
-        }, false);
+            if (item.Type == EntryType.Stream) origStreams[item.Name] = orig.ReadStreamData(item.Name);
+            else origStorages[item.Name] = orig.OpenStorage(item.Name);
+        }
 
-        rt.VisitEntries(item =>
+        foreach (var item in rt.EnumerateEntries().ToList())
         {
-            if (item is CFStream s) rtStreams[s.Name] = s.GetData();
-            else if (item is CFStorage st) rtStorages[st.Name] = st;
-        }, false);
+            if (item.Type == EntryType.Stream) rtStreams[item.Name] = rt.ReadStreamData(item.Name);
+            else rtStorages[item.Name] = rt.OpenStorage(item.Name);
+        }
 
         foreach (var name in origStreams.Keys.Union(rtStreams.Keys).OrderBy(n => n))
         {
@@ -1340,33 +1330,25 @@ public sealed class BinaryComparisonTests
 
             // Read original compound file
             var originalBytes = File.ReadAllBytes(filePath);
-            using var origCf = new CompoundFile(new MemoryStream(originalBytes));
+            using var origCf = RootStorage.Open(new MemoryStream(originalBytes), StorageModeFlags.LeaveOpen);
 
             // Find component storages
-            origCf.RootStorage.VisitEntries(item =>
+            foreach (var item in origCf.EnumerateEntries().ToList())
             {
-                if (item is not CFStorage storage) return;
-                if (storage.Name == "Library") return;
+                if (item.Type != EntryType.Storage) continue;
+                if (item.Name == "Library") continue;
 
                 // Check if this matches one of our target components
                 var match = false;
                 foreach (var t in targetFiles)
-                    if (storage.Name.Contains(t, StringComparison.OrdinalIgnoreCase))
+                    if (item.Name.Contains(t, StringComparison.OrdinalIgnoreCase))
                         match = true;
-                if (!match) return;
+                if (!match) continue;
 
                 // Read the Data stream
-                CFStream? dataStream = null;
-                storage.VisitEntries(e =>
-                {
-                    if (e is CFStream s && s.Name == "Data")
-                        dataStream = s;
-                }, false);
-
-                if (dataStream == null) return;
-
-                var data = dataStream.GetData();
-                _output.WriteLine($"\n=== {fileName} / {storage.Name}/Data ({data.Length} bytes) ===");
+                var storage = origCf.OpenStorage(item.Name);
+                if (!storage.TryReadStreamData("Data", out var data)) continue;
+                _output.WriteLine($"\n=== {fileName} / {item.Name}/Data ({data.Length} bytes) ===");
 
                 using var ms = new MemoryStream(data);
                 using var br = new BinaryReader(ms);
@@ -1425,7 +1407,7 @@ public sealed class BinaryComparisonTests
 
                     primIndex++;
                 }
-            }, false);
+            }
         }
     }
 

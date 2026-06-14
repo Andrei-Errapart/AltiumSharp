@@ -31,28 +31,27 @@ public class FileComparisonTest
         // Now do a detailed byte comparison of each stream
         _output.WriteLine("\n\n=== STREAM-BY-STREAM COMPARISON ===");
         using var origFs = File.OpenRead(origPath);
-        using var origCf = new CompoundFile(origFs);
+        using var origCf = RootStorage.Open(origFs, StorageModeFlags.LeaveOpen);
         using var writtenFs = File.OpenRead(writtenPath);
-        using var writtenCf = new CompoundFile(writtenFs);
+        using var writtenCf = RootStorage.Open(writtenFs, StorageModeFlags.LeaveOpen);
 
-        CompareStorage(origCf.RootStorage, writtenCf.RootStorage, "");
+        CompareStorage(origCf, writtenCf, "");
     }
 
     private void DumpCompoundFile(string path)
     {
         _output.WriteLine($"File: {Path.GetFileName(path)} ({new FileInfo(path).Length} bytes)");
-        using var fs = File.OpenRead(path);
-        using var cf = new CompoundFile(fs);
-        DumpStorage(cf.RootStorage, "");
+        using var cf = RootStorage.OpenRead(path);
+        DumpStorage(cf, "");
     }
 
-    private void DumpStorage(CFStorage storage, string indent)
+    private void DumpStorage(Storage storage, string indent)
     {
-        storage.VisitEntries(entry =>
+        foreach (var entry in storage.EnumerateEntries().ToList())
         {
-            if (entry is CFStream stream)
+            if (entry.Type == EntryType.Stream)
             {
-                var data = stream.GetData();
+                var data = storage.ReadStreamData(entry.Name);
                 _output.WriteLine($"{indent}[Stream] {entry.Name}: {data.Length} bytes");
                 // Show first 100 bytes as hex + ascii
                 if (data.Length > 0)
@@ -64,21 +63,18 @@ public class FileComparisonTest
                     _output.WriteLine($"{indent}  ASCII: {printable}");
                 }
             }
-            else if (entry is CFStorage subStorage)
+            else
             {
                 _output.WriteLine($"{indent}[Storage] {entry.Name}/");
-                DumpStorage(subStorage, indent + "  ");
+                DumpStorage(storage.OpenStorage(entry.Name), indent + "  ");
             }
-        }, false);
+        }
     }
 
-    private void CompareStorage(CFStorage orig, CFStorage written, string path)
+    private void CompareStorage(Storage orig, Storage written, string path)
     {
-        var origEntries = new Dictionary<string, CFItem>();
-        var writtenEntries = new Dictionary<string, CFItem>();
-
-        orig.VisitEntries(e => origEntries[e.Name] = e, false);
-        written.VisitEntries(e => writtenEntries[e.Name] = e, false);
+        var origEntries = orig.EnumerateEntries().ToDictionary(e => e.Name);
+        var writtenEntries = written.EnumerateEntries().ToDictionary(e => e.Name);
 
         // Check for missing/extra entries
         foreach (var name in origEntries.Keys.Except(writtenEntries.Keys))
@@ -92,10 +88,10 @@ public class FileComparisonTest
             var origEntry = origEntries[name];
             var writtenEntry = writtenEntries[name];
 
-            if (origEntry is CFStream origStream && writtenEntry is CFStream writtenStream)
+            if (origEntry.Type == EntryType.Stream && writtenEntry.Type == EntryType.Stream)
             {
-                var origData = origStream.GetData();
-                var writtenData = writtenStream.GetData();
+                var origData = orig.ReadStreamData(name);
+                var writtenData = written.ReadStreamData(name);
 
                 if (origData.Length != writtenData.Length)
                 {
@@ -156,14 +152,14 @@ public class FileComparisonTest
                     _output.WriteLine($"IDENTICAL {path}/{name}: {origData.Length} bytes");
                 }
             }
-            else if (origEntry is CFStorage origSub && writtenEntry is CFStorage writtenSub)
+            else if (origEntry.Type == EntryType.Storage && writtenEntry.Type == EntryType.Storage)
             {
                 _output.WriteLine($"Comparing storage {path}/{name}/");
-                CompareStorage(origSub, writtenSub, $"{path}/{name}");
+                CompareStorage(orig.OpenStorage(name), written.OpenStorage(name), $"{path}/{name}");
             }
             else
             {
-                _output.WriteLine($"TYPE MISMATCH {path}/{name}: orig={origEntry.GetType().Name}, written={writtenEntry.GetType().Name}");
+                _output.WriteLine($"TYPE MISMATCH {path}/{name}: orig={origEntry.Type}, written={writtenEntry.Type}");
             }
         }
     }

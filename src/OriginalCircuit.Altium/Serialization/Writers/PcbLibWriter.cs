@@ -1,7 +1,7 @@
-using OpenMcdf;
 using OriginalCircuit.Altium.Models.Pcb;
 using OriginalCircuit.Eda.Primitives;
 using OriginalCircuit.Altium.Serialization.Binary;
+using OriginalCircuit.Altium.Serialization.Compound;
 
 namespace OriginalCircuit.Altium.Serialization.Writers;
 
@@ -49,7 +49,7 @@ public sealed class PcbLibWriter
     /// <remarks>This instance is stateless and thread-safe.</remarks>
     public void Write(PcbLibrary library, Stream stream, CancellationToken cancellationToken = default)
     {
-        using var cf = new CompoundFile();
+        using var cf = CompoundFileAccessor.Create();
         var sectionKeys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         WriteFileHeader(cf, library);
@@ -60,7 +60,7 @@ public sealed class PcbLibWriter
         cf.Save(stream);
     }
 
-    private static void WriteFileHeader(CompoundFile cf, PcbLibrary library)
+    private static void WriteFileHeader(CompoundFileAccessor cf, PcbLibrary library)
     {
         var headerStream = cf.RootStorage.AddStream("FileHeader");
 
@@ -83,7 +83,7 @@ public sealed class PcbLibWriter
         headerStream.SetData(ms.ToArray());
     }
 
-    private static void WriteSectionKeys(CompoundFile cf, PcbLibrary library, Dictionary<string, string> sectionKeys)
+    private static void WriteSectionKeys(CompoundFileAccessor cf, PcbLibrary library, Dictionary<string, string> sectionKeys)
     {
         // Use preserved section keys if available, otherwise generate new ones
         if (library.SectionKeys != null && library.SectionKeys.Count > 0)
@@ -131,7 +131,7 @@ public sealed class PcbLibWriter
         sectionKeysStream.SetData(ms.ToArray());
     }
 
-    private static void WriteLibrary(CompoundFile cf, PcbLibrary library, Dictionary<string, string> sectionKeys, CancellationToken cancellationToken = default)
+    private static void WriteLibrary(CompoundFileAccessor cf, PcbLibrary library, Dictionary<string, string> sectionKeys, CancellationToken cancellationToken = default)
     {
         var libraryStorage = cf.RootStorage.AddStorage("Library");
 
@@ -148,7 +148,7 @@ public sealed class PcbLibWriter
         WriteAdditionalLibraryStreams(libraryStorage, library);
     }
 
-    internal static void WriteStorageHeader(CFStorage storage, int recordCount)
+    internal static void WriteStorageHeader(CompoundStorage storage, int recordCount)
     {
         var headerStream = storage.AddStream("Header");
         using var ms = new MemoryStream();
@@ -158,7 +158,7 @@ public sealed class PcbLibWriter
         headerStream.SetData(ms.ToArray());
     }
 
-    private static void WriteLibraryData(CompoundFile cf, CFStorage libraryStorage, PcbLibrary library, Dictionary<string, string> sectionKeys, CancellationToken cancellationToken = default)
+    private static void WriteLibraryData(CompoundFileAccessor cf, CompoundStorage libraryStorage, PcbLibrary library, Dictionary<string, string> sectionKeys, CancellationToken cancellationToken = default)
     {
         var dataStream = libraryStorage.AddStream("Data");
         using var ms = new MemoryStream();
@@ -204,7 +204,7 @@ public sealed class PcbLibWriter
         dataStream.SetData(ms.ToArray());
     }
 
-    private static void WriteFootprint(CompoundFile cf, PcbComponent component, Dictionary<string, string> sectionKeys)
+    private static void WriteFootprint(CompoundFileAccessor cf, PcbComponent component, Dictionary<string, string> sectionKeys)
     {
         var sectionKey = sectionKeys.TryGetValue(component.Name, out var key)
             ? key
@@ -226,7 +226,7 @@ public sealed class PcbLibWriter
         WriteAdditionalComponentStreams(footprintStorage, component);
     }
 
-    private static void WriteFootprintParameters(CFStorage storage, PcbComponent component)
+    private static void WriteFootprintParameters(CompoundStorage storage, PcbComponent component)
     {
         var paramsStream = storage.AddStream("Parameters");
 
@@ -263,7 +263,7 @@ public sealed class PcbLibWriter
     private static string FormatMilCoord(Coord coord)
         => coord.ToMils().ToString("0.######", System.Globalization.CultureInfo.InvariantCulture) + "mil";
 
-    private static void WriteWideStrings(CFStorage storage, PcbComponent component)
+    private static void WriteWideStrings(CompoundStorage storage, PcbComponent component)
     {
         var wideStringsStream = storage.AddStream("WideStrings");
 
@@ -286,7 +286,7 @@ public sealed class PcbLibWriter
         wideStringsStream.SetData(ms.ToArray());
     }
 
-    private static void WriteFootprintData(CFStorage storage, PcbComponent component)
+    private static void WriteFootprintData(CompoundStorage storage, PcbComponent component)
     {
         var dataStream = storage.AddStream("Data");
 
@@ -962,12 +962,12 @@ public sealed class PcbLibWriter
         });
     }
 
-    private static void WriteUniqueIdPrimitiveInformation(CFStorage storage, PcbComponent component)
+    private static void WriteUniqueIdPrimitiveInformation(CompoundStorage storage, PcbComponent component)
     {
         // UniqueIdPrimitiveInformation is optional - skip for new files
     }
 
-    private static void WriteLibraryModels(CFStorage libraryStorage, PcbLibrary library)
+    private static void WriteLibraryModels(CompoundStorage libraryStorage, PcbLibrary library)
     {
         var modelsStorage = libraryStorage.AddStorage("Models");
         var modelCount = library.Models.Count;
@@ -1021,25 +1021,25 @@ public sealed class PcbLibWriter
         }
     }
 
-    private static void WriteAdditionalComponentStreams(CFStorage storage, PcbComponent component)
+    private static void WriteAdditionalComponentStreams(CompoundStorage storage, PcbComponent component)
     {
         if (component is PcbComponent { AdditionalStreams: not null } pcbComp)
             WriteAdditionalStreams(storage, pcbComp.AdditionalStreams);
     }
 
-    private static void WriteAdditionalLibraryStreams(CFStorage libraryStorage, PcbLibrary library)
+    private static void WriteAdditionalLibraryStreams(CompoundStorage libraryStorage, PcbLibrary library)
     {
         if (library.AdditionalLibraryStreams != null)
             WriteAdditionalStreams(libraryStorage, library.AdditionalLibraryStreams);
     }
 
-    private static void WriteAdditionalRootStreams(CompoundFile cf, PcbLibrary library)
+    private static void WriteAdditionalRootStreams(CompoundFileAccessor cf, PcbLibrary library)
     {
         if (library.AdditionalRootStreams != null)
             WriteAdditionalStreams(cf.RootStorage, library.AdditionalRootStreams);
     }
 
-    internal static void WriteAdditionalStreams(CFStorage storage, Dictionary<string, byte[]> streams)
+    internal static void WriteAdditionalStreams(CompoundStorage storage, Dictionary<string, byte[]> streams)
     {
         foreach (var kvp in streams)
         {

@@ -6,32 +6,33 @@ namespace OriginalCircuit.Altium.Serialization.Compound;
 /// Provides async-friendly access to COM Structured Storage (compound) files.
 /// </summary>
 /// <remarks>
-/// This is a wrapper around OpenMcdf that provides a cleaner async API for the v2 library.
+/// This is a thin wrapper around OpenMcdf 3.x. It fully encapsulates the OpenMcdf API surface
+/// (<see cref="RootStorage"/>/<see cref="Storage"/>/<see cref="CfbStream"/>/<see cref="EntryInfo"/>)
+/// behind the library-neutral <see cref="Compound.CompoundStorage"/>/<see cref="CompoundStream"/>
+/// types so readers and writers never reference OpenMcdf directly.
 ///
-/// Evaluation notes on OpenMcdf vs custom implementation:
-/// - OpenMcdf is a mature, well-tested library for COM compound file access
-/// - The compound file format (OLE/COM structured storage) is complex
-/// - Building a custom implementation would require significant effort with minimal benefit
-/// - Performance bottlenecks are in parsing logic, not file I/O
-/// - OpenMcdf handles edge cases and format variations well
-///
-/// Conclusion: Use OpenMcdf with a thin wrapper for async/modern API patterns.
+/// OpenMcdf 3.x replaced the 2.x <c>CompoundFile</c>/<c>CFStorage</c>/<c>CFStream</c> model with a
+/// root-storage that streams directly to its backing store. For reads we open the source stream
+/// (which now hardens against the cyclic directory-entry DoS the 2.3.0 advisories described). For
+/// writes we build in an in-memory root storage and copy the finished image out in <see cref="Save"/>,
+/// preserving the previous "build, then Save(stream)" usage shape.
 /// </remarks>
 internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
 {
-    private readonly CompoundFile _compoundFile;
+    private readonly OpenMcdf.RootStorage _root;
     private readonly Stream? _stream;
     private readonly bool _leaveStreamOpen;
+    private CompoundStorage? _rootStorage;
     private bool _disposed;
 
     /// <summary>
     /// Gets the root storage of the compound file.
     /// </summary>
-    public CFStorage RootStorage => _compoundFile.RootStorage;
+    public CompoundStorage RootStorage => _rootStorage ??= new CompoundStorage(_root);
 
-    private CompoundFileAccessor(CompoundFile cf, Stream? stream = null, bool leaveOpen = false)
+    private CompoundFileAccessor(OpenMcdf.RootStorage root, Stream? stream = null, bool leaveOpen = false)
     {
-        _compoundFile = cf;
+        _root = root;
         _stream = stream;
         _leaveStreamOpen = leaveOpen;
     }
@@ -44,9 +45,9 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
         bool writable = false,
         CancellationToken cancellationToken = default)
     {
-        // OpenMcdf doesn't have native async support, so we load the stream asynchronously
-        // then pass it to OpenMcdf. For large files, consider memory-mapped approach.
-        const FileMode mode = FileMode.Open; // Always open existing file
+        cancellationToken.ThrowIfCancellationRequested();
+
+        const FileMode mode = FileMode.Open; // Always open an existing file
         var access = writable ? FileAccess.ReadWrite : FileAccess.Read;
         var share = writable ? FileShare.None : FileShare.Read;
 
@@ -54,10 +55,10 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
 
         try
         {
-            // Load file content for OpenMcdf (it needs seekable stream)
-            var updateMode = writable ? CFSUpdateMode.Update : CFSUpdateMode.ReadOnly;
-            var cf = new CompoundFile(stream, updateMode, CFSConfiguration.Default);
-            return new CompoundFileAccessor(cf, stream, leaveOpen: false);
+            // OpenMcdf reads synchronously from the seekable stream. LeaveOpen lets this accessor
+            // own the FileStream's lifetime.
+            var root = OpenMcdf.RootStorage.Open(stream, StorageModeFlags.LeaveOpen);
+            return new CompoundFileAccessor(root, stream, leaveOpen: false);
         }
         catch
         {
@@ -71,36 +72,34 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
     /// </summary>
     public static CompoundFileAccessor Open(Stream stream, bool leaveOpen = false)
     {
-        var cf = new CompoundFile(stream, CFSUpdateMode.ReadOnly, CFSConfiguration.Default);
-        return new CompoundFileAccessor(cf, stream, leaveOpen);
+        var root = OpenMcdf.RootStorage.Open(stream, StorageModeFlags.LeaveOpen);
+        return new CompoundFileAccessor(root, stream, leaveOpen);
     }
 
     /// <summary>
-    /// Creates a new compound file.
+    /// Creates a new (in-memory) compound file for writing. Call <see cref="Save"/> to emit it.
     /// </summary>
     public static CompoundFileAccessor Create()
     {
-        var cf = new CompoundFile(CFSVersion.Ver_3, CFSConfiguration.Default);
-        return new CompoundFileAccessor(cf);
+        var root = OpenMcdf.RootStorage.CreateInMemory(OpenMcdf.Version.V3);
+        return new CompoundFileAccessor(root);
     }
 
     /// <summary>
     /// Gets a storage (directory) by path.
     /// </summary>
     /// <param name="path">Path using / as separator.</param>
-    public CFStorage? TryGetStorage(string path)
+    public CompoundStorage? TryGetStorage(string path)
     {
-        return TryNavigate(path) as CFStorage;
+        var (storage, stream) = TryNavigate(path);
+        return stream is null ? storage : null;
     }
 
     /// <summary>
     /// Gets a stream by path.
     /// </summary>
     /// <param name="path">Path using / as separator.</param>
-    public CFStream? TryGetStream(string path)
-    {
-        return TryNavigate(path) as CFStream;
-    }
+    public CompoundStream? TryGetStream(string path) => TryNavigate(path).Stream;
 
     /// <summary>
     /// Gets the data from a stream.
@@ -115,49 +114,37 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
     /// <summary>
     /// Gets stream data as a Memory for async-friendly access.
     /// </summary>
-    public ReadOnlyMemory<byte> GetStreamDataAsMemory(string path)
-    {
-        return GetStreamData(path);
-    }
+    public ReadOnlyMemory<byte> GetStreamDataAsMemory(string path) => GetStreamData(path);
 
     /// <summary>
     /// Enumerates all child items in a storage.
     /// </summary>
-    public IEnumerable<CFItem> EnumerateChildren(CFStorage storage)
-    {
-        var items = new List<CFItem>();
-        storage.VisitEntries(item => items.Add(item), recursive: false);
-        return items;
-    }
+    public IEnumerable<CompoundEntry> EnumerateChildren(CompoundStorage storage)
+        => storage.EnumerateEntries();
 
     /// <summary>
     /// Enumerates all child storages in a storage.
     /// </summary>
-    public IEnumerable<CFStorage> EnumerateStorages(CFStorage storage)
-    {
-        return EnumerateChildren(storage).OfType<CFStorage>();
-    }
+    public IEnumerable<CompoundStorage> EnumerateStorages(CompoundStorage storage)
+        => storage.EnumerateStorages();
 
     /// <summary>
     /// Enumerates all child streams in a storage.
     /// </summary>
-    public IEnumerable<CFStream> EnumerateStreams(CFStorage storage)
-    {
-        return EnumerateChildren(storage).OfType<CFStream>();
-    }
+    public IEnumerable<CompoundStream> EnumerateStreams(CompoundStorage storage)
+        => storage.EnumerateStreams();
 
     /// <summary>
     /// Saves the compound file to a new path.
     /// </summary>
     public async ValueTask SaveAsync(string path, CancellationToken cancellationToken = default)
     {
-        // OpenMcdf Save is synchronous, but we can still use async file operations
-        using var memStream = new MemoryStream();
-        _compoundFile.Save(memStream);
+        _root.Flush();
+        var image = _root.BaseStream;
+        image.Position = 0;
 
         await using var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
-        memStream.Position = 0;
-        await memStream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
+        await image.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -165,37 +152,35 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
     /// </summary>
     public void Save(Stream stream)
     {
-        _compoundFile.Save(stream);
+        _root.Flush();
+        var image = _root.BaseStream;
+        image.Position = 0;
+        image.CopyTo(stream);
     }
 
-    private CFItem? TryNavigate(string path)
+    private (CompoundStorage? Storage, CompoundStream? Stream) TryNavigate(string path)
     {
         if (string.IsNullOrEmpty(path))
-            return RootStorage;
+            return (RootStorage, null);
 
         var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        CFItem? current = RootStorage;
+        var current = RootStorage;
 
-        foreach (var part in parts)
+        for (var i = 0; i < parts.Length; i++)
         {
-            if (current is not CFStorage storage)
-                return null;
+            var part = parts[i];
+            var isLast = i == parts.Length - 1;
 
-            current = TryGetChild(storage, part);
-            if (current == null)
-                return null;
+            if (isLast && current.TryGetStream(part, out var stream))
+                return (null, stream);
+
+            if (!current.TryGetStorage(part, out var child))
+                return (null, null);
+
+            current = child;
         }
 
-        return current;
-    }
-
-    private static CFItem? TryGetChild(CFStorage storage, string name)
-    {
-        if (storage.TryGetStorage(name, out var childStorage))
-            return childStorage;
-        if (storage.TryGetStream(name, out var childStream))
-            return childStream;
-        return null;
+        return (current, null);
     }
 
     /// <inheritdoc />
@@ -205,7 +190,7 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
             return;
 
         _disposed = true;
-        _compoundFile.Close();
+        _root.Dispose();
 
         if (_stream != null && !_leaveStreamOpen)
         {
@@ -220,7 +205,7 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
             return;
 
         _disposed = true;
-        _compoundFile.Close();
+        _root.Dispose();
 
         if (_stream != null && !_leaveStreamOpen)
         {

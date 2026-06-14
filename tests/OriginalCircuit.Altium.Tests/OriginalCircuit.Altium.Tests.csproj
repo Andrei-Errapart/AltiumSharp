@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The round-trip tests verify stream fidelity by reading the compound files directly with
+         OpenMcdf, independently of the library's own wrapper. Reference it explicitly (it also flows
+         transitively from OriginalCircuit.Altium) and keep the version in lockstep with the library. -->
+    <PackageReference Include="OpenMcdf" Version="3.1.4" />
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />

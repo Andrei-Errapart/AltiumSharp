@@ -34,19 +34,16 @@ public class ChecksumAnalysisTest
             try
             {
                 using var fs = File.OpenRead(file);
-                using var cf = new CompoundFile(fs);
+                using var cf = RootStorage.Open(fs, StorageModeFlags.LeaveOpen);
 
-                CFStorage? modelsStorage = null;
-                CFStorage? libStorage = null;
-                cf.RootStorage.VisitEntries(e => { if (e.Name == "Library" && e is CFStorage s) libStorage = s; }, false);
-                if (libStorage != null)
-                    libStorage.VisitEntries(e => { if (e.Name == "Models" && e is CFStorage s) modelsStorage = s; }, false);
-                if (modelsStorage == null)
-                    cf.RootStorage.VisitEntries(e => { if (e.Name == "Models" && e is CFStorage s) modelsStorage = s; }, false);
+                Storage? modelsStorage = null;
+                if (cf.TryOpenStorage("Library", out var libStorage) && libStorage.TryOpenStorage("Models", out var libModels))
+                    modelsStorage = libModels;
+                if (modelsStorage == null && cf.TryOpenStorage("Models", out var rootModels))
+                    modelsStorage = rootModels;
                 if (modelsStorage == null) continue;
 
-                if (!modelsStorage.TryGetStream("Data", out var dataStream)) continue;
-                var dataBytes = dataStream.GetData();
+                if (!modelsStorage.TryReadStreamData("Data", out var dataBytes)) continue;
                 if (dataBytes.Length < 4) continue;
 
                 var offset = 0;
@@ -68,9 +65,8 @@ public class ChecksumAnalysisTest
 
                     if (id != null && checksumStr != null && int.TryParse(checksumStr, out var cs) && !seenIds.Contains(id))
                     {
-                        if (modelsStorage.TryGetStream(modelIdx.ToString(), out var modelStream))
+                        if (modelsStorage.TryReadStreamData(modelIdx.ToString(), out var compressed))
                         {
-                            var compressed = modelStream.GetData();
                             if (compressed.Length > 0)
                             {
                                 try

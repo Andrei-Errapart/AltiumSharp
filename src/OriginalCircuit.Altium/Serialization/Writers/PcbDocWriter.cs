@@ -1,8 +1,8 @@
 using System.Globalization;
-using OpenMcdf;
 using OriginalCircuit.Altium.Models.Pcb;
 using OriginalCircuit.Eda.Primitives;
 using OriginalCircuit.Altium.Serialization.Binary;
+using OriginalCircuit.Altium.Serialization.Compound;
 
 namespace OriginalCircuit.Altium.Serialization.Writers;
 
@@ -51,7 +51,7 @@ public sealed class PcbDocWriter
     /// <remarks>This instance is stateless and thread-safe.</remarks>
     public void Write(PcbDocument document, Stream stream, CancellationToken cancellationToken = default)
     {
-        using var cf = new CompoundFile();
+        using var cf = CompoundFileAccessor.Create();
 
         WriteFileHeader(cf, document);
         WriteBoard(cf, document);
@@ -80,7 +80,7 @@ public sealed class PcbDocWriter
         cf.Save(stream);
     }
 
-    private static void WriteFileHeader(CompoundFile cf, PcbDocument document)
+    private static void WriteFileHeader(CompoundFileAccessor cf, PcbDocument document)
     {
         var headerStream = cf.RootStorage.AddStream("FileHeader");
 
@@ -102,7 +102,7 @@ public sealed class PcbDocWriter
         headerStream.SetData(ms.ToArray());
     }
 
-    private static void WriteBoard(CompoundFile cf, PcbDocument document)
+    private static void WriteBoard(CompoundFileAccessor cf, PcbDocument document)
     {
         if (document.BoardParameters == null || document.BoardParameters.Count == 0)
             return;
@@ -134,16 +134,17 @@ public sealed class PcbDocWriter
     /// Writes an empty Header(count=0) + empty Data storage when the named storage existed in the
     /// source file but its collection is now empty, so a present-but-empty storage round-trips.
     /// </summary>
-    private static void WriteEmptyStorageIfPresent(CompoundFile cf, PcbDocument document, string name)
+    private static void WriteEmptyStorageIfPresent(CompoundFileAccessor cf, PcbDocument document, string name)
     {
         if (!document.PresentStorages.Contains(name))
             return;
         var storage = cf.RootStorage.AddStorage(name);
         PcbLibWriter.WriteStorageHeader(storage, 0);
-        storage.AddStream("Data");
+        // Emit an explicit empty Data stream (the lazy stream handle only materializes on SetData).
+        storage.AddStream("Data").SetData([]);
     }
 
-    private static void WriteNets(CompoundFile cf, PcbDocument document)
+    private static void WriteNets(CompoundFileAccessor cf, PcbDocument document)
     {
         if (document.Nets.Count == 0)
         {
@@ -178,7 +179,7 @@ public sealed class PcbDocWriter
         dataStream.SetData(ms.ToArray());
     }
 
-    private static void WriteParameterBlockStorage(CompoundFile cf, string storageName, IReadOnlyList<Dictionary<string, string>> parameterSets)
+    private static void WriteParameterBlockStorage(CompoundFileAccessor cf, string storageName, IReadOnlyList<Dictionary<string, string>> parameterSets)
     {
         if (parameterSets.Count == 0)
             return;
@@ -199,7 +200,7 @@ public sealed class PcbDocWriter
         dataStream.SetData(ms.ToArray());
     }
 
-    private static void WriteRules(CompoundFile cf, PcbDocument document)
+    private static void WriteRules(CompoundFileAccessor cf, PcbDocument document)
     {
         if (document.Rules.Count == 0)
             return;
@@ -240,7 +241,7 @@ public sealed class PcbDocWriter
         dataStream.SetData(ms.ToArray());
     }
 
-    private static void WriteClasses(CompoundFile cf, PcbDocument document)
+    private static void WriteClasses(CompoundFileAccessor cf, PcbDocument document)
     {
         if (document.Classes.Count == 0)
         {
@@ -254,7 +255,7 @@ public sealed class PcbDocWriter
         WriteParameterStringStorage(cf, "Classes6", texts);
     }
 
-    private static void WriteDifferentialPairs(CompoundFile cf, PcbDocument document)
+    private static void WriteDifferentialPairs(CompoundFileAccessor cf, PcbDocument document)
     {
         if (document.DifferentialPairs.Count == 0)
         {
@@ -268,7 +269,7 @@ public sealed class PcbDocWriter
         WriteParameterStringStorage(cf, "DifferentialPairs6", texts);
     }
 
-    private static void WriteRooms(CompoundFile cf, PcbDocument document)
+    private static void WriteRooms(CompoundFileAccessor cf, PcbDocument document)
     {
         if (document.Rooms.Count == 0)
         {
@@ -306,7 +307,7 @@ public sealed class PcbDocWriter
     /// Writes a list of pre-formatted parameter strings as a Header + Data storage, each framed
     /// as a length-prefixed C-string block.
     /// </summary>
-    private static void WriteParameterStringStorage(CompoundFile cf, string storageName, List<string> texts)
+    private static void WriteParameterStringStorage(CompoundFileAccessor cf, string storageName, List<string> texts)
     {
         if (texts.Count == 0)
             return;
@@ -323,7 +324,7 @@ public sealed class PcbDocWriter
         dataStream.SetData(ms.ToArray());
     }
 
-    private static void WriteArcs(CompoundFile cf, PcbDocument document)
+    private static void WriteArcs(CompoundFileAccessor cf, PcbDocument document)
     {
         WritePrimitiveStorage(cf, "Arcs6", document.Arcs, (writer, arc) =>
         {
@@ -332,7 +333,7 @@ public sealed class PcbDocWriter
         });
     }
 
-    private static void WritePads(CompoundFile cf, PcbDocument document)
+    private static void WritePads(CompoundFileAccessor cf, PcbDocument document)
     {
         WritePrimitiveStorage(cf, "Pads6", document.Pads, (writer, pad) =>
         {
@@ -341,7 +342,7 @@ public sealed class PcbDocWriter
         });
     }
 
-    private static void WriteVias(CompoundFile cf, PcbDocument document)
+    private static void WriteVias(CompoundFileAccessor cf, PcbDocument document)
     {
         WritePrimitiveStorage(cf, "Vias6", document.Vias, (writer, via) =>
         {
@@ -350,7 +351,7 @@ public sealed class PcbDocWriter
         });
     }
 
-    private static void WriteTracks(CompoundFile cf, PcbDocument document)
+    private static void WriteTracks(CompoundFileAccessor cf, PcbDocument document)
     {
         WritePrimitiveStorage(cf, "Tracks6", document.Tracks, (writer, track) =>
         {
@@ -359,7 +360,7 @@ public sealed class PcbDocWriter
         });
     }
 
-    private static void WriteTexts(CompoundFile cf, PcbDocument document)
+    private static void WriteTexts(CompoundFileAccessor cf, PcbDocument document)
     {
         var textIndex = 0;
         WritePrimitiveStorage(cf, "Texts6", document.Texts, (writer, text) =>
@@ -369,7 +370,7 @@ public sealed class PcbDocWriter
         });
     }
 
-    private static void WriteFills(CompoundFile cf, PcbDocument document)
+    private static void WriteFills(CompoundFileAccessor cf, PcbDocument document)
     {
         WritePrimitiveStorage(cf, "Fills6", document.Fills, (writer, fill) =>
         {
@@ -378,7 +379,7 @@ public sealed class PcbDocWriter
         });
     }
 
-    private static void WriteRegions(CompoundFile cf, PcbDocument document)
+    private static void WriteRegions(CompoundFileAccessor cf, PcbDocument document)
     {
         WritePrimitiveStorage(cf, "Regions6", document.Regions, (writer, region) =>
         {
@@ -387,7 +388,7 @@ public sealed class PcbDocWriter
         });
     }
 
-    private static void WriteComponentBodies(CompoundFile cf, PcbDocument document)
+    private static void WriteComponentBodies(CompoundFileAccessor cf, PcbDocument document)
     {
         WritePrimitiveStorage(cf, "ComponentBodies6", document.ComponentBodies, (writer, body) =>
         {
@@ -396,7 +397,7 @@ public sealed class PcbDocWriter
         });
     }
 
-    private static void WritePolygons(CompoundFile cf, PcbDocument document)
+    private static void WritePolygons(CompoundFileAccessor cf, PcbDocument document)
     {
         if (document.Polygons.Count == 0)
         {
@@ -556,7 +557,7 @@ public sealed class PcbDocWriter
         writer.WriteCStringParameterBlock(parameters);
     }
 
-    private static void WriteComponents(CompoundFile cf, PcbDocument document)
+    private static void WriteComponents(CompoundFileAccessor cf, PcbDocument document)
     {
         var storage = cf.RootStorage.AddStorage("Components6");
         PcbLibWriter.WriteStorageHeader(storage, document.Components.Count);
@@ -677,7 +678,7 @@ public sealed class PcbDocWriter
         writer.WriteCStringParameterBlock(parameters);
     }
 
-    private static void WriteEmbeddedBoards(CompoundFile cf, PcbDocument document)
+    private static void WriteEmbeddedBoards(CompoundFileAccessor cf, PcbDocument document)
     {
         if (document.EmbeddedBoards.Count == 0)
         {
@@ -797,7 +798,7 @@ public sealed class PcbDocWriter
         };
     }
 
-    private static void WriteWideStrings(CompoundFile cf, PcbDocument document)
+    private static void WriteWideStrings(CompoundFileAccessor cf, PcbDocument document)
     {
         // Collect all text strings that need wide encoding
         var hasWideStrings = false;
@@ -835,7 +836,7 @@ public sealed class PcbDocWriter
         dataStream.SetData(ms.ToArray());
     }
 
-    private static void WriteAdditionalStreams(CompoundFile cf, PcbDocument document)
+    private static void WriteAdditionalStreams(CompoundFileAccessor cf, PcbDocument document)
     {
         if (document.AdditionalStreams == null || document.AdditionalStreams.Count == 0)
             return;
@@ -878,7 +879,7 @@ public sealed class PcbDocWriter
     }
 
     private static void WritePrimitiveStorage<T>(
-        CompoundFile cf,
+        CompoundFileAccessor cf,
         string storageName,
         IReadOnlyList<T> primitives,
         Action<BinaryFormatWriter, T> writePrimitive)

@@ -1,4 +1,3 @@
-using OpenMcdf;
 using OriginalCircuit.Altium.Diagnostics;
 using OriginalCircuit.Altium.Models.Pcb;
 using OriginalCircuit.Eda.Primitives;
@@ -161,13 +160,13 @@ public sealed class PcbLibReader
             var storage = accessor.TryGetStorage(storageName);
             if (storage != null)
             {
-                storage.VisitEntries(entry =>
+                foreach (var entry in storage.EnumerateEntries())
                 {
-                    if (entry is OpenMcdf.CFStream stream)
+                    if (entry.IsStream)
                     {
-                        library.AdditionalRootStreams[$"{storageName}/{entry.Name}"] = stream.GetData();
+                        library.AdditionalRootStreams[$"{storageName}/{entry.Name}"] = entry.AsStream().GetData();
                     }
-                }, false);
+                }
             }
         }
     }
@@ -284,26 +283,27 @@ public sealed class PcbLibReader
         library.AdditionalLibraryStreams = new Dictionary<string, byte[]>();
         var knownLibraryChildren = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { "Header", "Data", "Models" };
-        libraryStorage.VisitEntries(entry =>
+        foreach (var entry in libraryStorage.EnumerateEntries())
         {
             if (knownLibraryChildren.Contains(entry.Name))
-                return;
-            if (entry is OpenMcdf.CFStream stream)
+                continue;
+            if (entry.IsStream)
             {
-                library.AdditionalLibraryStreams[entry.Name] = stream.GetData();
+                library.AdditionalLibraryStreams[entry.Name] = entry.AsStream().GetData();
             }
-            else if (entry is OpenMcdf.CFStorage subStorage)
+            else
             {
                 // Preserve sub-storage streams (e.g., ComponentParamsTOC/Data)
-                subStorage.VisitEntries(subEntry =>
+                var subStorage = entry.AsStorage();
+                foreach (var subEntry in subStorage.EnumerateEntries())
                 {
-                    if (subEntry is OpenMcdf.CFStream subStream)
+                    if (subEntry.IsStream)
                     {
-                        library.AdditionalLibraryStreams[$"{entry.Name}/{subEntry.Name}"] = subStream.GetData();
+                        library.AdditionalLibraryStreams[$"{entry.Name}/{subEntry.Name}"] = subEntry.AsStream().GetData();
                     }
-                }, false);
+                }
             }
-        }, false);
+        }
 
         // Parse 3D model streams (STEP data + metadata)
         if (libraryStorage.TryGetStorage("Models", out var modelsStorage))
@@ -312,7 +312,7 @@ public sealed class PcbLibReader
         }
     }
 
-    private static void ReadModels(CFStorage modelsStorage, PcbLibrary library)
+    private static void ReadModels(CompoundStorage modelsStorage, PcbLibrary library)
     {
         // Read Data stream: contains parameter blocks with model metadata
         // Format: int32 length + C-string (null-terminated pipe-delimited params)
@@ -420,25 +420,26 @@ public sealed class PcbLibReader
         component.AdditionalStreams = new Dictionary<string, byte[]>();
         var knownChildren = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { "Header", "Parameters", "WideStrings", "Data" };
-        storage.VisitEntries(entry =>
+        foreach (var entry in storage.EnumerateEntries())
         {
             if (knownChildren.Contains(entry.Name))
-                return;
-            if (entry is OpenMcdf.CFStream stream)
+                continue;
+            if (entry.IsStream)
             {
-                component.AdditionalStreams[entry.Name] = stream.GetData();
+                component.AdditionalStreams[entry.Name] = entry.AsStream().GetData();
             }
-            else if (entry is OpenMcdf.CFStorage subStorage)
+            else
             {
-                subStorage.VisitEntries(subEntry =>
+                var subStorage = entry.AsStorage();
+                foreach (var subEntry in subStorage.EnumerateEntries())
                 {
-                    if (subEntry is OpenMcdf.CFStream subStream)
+                    if (subEntry.IsStream)
                     {
-                        component.AdditionalStreams[$"{entry.Name}/{subEntry.Name}"] = subStream.GetData();
+                        component.AdditionalStreams[$"{entry.Name}/{subEntry.Name}"] = subEntry.AsStream().GetData();
                     }
-                }, false);
+                }
             }
-        }, false);
+        }
 
         // Read primitive data
         var dataStream = GetChildStream(storage, "Data");
@@ -525,7 +526,7 @@ public sealed class PcbLibReader
         return component;
     }
 
-    internal static CFStream? GetChildStream(CFStorage storage, string name)
+    internal static CompoundStream? GetChildStream(CompoundStorage storage, string name)
     {
         return storage.TryGetStream(name, out var stream) ? stream : null;
     }
@@ -744,7 +745,7 @@ public sealed class PcbLibReader
         return false;
     }
 
-    internal static List<string> ReadWideStrings(CFStorage storage)
+    internal static List<string> ReadWideStrings(CompoundStorage storage)
     {
         var result = new List<string>();
 

@@ -1,4 +1,3 @@
-using OpenMcdf;
 using OriginalCircuit.Altium.Diagnostics;
 using OriginalCircuit.Altium.Models.Sch;
 using OriginalCircuit.Eda.Primitives;
