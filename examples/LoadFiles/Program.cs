@@ -102,8 +102,13 @@ Console.WriteLine($"  Contains 'UNKNOWN': {pcbLib.Contains("UNKNOWN")}");
 
 Console.WriteLine("\n=== Loading SchLib (low-level reader) ===");
 
-using var schLibStream = File.OpenRead(Path.Combine(tempDir, "Test.SchLib"));
-var schLib = new SchLibReader().Read(schLibStream);
+// Scope the stream so its file handle is released before the cleanup delete below.
+// Read(stream) does not dispose the caller's stream (the caller owns it).
+SchLibrary schLib;
+using (var schLibStream = File.OpenRead(Path.Combine(tempDir, "Test.SchLib")))
+{
+    schLib = new SchLibReader().Read(schLibStream);
+}
 
 Console.WriteLine($"  Library has {schLib.Count} component(s)");
 
