@@ -25,6 +25,40 @@ public sealed class ValueVerificationTests : CoverageTestBase
     public ValueVerificationTests(ITestOutputHelper output) => _output = output;
 
     [SkippableFact]
+    public void ValueVerification_Fixtures_LoadAndYieldComparableItems()
+    {
+        // Guard against a silent fixture drop, path change, or LoadJson failure that would zero out
+        // value coverage: the JSON ground-truth corpus must load and yield many comparable items.
+        var schDir = GetSchTestDataPath();
+        var pcbDir = GetPcbTestDataPath();
+        Skip.If(!Directory.Exists(schDir) && !Directory.Exists(pcbDir), "Test data not available");
+
+        var comparable = 0;
+
+        if (Directory.Exists(schDir))
+            foreach (var jsonFile in Directory.GetFiles(schDir, "*.json"))
+            {
+                if (!File.Exists(Path.ChangeExtension(jsonFile, ".SchLib"))) continue;
+                using var doc = LoadJson(jsonFile);
+                if (doc != null) comparable += GetSchComponents(doc).Count;
+            }
+
+        if (Directory.Exists(pcbDir))
+            foreach (var jsonFile in Directory.GetFiles(pcbDir, "*.json"))
+            {
+                if (!File.Exists(Path.ChangeExtension(jsonFile, ".PcbLib"))) continue;
+                using var doc = LoadJson(jsonFile);
+                if (doc != null && doc.RootElement.TryGetProperty("footprints", out var fps)
+                    && fps.ValueKind == JsonValueKind.Array)
+                    comparable += fps.GetArrayLength();
+            }
+
+        Assert.True(comparable > 50,
+            $"Expected the value-verification JSON fixtures to load and yield many comparable items; got {comparable}. "
+            + "A fixture drop, path change, or LoadJson failure would otherwise silently zero value coverage.");
+    }
+
+    [SkippableFact]
     public void SchLib_ComponentValues_MatchJson()
     {
         var errors = new List<string>();
@@ -731,8 +765,12 @@ public sealed class ValueVerificationTests : CoverageTestBase
 
     private static void CompareInt(List<string> errors, string ctx, string type, string id, string prop, JsonElement json, int actual)
     {
-        if (!json.TryGetProperty(prop, out var jval)) return;
-        if (jval.ValueKind != JsonValueKind.Number) return;
+        if (!json.TryGetProperty(prop, out var jval) || jval.ValueKind == JsonValueKind.Null) return;
+        if (jval.ValueKind != JsonValueKind.Number)
+        {
+            errors.Add($"{ctx}.{prop}: expected a JSON Number, got {jval.ValueKind}");
+            return;
+        }
         var expected = jval.GetInt32();
         if (expected != actual)
             errors.Add($"{ctx}.{prop}: expected={expected}, actual={actual}");
@@ -740,8 +778,12 @@ public sealed class ValueVerificationTests : CoverageTestBase
 
     private static void CompareDouble(List<string> errors, string ctx, string type, string id, string prop, JsonElement json, double actual)
     {
-        if (!json.TryGetProperty(prop, out var jval)) return;
-        if (jval.ValueKind != JsonValueKind.Number) return;
+        if (!json.TryGetProperty(prop, out var jval) || jval.ValueKind == JsonValueKind.Null) return;
+        if (jval.ValueKind != JsonValueKind.Number)
+        {
+            errors.Add($"{ctx}.{prop}: expected a JSON Number, got {jval.ValueKind}");
+            return;
+        }
         var expected = jval.GetDouble();
         if (Math.Abs(expected - actual) > 0.01)
             errors.Add($"{ctx}.{prop}: expected={expected}, actual={actual}");
@@ -749,8 +791,12 @@ public sealed class ValueVerificationTests : CoverageTestBase
 
     private static void CompareBool(List<string> errors, string ctx, string type, string id, string prop, JsonElement json, bool actual)
     {
-        if (!json.TryGetProperty(prop, out var jval)) return;
-        if (jval.ValueKind != JsonValueKind.True && jval.ValueKind != JsonValueKind.False) return;
+        if (!json.TryGetProperty(prop, out var jval) || jval.ValueKind == JsonValueKind.Null) return;
+        if (jval.ValueKind != JsonValueKind.True && jval.ValueKind != JsonValueKind.False)
+        {
+            errors.Add($"{ctx}.{prop}: expected a JSON Boolean, got {jval.ValueKind}");
+            return;
+        }
         var expected = jval.GetBoolean();
         if (expected != actual)
             errors.Add($"{ctx}.{prop}: expected={expected}, actual={actual}");
