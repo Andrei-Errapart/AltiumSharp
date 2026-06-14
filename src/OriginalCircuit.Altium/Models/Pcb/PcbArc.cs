@@ -205,15 +205,7 @@ public sealed class PcbArc : IPcbArc
     public int ComponentIndex { get; set; } = -1;
 
     /// <inheritdoc />
-    public CoordRect Bounds
-    {
-        get
-        {
-            // Simplified bounding box (full circle bounds)
-            var extent = Radius + Width / 2;
-            return CoordRect.FromCenter(Center, extent * 2, extent * 2);
-        }
-    }
+    public CoordRect Bounds => ArcGeometry.Bounds(Center, Radius, StartAngle, EndAngle, Width / 2);
 
     /// <summary>
     /// Creates a fluent builder for a new arc.

@@ -16,7 +16,8 @@ internal sealed class BinaryFormatReader : IDisposable
     /// <summary>
     /// Mask to extract the actual size from a block header (high byte contains flags).
     /// </summary>
-    private const int BlockSizeMask = 0x00FFFFFF;
+    /// <summary>Low 24 bits of a block size word; the high byte carries format flags.</summary>
+    internal const int BlockSizeMask = 0x00FFFFFF;
 
     private readonly Stream _stream;
     private readonly bool _leaveOpen;

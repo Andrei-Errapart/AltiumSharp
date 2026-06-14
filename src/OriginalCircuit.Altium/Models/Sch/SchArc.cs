@@ -90,17 +90,8 @@ public sealed class SchArc : ISchArc
     public string? UniqueId { get; set; }
 
     /// <inheritdoc />
-    public CoordRect Bounds
-    {
-        get
-        {
-            // For a full circle or arc, calculate bounds from center and radius
-            var r = Radius;
-            return new CoordRect(
-                new CoordPoint(Center.X - r, Center.Y - r),
-                new CoordPoint(Center.X + r, Center.Y + r));
-        }
-    }
+    public CoordRect Bounds =>
+        ArcGeometry.Bounds(Center, Radius, StartAngle, EndAngle, AltiumLineWidthHelper.IndexToCoord(LineWidth) / 2);
 
     /// <summary>
     /// Creates a fluent builder for a new arc.

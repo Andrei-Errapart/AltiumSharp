@@ -1472,6 +1472,10 @@ public sealed class SchLibWriter
         var blockSize = 1 + 1 + nameBytes.Length + 4 + compressed.Length;
 
         // The size is a 3-byte little-endian value; the high byte is a flag set to 0x01 by Altium.
+        // Guard the 24-bit limit: a larger block would overflow into the flag byte and corrupt both.
+        if (blockSize > 0x00FFFFFF)
+            throw new AltiumFileException(
+                $"Embedded image '{name}' is too large ({blockSize} bytes) for the 3-byte storage size field (max {0x00FFFFFF}).");
         writer.Write(blockSize | 0x01000000);
         writer.Write((byte)0xD0);
         writer.Write((byte)nameBytes.Length);

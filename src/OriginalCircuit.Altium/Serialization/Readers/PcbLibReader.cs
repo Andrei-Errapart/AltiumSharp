@@ -538,7 +538,7 @@ public sealed class PcbLibReader
     internal static Dictionary<string, string> ReadParameterBlock(BinaryFormatReader reader, out string rawString)
     {
         var size = reader.ReadInt32();
-        var sanitizedSize = size & 0x00FFFFFF;
+        var sanitizedSize = size & BinaryFormatReader.BlockSizeMask;
 
         if (sanitizedSize <= 0)
         {
@@ -825,7 +825,7 @@ public sealed class PcbLibReader
     internal static PcbArc? ReadArc(BinaryFormatReader reader)
     {
         var size = reader.ReadInt32();
-        var sanitizedSize = size & 0x00FFFFFF;
+        var sanitizedSize = size & BinaryFormatReader.BlockSizeMask;
 
         if (sanitizedSize <= 0)
             return null;
@@ -876,7 +876,7 @@ public sealed class PcbLibReader
         reader.SkipBlock();
 
         var size = reader.ReadInt32();
-        var sanitizedSize = size & 0x00FFFFFF;
+        var sanitizedSize = size & BinaryFormatReader.BlockSizeMask;
 
         if (sanitizedSize <= 0)
             return null;
@@ -1044,7 +1044,7 @@ public sealed class PcbLibReader
     {
         fullStackEntries = new List<PadFullStackEntry>();
         var sizeShapeBlockSize = reader.ReadInt32();
-        var sanitizedSize = sizeShapeBlockSize & 0x00FFFFFF;
+        var sanitizedSize = sizeShapeBlockSize & BinaryFormatReader.BlockSizeMask;
         hasSizeShapeBlock = sanitizedSize > 0;
 
         layerXSizes = new int[29];
@@ -1128,7 +1128,7 @@ public sealed class PcbLibReader
     internal static PcbVia? ReadVia(BinaryFormatReader reader)
     {
         var size = reader.ReadInt32();
-        var sanitizedSize = size & 0x00FFFFFF;
+        var sanitizedSize = size & BinaryFormatReader.BlockSizeMask;
 
         if (sanitizedSize <= 0)
             return null;
@@ -1186,7 +1186,7 @@ public sealed class PcbLibReader
     internal static PcbTrack? ReadTrack(BinaryFormatReader reader)
     {
         var size = reader.ReadInt32();
-        var sanitizedSize = size & 0x00FFFFFF;
+        var sanitizedSize = size & BinaryFormatReader.BlockSizeMask;
 
         if (sanitizedSize <= 0)
             return null;
@@ -1227,7 +1227,7 @@ public sealed class PcbLibReader
     internal static PcbText? ReadText(BinaryFormatReader reader, List<string> wideStrings)
     {
         var size = reader.ReadInt32();
-        var sanitizedSize = size & 0x00FFFFFF;
+        var sanitizedSize = size & BinaryFormatReader.BlockSizeMask;
 
         if (sanitizedSize <= 0)
             return null;
@@ -1366,7 +1366,7 @@ public sealed class PcbLibReader
     internal static PcbFill? ReadFill(BinaryFormatReader reader)
     {
         var size = reader.ReadInt32();
-        var sanitizedSize = size & 0x00FFFFFF;
+        var sanitizedSize = size & BinaryFormatReader.BlockSizeMask;
 
         if (sanitizedSize <= 0)
             return null;
@@ -1407,7 +1407,7 @@ public sealed class PcbLibReader
     internal static PcbRegion? ReadRegion(BinaryFormatReader reader)
     {
         var size = reader.ReadInt32();
-        var sanitizedSize = size & 0x00FFFFFF;
+        var sanitizedSize = size & BinaryFormatReader.BlockSizeMask;
 
         if (sanitizedSize <= 0)
             return null;
@@ -1500,7 +1500,7 @@ public sealed class PcbLibReader
     internal static PcbComponentBody? ReadComponentBody(BinaryFormatReader reader)
     {
         var size = reader.ReadInt32();
-        var sanitizedSize = size & 0x00FFFFFF;
+        var sanitizedSize = size & BinaryFormatReader.BlockSizeMask;
 
         if (sanitizedSize <= 0)
             return null;
