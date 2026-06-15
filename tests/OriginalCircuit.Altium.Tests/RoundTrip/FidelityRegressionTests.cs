@@ -35,6 +35,38 @@ public sealed class FidelityRegressionTests
     }
 
     [Fact]
+    public void SchLib_ReloadAfterRewrite_PreservesComponents()
+    {
+        // A from-scratch library is written with a FileHeader that carries no CompCount/LibRefN
+        // params (only HEADER + Weight) followed by a binary count+name tail. Reading it captures
+        // those params as HeaderParameters; rewriting must still let the reader rediscover the
+        // component. Regression: the writer used to emit the captured params with no tail, so any
+        // load -> save -> load of a library-authored SchLib reported zero components.
+        var library = new SchLibrary();
+        var component = new SchComponent { Name = "RES", PartCount = 1 };
+        component.AddPin(SchPin.Create("1").WithName("A")
+            .At(Coord.FromMils(0), Coord.FromMils(0))
+            .Length(Coord.FromMils(100)).Orient(PinOrientation.Right).Build());
+        library.Add(component);
+
+        // First write + read simulates loading a previously-saved library.
+        using var ms1 = new MemoryStream();
+        new SchLibWriter().Write(library, ms1);
+        ms1.Position = 0;
+        var loaded = (SchLibrary)new SchLibReader().Read(ms1);
+        Assert.Single(loaded.Components);
+
+        // Rewrite the loaded library and read it again — the component must survive.
+        using var ms2 = new MemoryStream();
+        new SchLibWriter().Write(loaded, ms2);
+        ms2.Position = 0;
+        var reloaded = (SchLibrary)new SchLibReader().Read(ms2);
+
+        var survivor = Assert.Single(reloaded.Components);
+        Assert.Equal("RES", survivor.Name);
+    }
+
+    [Fact]
     public void SchLib_UnmappedRecord_RoundTripsAsOpaque()
     {
         var library = new SchLibrary();

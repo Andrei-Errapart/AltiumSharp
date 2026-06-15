@@ -84,9 +84,27 @@ public sealed class SchLibWriter
         if (library.HeaderParameters is { Count: > 0 } headerParams)
         {
             var sb = new System.Text.StringBuilder();
+            var hasCompCount = false;
             foreach (var kvp in headerParams)
+            {
                 sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+                if (string.Equals(kvp.Key, "COMPCOUNT", StringComparison.OrdinalIgnoreCase))
+                    hasCompCount = true;
+            }
             writer.WriteCStringParameterBlockRaw(sb.ToString());
+
+            // Real Altium headers enumerate components via CompCount/LibRefN params, so the reader
+            // discovers them from the param block (no tail). But a library originally written from
+            // scratch and reloaded has captured params that only carry HEADER + Weight — no CompCount.
+            // Without a discovery mechanism the reader would find zero components, so append the same
+            // binary count + name tail the from-scratch path uses. Headers that already carry
+            // CompCount are left byte-for-byte unchanged.
+            if (!hasCompCount)
+            {
+                writer.Write(library.Components.Count);
+                foreach (var component in library.Components)
+                    writer.WriteStringBlock(component.Name);
+            }
         }
         else
         {
