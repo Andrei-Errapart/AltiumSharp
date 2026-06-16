@@ -51,9 +51,10 @@ public sealed class PcbModel
     public int Dz { get; set; }
 
     /// <summary>
-    /// Checksum value computed by Altium's 3D engine.
-    /// The algorithm is proprietary; this value is preserved through round-trips
-    /// and set to 0 for newly created models.
+    /// Checksum of the embedded STEP payload, as computed by Altium's 3D engine (see
+    /// <see cref="ComputeChecksum"/>). Stored as the 32-bit pattern (may read as negative for
+    /// high-bit values). Preserved verbatim through round-trips; 0 is tolerated by Altium for new
+    /// models. Call <see cref="ComputeChecksum"/> to derive it when authoring a model from scratch.
     /// </summary>
     public int Checksum { get; set; }
 
@@ -71,6 +72,27 @@ public sealed class PcbModel
     /// (<c>0</c>, <c>1</c>, ...), zlib-compressed. Shared by the PcbLib reader (<c>Library/Models</c>)
     /// and the PcbDoc model view (root <c>Models</c> storage).
     /// </summary>
+    /// <summary>
+    /// Computes the Altium 3D-model checksum: a position-weighted byte sum over the uncompressed STEP
+    /// payload, mod 2^32. The weight of byte <c>i</c> is <c>1</c> for <c>i==0</c> and <c>i</c> otherwise.
+    /// (Reverse-engineered; e.g. the payload <c>[10,20,30,40,50]</c> yields <c>410</c>.) Use this when
+    /// authoring a model from scratch; loaded models preserve their stored <see cref="Checksum"/>.
+    /// </summary>
+    public static uint ComputeChecksum(ReadOnlySpan<byte> stepPayload)
+    {
+        uint checksum = 0;
+        for (var i = 0; i < stepPayload.Length; i++)
+            checksum = unchecked(checksum + stepPayload[i] * (i == 0 ? 1u : (uint)i));
+        return checksum;
+    }
+
+    /// <summary>
+    /// Recomputes <see cref="Checksum"/> from the current <see cref="StepData"/> (UTF-8 encoded).
+    /// Call after setting <see cref="StepData"/> on a model authored from scratch.
+    /// </summary>
+    public void RecomputeChecksum()
+        => Checksum = unchecked((int)ComputeChecksum(Encoding.UTF8.GetBytes(StepData)));
+
     /// <param name="dataStreamBytes">Raw bytes of the <c>Data</c> metadata stream, or null/empty if absent.</param>
     /// <param name="getModelStreamBytes">Returns the bytes of numbered payload stream <paramref name="getModelStreamBytes"/>(i), or null to stop.</param>
     internal static List<PcbModel> ParseModels(byte[]? dataStreamBytes, Func<int, byte[]?> getModelStreamBytes)
@@ -122,6 +144,8 @@ public sealed class PcbModel
                 if (meta.TryGetValue("ROTY", out var roty) && double.TryParse(roty, CultureInfo.InvariantCulture, out var ry)) model.RotationY = ry;
                 if (meta.TryGetValue("ROTZ", out var rotz) && double.TryParse(rotz, CultureInfo.InvariantCulture, out var rz)) model.RotationZ = rz;
                 if (meta.TryGetValue("DZ", out var dz) && int.TryParse(dz, NumberStyles.Integer, CultureInfo.InvariantCulture, out var dzVal)) model.Dz = dzVal;
+                // Altium serializes the checksum as a SIGNED 32-bit decimal (negative for high-bit
+                // values), so parse/write it as int to round-trip the exact on-disk string.
                 if (meta.TryGetValue("CHECKSUM", out var cs) && int.TryParse(cs, NumberStyles.Integer, CultureInfo.InvariantCulture, out var csVal)) model.Checksum = csVal;
             }
 

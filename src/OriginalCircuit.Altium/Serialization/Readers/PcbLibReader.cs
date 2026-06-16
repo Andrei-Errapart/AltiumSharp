@@ -107,6 +107,9 @@ public sealed class PcbLibReader
             return;
 
         var data = stream.GetData();
+        // Preserve the whole header verbatim so the writer reproduces it exactly (the typed parse
+        // below is a lossy heuristic used only to recover UniqueId).
+        library.RawFileHeader = data;
         using var ms = new MemoryStream(data);
         using var reader = new BinaryFormatReader(ms, leaveOpen: true);
 

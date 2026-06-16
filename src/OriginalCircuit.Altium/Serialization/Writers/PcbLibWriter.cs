@@ -64,6 +64,14 @@ public sealed class PcbLibWriter
     {
         var headerStream = cf.RootStorage.AddStream("FileHeader");
 
+        // Replay the captured header verbatim when available (byte-exact, and robust to layouts the
+        // synthesized path below would mangle, e.g. a non-empty placeholder string).
+        if (library.RawFileHeader is { Length: > 0 } rawHeader)
+        {
+            headerStream.SetData(rawHeader);
+            return;
+        }
+
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
