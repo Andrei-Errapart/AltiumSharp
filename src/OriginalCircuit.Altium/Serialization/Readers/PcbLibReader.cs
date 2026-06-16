@@ -927,7 +927,14 @@ public sealed class PcbLibReader
         pad.HasSizeShapeBlock = hasSizeShapeBlock;
         pad.FullStackEntries.AddRange(fullStackEntries);
         if (rawExtendedTail.Length > 0)
+        {
             pad.RawExtendedTail = rawExtendedTail;
+            // Surface the per-pad identity GUID (SubRecord-5 offset 125 = tail offset 64) for the API;
+            // the captured tail is still replayed verbatim, so this does not affect the round-trip.
+            const int uidTailOffset = 125 - PadExtendedStart;
+            if (rawExtendedTail.Length >= uidTailOffset + 16)
+                pad.IdentityGuid = new Guid(rawExtendedTail.AsSpan(uidTailOffset, 16));
+        }
         // When per-layer overrides replaced the typed shapes, keep the source's base main-block bytes.
         if (hasRoundedRectByte != 0)
             pad.RawMainBlockShapes = originalMainShapes;
@@ -1146,6 +1153,10 @@ public sealed class PcbLibReader
         via.DrillLayerPairType = B(312);                          // 312
 
         via.RawSr1 = sr1;
+        // Surface the per-via identity GUID (SubRecord-1 offset 259) for the API; the captured record
+        // is still replayed verbatim, so this does not affect the round-trip.
+        if (sr1.Length >= 259 + 16)
+            via.IdentityGuid = new Guid(sr1.AsSpan(259, 16));
         return via;
     }
 

@@ -592,7 +592,13 @@ public sealed class PcbLibWriter
         // 114-117 is a derived save-id, not a read-back field; only synthesize it when building from
         // the template (from scratch). When replaying a captured tail, keep the source bytes.
         if (pad.RawExtendedTail is null)
+        {
             PutI32(114, unchecked((int)V7LayerId(pad.Layer)));           // 114-117 v7 layer id (derived)
+            // Overlay a per-pad identity GUID (offset 125) so authored pads don't all share the
+            // template's identity. Loaded pads keep their captured tail (this branch is skipped).
+            if (pad.IdentityGuid != Guid.Empty)
+                pad.IdentityGuid.ToByteArray().CopyTo(ext, 125 - PadExtendedStart);
+        }
         PutI32(162, pad.HolePositiveTolerance.ToRaw());                  // 162-165
         PutI32(166, pad.HoleNegativeTolerance.ToRaw());                  // 166-169
 
@@ -689,7 +695,13 @@ public sealed class PcbLibWriter
         // 242 (back-side mask) is derived from the front value, not read back; only synthesize it
         // from scratch. When replaying captured bytes, keep the source's back-mask byte.
         if (!replaying)
+        {
             PutI32(242, via.SolderMaskExpansion.ToRaw()); // back-side mask (symmetric)
+            // Overlay a per-via identity GUID (offset 259) so authored vias don't all share the
+            // template's identity. Loaded vias keep their captured record (this branch is skipped).
+            if (via.IdentityGuid != Guid.Empty && b.Length >= 259 + 16)
+                via.IdentityGuid.ToByteArray().CopyTo(b, 259);
+        }
         b[258] = (byte)(via.SolderMaskExpansionFromHoleEdge ? 1 : 0);
         PutI32(291, via.HolePositiveTolerance.ToRaw());
         PutI32(295, via.HoleNegativeTolerance.ToRaw());

@@ -108,14 +108,23 @@ public sealed class SchLibWriter
         }
         else
         {
-            // From-scratch libraries have no captured CompCount/LibRefN, so append the component
-            // count + name string blocks, which the reader reads when the stream has trailing data.
-            var defaults = new Dictionary<string, string>
-            {
-                ["HEADER"] = "Protel for Windows - Schematic Library Editor Binary File Version 5.0",
-                ["Weight"] = library.Components.Count.ToString(CultureInfo.InvariantCulture)
-            };
-            writer.WriteCStringParameterBlock(defaults);
+            // From-scratch libraries have no captured header params: synthesize a valid header with a
+            // fresh UniqueID and a font table (so text referencing a FontID has a definition), then
+            // append the component count + name string blocks the reader reads from the trailing data.
+            var sb = new System.Text.StringBuilder();
+            void Add(string key, string value) => sb.Append('|').Append(key).Append('=').Append(value);
+
+            Add("HEADER", "Protel for Windows - Schematic Library Editor Binary File Version 5.0");
+            Add("Weight", library.Components.Count.ToString(CultureInfo.InvariantCulture));
+            Add("MinorVersion", "2");
+            Add("UniqueID", GenerateUniqueId());
+            AppendFontTable(sb, library.Fonts);
+            Add("UseMBCS", "T");
+            Add("IsBOC", "T");
+            Add("SheetStyle", "9");
+            Add("BorderOn", "T");
+            Add("Display_Unit", "0");
+            writer.WriteCStringParameterBlockRaw(sb.ToString());
 
             writer.Write(library.Components.Count);
             foreach (var component in library.Components)
@@ -178,6 +187,47 @@ public sealed class SchLibWriter
 
         writer.Flush();
         sectionKeysStream.SetData(ms.ToArray());
+    }
+
+    /// <summary>
+    /// Appends a FontID table (1-based FontName{i}/Size{i}, with Bold/Italic/Underline{i} only when
+    /// true — required for parity with Altium) to a from-scratch FileHeader param block. Emits a
+    /// single default Times New Roman entry when the library carries no fonts, so any text record that
+    /// references FontID 1 still resolves to a definition.
+    /// </summary>
+    private static void AppendFontTable(System.Text.StringBuilder sb, IReadOnlyList<Models.Sch.SchFontDefinition> fonts)
+    {
+        void Add(string key, string value) => sb.Append('|').Append(key).Append('=').Append(value);
+
+        if (fonts.Count == 0)
+        {
+            Add("FontIdCount", "1");
+            Add("FontName1", "Times New Roman");
+            Add("Size1", "10");
+            return;
+        }
+
+        Add("FontIdCount", fonts.Count.ToString(CultureInfo.InvariantCulture));
+        for (var i = 0; i < fonts.Count; i++)
+        {
+            var n = (i + 1).ToString(CultureInfo.InvariantCulture);
+            var font = fonts[i];
+            Add("FontName" + n, font.Name);
+            Add("Size" + n, ((int)Math.Round(font.Size)).ToString(CultureInfo.InvariantCulture));
+            if (font.Bold) Add("Bold" + n, "T");
+            if (font.Italic) Add("Italic" + n, "T");
+            if (font.Underline) Add("Underline" + n, "T");
+        }
+    }
+
+    private static string GenerateUniqueId()
+    {
+        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        return string.Create(8, Random.Shared, (span, rng) =>
+        {
+            for (var i = 0; i < span.Length; i++)
+                span[i] = chars[rng.Next(chars.Length)];
+        });
     }
 
     /// <summary>Rebuilds a record's pipe-delimited parameter string from its captured ordered list.</summary>

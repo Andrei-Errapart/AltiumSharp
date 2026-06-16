@@ -644,6 +644,16 @@ public sealed class PcbPad : IPcbPad
     internal byte[]? RawExtendedTail { get; set; }
 
     /// <summary>
+    /// Per-pad unique identity (the 16-byte GUID Altium stores in the pad's SubRecord-5 at offset 125).
+    /// Set fresh for pads built from scratch so each pad has a distinct identity (replaying a single
+    /// template would make every authored pad collide); read from the source for loaded pads. On the
+    /// from-scratch write path this is overlaid into the record; loaded pads replay their captured tail
+    /// verbatim. Altium does not enforce uniqueness (duplicates load fine), but distinct ids match how
+    /// Altium authors new primitives.
+    /// </summary>
+    public Guid IdentityGuid { get; set; }
+
+    /// <summary>
     /// The original main-block shape bytes (ShapeTop/Middle/Bottom) as read from the source, captured
     /// only when per-layer shape overrides are active (<see cref="HasRoundedRectByte"/> set). Altium
     /// keeps a base shape in the main block while the real per-layer shape lives in
@@ -687,6 +697,7 @@ public sealed class PadBuilder
     internal PadBuilder(string? designator)
     {
         _pad.Designator = designator;
+        _pad.IdentityGuid = Guid.NewGuid(); // fresh per-pad identity for from-scratch authoring
     }
 
     /// <summary>

@@ -288,6 +288,13 @@ public sealed class PcbVia : IPcbVia
     /// </summary>
     internal byte[]? RawSr1 { get; set; }
 
+    /// <summary>
+    /// Per-via unique identity (the 16-byte GUID Altium stores in the via's SubRecord-1 at offset 259).
+    /// Set fresh for vias built from scratch so each via has a distinct identity; read from the source
+    /// for loaded vias (which replay their captured record verbatim). See PcbPad.IdentityGuid.
+    /// </summary>
+    public Guid IdentityGuid { get; set; }
+
     /// <inheritdoc />
     public CoordRect Bounds => CoordRect.FromCenter(Location, Diameter, Diameter);
 
@@ -304,7 +311,7 @@ public sealed class ViaBuilder
 {
     private readonly PcbVia _via = new();
 
-    internal ViaBuilder() { }
+    internal ViaBuilder() { _via.IdentityGuid = Guid.NewGuid(); } // fresh per-via identity for from-scratch
 
     /// <summary>
     /// Sets the via location.
