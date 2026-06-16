@@ -132,6 +132,25 @@ public sealed class FidelityRegressionTests
     }
 
     [Fact]
+    public void SchLib_NullComponentDescription_StaysNull()
+    {
+        // Regression: the writer unconditionally emitted ComponentDescription="" for a component with
+        // no description, which read back as "" (not null) and perturbed the byte-faithful record.
+        // A descriptionless component must round-trip as null; an explicit description must survive.
+        var library = new SchLibrary();
+        library.Add(new SchComponent { Name = "U1", PartCount = 1 });                 // Description == null
+        library.Add(new SchComponent { Name = "U2", PartCount = 1, Description = "Op-amp" });
+
+        using var ms = new MemoryStream();
+        new SchLibWriter().Write(library, ms);
+        ms.Position = 0;
+        var reloaded = (SchLibrary)new SchLibReader().Read(ms);
+
+        Assert.Null(((SchComponent)reloaded.Components[0]).Description);
+        Assert.Equal("Op-amp", ((SchComponent)reloaded.Components[1]).Description);
+    }
+
+    [Fact]
     public void SchLib_UnmappedRecord_RoundTripsAsOpaque()
     {
         var library = new SchLibrary();

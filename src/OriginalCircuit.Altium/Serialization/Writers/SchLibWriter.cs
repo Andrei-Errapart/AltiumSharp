@@ -296,17 +296,21 @@ public sealed class SchLibWriter
         {
             ["RECORD"] = "1",
             ["LibReference"] = component.Name,
-            ["ComponentDescription"] = component.Description ?? string.Empty,
-            ["PartCount"] = (component.PartCount + 1).ToString(CultureInfo.InvariantCulture),
-            ["DisplayModeCount"] = "1",
-            ["IndexInSheet"] = "-1",
-            ["OwnerPartId"] = "-1",
-            ["CurrentPartId"] = "1",
-            ["LibraryPath"] = "*",
-            ["SourceLibraryName"] = "*",
-            ["SheetPartFileName"] = "*",
-            ["TargetFileName"] = "*"
         };
+        // Altium omits ComponentDescription entirely when a component has no description. Writing an
+        // empty value perturbs the byte-faithful record and reads back as "" instead of null, so only
+        // emit it (in its original position) when a description is actually present.
+        if (component.Description != null)
+            parameters["ComponentDescription"] = component.Description;
+        parameters["PartCount"] = (component.PartCount + 1).ToString(CultureInfo.InvariantCulture);
+        parameters["DisplayModeCount"] = "1";
+        parameters["IndexInSheet"] = "-1";
+        parameters["OwnerPartId"] = "-1";
+        parameters["CurrentPartId"] = "1";
+        parameters["LibraryPath"] = "*";
+        parameters["SourceLibraryName"] = "*";
+        parameters["SheetPartFileName"] = "*";
+        parameters["TargetFileName"] = "*";
 
         if (component is SchComponent schComp)
         {
