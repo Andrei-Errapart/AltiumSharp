@@ -145,6 +145,31 @@ public sealed class PcbDocument : IPcbDocument
     /// </summary>
     public Dictionary<string, byte[]>? AdditionalStreams { get; set; }
 
+    private IReadOnlyList<PcbModel>? _models;
+
+    /// <summary>
+    /// Embedded 3D STEP models referenced by component bodies (via <see cref="PcbComponentBody.ModelId"/>),
+    /// decoded on first access from the <c>Models</c> storage that is preserved verbatim in
+    /// <see cref="AdditionalStreams"/> (<c>Models/Data</c> metadata + numbered <c>Models/&lt;n&gt;</c>
+    /// payload streams). Mirrors <see cref="PcbLibrary.Models"/>.
+    /// <para>
+    /// This is a read-only decoded view: the models round-trip byte-for-byte through
+    /// <see cref="AdditionalStreams"/>, so mutating the returned objects does not change what is
+    /// written. Empty when the document carries no embedded models.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<PcbModel> Models => _models ??= ParseEmbeddedModels();
+
+    private IReadOnlyList<PcbModel> ParseEmbeddedModels()
+    {
+        if (AdditionalStreams is not { Count: > 0 } streams)
+            return Array.Empty<PcbModel>();
+
+        streams.TryGetValue("Models/Data", out var dataBytes);
+        return PcbModel.ParseModels(dataBytes,
+            i => streams.TryGetValue($"Models/{i.ToString(System.Globalization.CultureInfo.InvariantCulture)}", out var bytes) ? bytes : null);
+    }
+
     /// <inheritdoc />
     public CoordRect Bounds
     {

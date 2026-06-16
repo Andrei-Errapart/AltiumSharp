@@ -962,7 +962,7 @@ var body = PcbComponentBody.Create()
     .AddPoint(0.Mm(), 1.Mm())
     .StandoffHeight(0.Mm())
     .OverallHeight(1.Mm())
-    .WithStepModel("model-id")
+    .ModelId("model-id")  // links the body to an embedded PcbModel by its GUID
     .Build();
 ```
 

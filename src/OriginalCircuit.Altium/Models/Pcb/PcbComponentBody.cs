@@ -109,11 +109,6 @@ public sealed class PcbComponentBody : IPcbComponentBody
     public Coord Model3DDz { get; set; }
 
     /// <summary>
-    /// STEP model data (when embedded).
-    /// </summary>
-    public byte[]? StepModelData { get; set; }
-
-    /// <summary>
     /// Model file name (e.g., the .step file name).
     /// </summary>
     public string? ModelName { get; set; }
@@ -533,16 +528,6 @@ public sealed class ComponentBodyBuilder
     public ComponentBodyBuilder OffsetZ(Coord dz)
     {
         _body.Model3DDz = dz;
-        return this;
-    }
-
-    /// <summary>
-    /// Sets the embedded STEP model data.
-    /// </summary>
-    public ComponentBodyBuilder WithStepModel(byte[] data)
-    {
-        _body.StepModelData = data;
-        _body.ModelEmbed = true;
         return this;
     }
 

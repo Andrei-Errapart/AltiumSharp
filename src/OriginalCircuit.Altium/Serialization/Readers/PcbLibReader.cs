@@ -314,70 +314,19 @@ public sealed class PcbLibReader
 
     private static void ReadModels(CompoundStorage modelsStorage, PcbLibrary library)
     {
-        // Read Data stream: contains parameter blocks with model metadata
-        // Format: int32 length + C-string (null-terminated pipe-delimited params)
-        // One entry per model with: EMBED, MODELSOURCE, ID, ROTX, ROTY, ROTZ, DZ, CHECKSUM, NAME
-        var modelMetadata = new List<Dictionary<string, string>>();
-        if (modelsStorage.TryGetStream("Data", out var dataStream))
-        {
-            var dataBytes = dataStream.GetData();
-            using var ms = new MemoryStream(dataBytes);
-            using var br = new BinaryReader(ms, Encoding.ASCII);
+        // Data stream: parameter blocks with model metadata (EMBED, MODELSOURCE, ID, ROTX, ROTY,
+        // ROTZ, DZ, CHECKSUM, NAME). STEP payloads live in numbered streams (0, 1, ...), zlib
+        // compressed. The parse is shared with PcbDoc's root Models storage (PcbModel.ParseModels).
+        var dataBytes = modelsStorage.TryGetStream("Data", out var dataStream)
+            ? dataStream.GetData()
+            : null;
 
-            while (ms.Position + 4 <= ms.Length)
-            {
-                var paramLen = br.ReadInt32();
-                if (paramLen <= 0 || ms.Position + paramLen > ms.Length)
-                    break;
+        var models = PcbModel.ParseModels(dataBytes,
+            i => modelsStorage.TryGetStream(i.ToString(CultureInfo.InvariantCulture), out var modelStream)
+                ? modelStream.GetData()
+                : null);
 
-                var paramStr = Encoding.ASCII.GetString(br.ReadBytes(paramLen)).TrimEnd('\0');
-                var meta = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var part in paramStr.Split('|', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    var eqIdx = part.IndexOf('=');
-                    if (eqIdx > 0)
-                        meta[part[..eqIdx]] = part[(eqIdx + 1)..];
-                }
-                modelMetadata.Add(meta);
-            }
-        }
-
-        // Read numbered STEP streams (0, 1, 2, ...) - zlib compressed STEP text
-        for (var i = 0; ; i++)
-        {
-            if (!modelsStorage.TryGetStream(i.ToString(CultureInfo.InvariantCulture), out var modelStream))
-                break;
-
-            var compressedData = modelStream.GetData();
-            var model = new PcbModel();
-
-            // Apply metadata from Data stream if available
-            if (i < modelMetadata.Count)
-            {
-                var meta = modelMetadata[i];
-                if (meta.TryGetValue("ID", out var id)) model.Id = id;
-                if (meta.TryGetValue("NAME", out var name)) model.Name = name;
-                if (meta.TryGetValue("EMBED", out var embed)) model.IsEmbedded = string.Equals(embed, "TRUE", StringComparison.OrdinalIgnoreCase);
-                if (meta.TryGetValue("MODELSOURCE", out var source)) model.ModelSource = source;
-                if (meta.TryGetValue("ROTX", out var rotx) && double.TryParse(rotx, System.Globalization.CultureInfo.InvariantCulture, out var rx)) model.RotationX = rx;
-                if (meta.TryGetValue("ROTY", out var roty) && double.TryParse(roty, System.Globalization.CultureInfo.InvariantCulture, out var ry)) model.RotationY = ry;
-                if (meta.TryGetValue("ROTZ", out var rotz) && double.TryParse(rotz, System.Globalization.CultureInfo.InvariantCulture, out var rz)) model.RotationZ = rz;
-                if (meta.TryGetValue("DZ", out var dz) && int.TryParse(dz, NumberStyles.Integer, CultureInfo.InvariantCulture, out var dzVal)) model.Dz = dzVal;
-                if (meta.TryGetValue("CHECKSUM", out var cs) && int.TryParse(cs, NumberStyles.Integer, CultureInfo.InvariantCulture, out var csVal)) model.Checksum = csVal;
-            }
-
-            // Decompress STEP data
-            if (compressedData.Length > 0)
-            {
-                using var ms = new MemoryStream(compressedData);
-                using var zs = new ZLibStream(ms, CompressionMode.Decompress);
-                using var outMs = new MemoryStream();
-                zs.CopyTo(outMs);
-                model.StepData = Encoding.UTF8.GetString(outMs.ToArray());
-            }
-
-            library.Models.Add(model);
-        }
+        library.Models.AddRange(models);
     }
 
     private string GetSectionKeyFromRefName(string refName)
