@@ -180,6 +180,15 @@ public sealed class SchLibWriter
         sectionKeysStream.SetData(ms.ToArray());
     }
 
+    /// <summary>Rebuilds a record's pipe-delimited parameter string from its captured ordered list.</summary>
+    private static string BuildOrderedParamString(List<KeyValuePair<string, string>> ordered)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var kvp in ordered)
+            sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+        return sb.ToString();
+    }
+
     private static void WriteComponent(CompoundFileAccessor cf, SchComponent component, Dictionary<string, string> sectionKeys)
     {
         var sectionKey = sectionKeys.TryGetValue(component.Name, out var key)
@@ -200,15 +209,50 @@ public sealed class SchLibWriter
         var index = 0;
         var pinIndex = 0;
 
-        // Write component record (the root primitive)
-        WriteComponentRecord(writer, component, ref index);
+        // Byte-faithful replay is valid only when the component's child set is unchanged since load
+        // (no add/remove). An edit invalidates the count and falls through to typed serialization.
+        var unedited = component.LoadedChildCount is { } loadedCount
+            && loadedCount == component.CountChildPrimitives();
+        var rawRecordParams = unedited ? component.RawRecordParams : null;
+
+        // Write component record (the root primitive). Replay its captured params verbatim for an
+        // unedited component so the key order round-trips; otherwise regenerate from the typed model.
+        if (unedited && component.RawComponentRecord is { Count: > 0 } headerRaw)
+        {
+            writer.WriteCStringParameterBlockRaw(BuildOrderedParamString(headerRaw));
+            index++;
+        }
+        else
+        {
+            WriteComponentRecord(writer, component, ref index);
+        }
 
         // Dispatch a single primitive (or opaque record) to its record writer.
         void EmitPrimitive(object prim)
         {
+            // Replay the captured ordered params verbatim for an unedited text record (avoids
+            // default/omitted-param drift from typed regeneration). Pins are never captured here
+            // (binary records) and always take the typed path below.
+            if (rawRecordParams != null && rawRecordParams.TryGetValue(prim, out var orderedRaw))
+            {
+                writer.WriteCStringParameterBlockRaw(BuildOrderedParamString(orderedRaw));
+                index++;
+                return;
+            }
             switch (prim)
             {
-                case SchPin pin: WritePinRecord(writer, pin, pinIndex, pinsFrac, pinsSymbolLineWidth); pinIndex++; index++; break;
+                case SchPin pin:
+                    if (unedited && pin.RawPinPayload is { Length: > 0 } pinPayload)
+                    {
+                        writer.WriteBlock(pinPayload, 0x01); // replay the binary pin record verbatim
+                        CollectPinAuxData(pin, pinIndex, pinsFrac, pinsSymbolLineWidth);
+                    }
+                    else
+                    {
+                        WritePinRecord(writer, pin, pinIndex, pinsFrac, pinsSymbolLineWidth);
+                    }
+                    pinIndex++; index++;
+                    break;
                 case SchLine line: WriteLineRecord(writer, line, ref index); break;
                 case SchRectangle rect: WriteRectangleRecord(writer, rect, ref index); break;
                 case SchLabel label: WriteLabelRecord(writer, label, ref index); break;
@@ -455,6 +499,21 @@ public sealed class SchLibWriter
             w.WritePascalShortString(partAndSequence);
             w.WritePascalShortString(pin.DefaultValue ?? string.Empty);
         }, 0x01); // Flag = 1 for pin records
+
+        CollectPinAuxData(pin, pinIndex, pinsFrac, pinsSymbolLineWidth);
+    }
+
+    /// <summary>
+    /// Collects a pin's fractional-coordinate and symbol-line-width data for the auxiliary streams.
+    /// Called both when re-encoding a pin and when replaying its captured payload verbatim.
+    /// </summary>
+    private static void CollectPinAuxData(SchPin pin, int pinIndex,
+        Dictionary<int, (int x, int y, int length)> pinsFrac,
+        Dictionary<int, Dictionary<string, string>> pinsSymbolLineWidth)
+    {
+        var locationX = CoordToDxpFrac(pin.Location.X);
+        var locationY = CoordToDxpFrac(pin.Location.Y);
+        var length = CoordToDxpFrac(pin.Length);
 
         // Store fractional parts if non-zero
         if (locationX.frac != 0 || locationY.frac != 0 || length.frac != 0)

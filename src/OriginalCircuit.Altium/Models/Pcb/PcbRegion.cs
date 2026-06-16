@@ -261,6 +261,21 @@ public sealed class PcbRegion : IPcbRegion
     internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
 
     /// <summary>
+    /// Raw bytes of the region's geometry section (vertex count, outline + hole vertex doubles, and any
+    /// trailing bytes) as read from the source. Altium stores vertices as fractional doubles; the typed
+    /// <see cref="Outline"/>/<see cref="Holes"/> are integer coords, so replaying these bytes preserves
+    /// the original sub-coord precision verbatim. Null for regions built from scratch (encoded from the
+    /// typed vertices instead). See PcbLibWriter.WriteRegion.
+    /// </summary>
+    internal byte[]? RawGeometry { get; set; }
+
+    /// <summary>
+    /// The raw 16-bit primitive flags word as read from the source, so unmodelled flag bits round-trip
+    /// verbatim. Null for regions built from scratch. See PcbBinaryConstants.MergeFlags.
+    /// </summary>
+    internal ushort? RawFlags { get; set; }
+
+    /// <summary>
     /// Hole / cutout contours. Each hole is a closed polygon of vertices subtracted from the
     /// region outline (copper-pour cutouts). Preserved for round-trip and rendering.
     /// </summary>

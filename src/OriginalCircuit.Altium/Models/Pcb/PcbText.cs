@@ -477,6 +477,20 @@ public sealed class PcbText : IPcbText
     public bool AdvanceSnapping { get; set; }
 
     /// <summary>
+    /// Raw bytes of the text's SubRecord-1 (offsets 0..end) as read from the source. The writer clones
+    /// this and overlays the modeled fields, so unmodelled reserved / cache bytes round-trip verbatim.
+    /// Null for text built from scratch, in which case a canonical template is used.
+    /// See PcbLibWriter.BuildTextExtended.
+    /// </summary>
+    internal byte[]? RawSr1 { get; set; }
+
+    /// <summary>
+    /// The raw 16-bit primitive flags word as read from the source, so unmodelled flag bits round-trip
+    /// verbatim. Null for text built from scratch. See PcbBinaryConstants.MergeFlags.
+    /// </summary>
+    internal ushort? RawFlags { get; set; }
+
+    /// <summary>
     /// Whether the text is rendered with a frame (text box).
     /// </summary>
     public bool IsFrame { get; set; }

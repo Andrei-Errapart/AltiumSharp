@@ -309,11 +309,14 @@ public sealed class SchLibReader
         var isFirstRecord = true;
         var pinIndex = 0;
         SchImplementation? currentImplementation = null;
+        // Capture each text record's ordered params keyed by the primitive instance, so an unedited
+        // component replays verbatim (avoids default/omitted-param drift from typed regeneration).
+        var rawRecordParams = new Dictionary<object, List<KeyValuePair<string, string>>>(ReferenceEqualityComparer.Instance);
 
         while (reader.HasMore)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var parameters = ReadRecordParameters(reader);
+            var parameters = ReadRecordParameters(reader, out var orderedParams, out _, out var binaryPayload);
             if (parameters == null)
             {
                 _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
@@ -333,6 +336,7 @@ public sealed class SchLibReader
                 if (recordType == (int)SchRecordType.Component)
                 {
                     ApplyComponentParameters(component, parameters);
+                    component.RawComponentRecord = orderedParams;
                 }
                 isFirstRecord = false;
             }
@@ -369,12 +373,19 @@ public sealed class SchLibReader
                 {
                     // Skip string markers (ImplementationList, MapDefinerList, ImplementationParameters)
                     AddPrimitiveToComponent(component, primitive);
+                    if (orderedParams != null)
+                        rawRecordParams[primitive] = orderedParams;
+                    else if (binaryPayload != null && primitive is SchPin schPin)
+                        schPin.RawPinPayload = binaryPayload; // verbatim binary-pin replay
                 }
                 else if (primitive == null)
                 {
                     // Record type is not modelled for SchLib (e.g. Note/Hyperlink/Harness): preserve it
                     // as an opaque record at its original position so it still round-trips, and note it.
-                    component.ReadOrderedPrimitives.Add(new SchOpaqueRecord(parameters));
+                    var opaque = new SchOpaqueRecord(parameters);
+                    component.ReadOrderedPrimitives.Add(opaque);
+                    if (orderedParams != null)
+                        rawRecordParams[opaque] = orderedParams;
                     _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
                         $"Unsupported SchLib record type {recordType} preserved as an opaque record.", sectionKey));
                 }
@@ -395,6 +406,10 @@ public sealed class SchLibReader
         if (pinSymLineWidthRawData is { Length: > 0 })
             ApplyPinSymbolLineWidths(component, pinSymLineWidthRawData);
 
+        if (rawRecordParams.Count > 0)
+            component.RawRecordParams = rawRecordParams;
+        component.LoadedChildCount = component.CountChildPrimitives();
+
         return component;
     }
 
@@ -405,16 +420,21 @@ public sealed class SchLibReader
     internal static Dictionary<string, string>? ReadRecordParameters(BinaryFormatReader reader)
         => ReadRecordParameters(reader, out _, out _);
 
+    internal static Dictionary<string, string>? ReadRecordParameters(BinaryFormatReader reader,
+        out List<KeyValuePair<string, string>>? ordered, out bool isBinaryRecord)
+        => ReadRecordParameters(reader, out ordered, out isBinaryRecord, out _);
+
     /// <summary>
     /// Reads a record's parameters, additionally reporting the parameters as an ordered key/value
     /// list (for byte-faithful verbatim round-trip) and whether the record was a binary pin record
     /// (which has no textual parameter string and therefore cannot be re-emitted verbatim).
     /// </summary>
     internal static Dictionary<string, string>? ReadRecordParameters(BinaryFormatReader reader,
-        out List<KeyValuePair<string, string>>? ordered, out bool isBinaryRecord)
+        out List<KeyValuePair<string, string>>? ordered, out bool isBinaryRecord, out byte[]? binaryPayload)
     {
         ordered = null;
         isBinaryRecord = false;
+        binaryPayload = null;
 
         if (!reader.HasMore)
             return null;
@@ -437,9 +457,13 @@ public sealed class SchLibReader
 
             if (flags == 0x01)
             {
-                // Binary pin record — no textual parameter string to capture verbatim.
+                // Binary pin record — no textual parameter string to capture verbatim, so capture the
+                // raw payload bytes instead for a byte-faithful replay of the whole record.
                 isBinaryRecord = true;
-                return ReadBinaryPinRecord(reader, dataSize);
+                var payloadStart = reader.Position;
+                var dict = ReadBinaryPinRecord(reader, dataSize);
+                binaryPayload = reader.CaptureRawBytes(payloadStart, dataSize);
+                return dict;
             }
             else
             {

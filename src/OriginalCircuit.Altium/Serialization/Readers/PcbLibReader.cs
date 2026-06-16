@@ -843,6 +843,9 @@ public sealed class PcbLibReader
         var shapeTop = reader.ReadByte();
         var shapeMiddle = reader.ReadByte();
         var shapeBottom = reader.ReadByte();
+        // Capture the original main-block shape bytes before ReadPadSizeShapeBlock may override
+        // shapeTop/Middle/Bottom from the per-layer shapes (for rounded-rect/oblong pads).
+        var originalMainShapes = new[] { shapeTop, shapeMiddle, shapeBottom };
         var rotation = reader.ReadDouble();
         var isPlated = reader.ReadByte() != 0;
 
@@ -853,7 +856,8 @@ public sealed class PcbLibReader
             out var powerPlaneClearance, out var powerPlaneReliefExpansion,
             out var pasteMaskExpansion, out var solderMaskExpansion,
             out var pasteMaskMode, out var solderMaskMode,
-            out var jumperId, out var holePositiveTolerance, out var holeNegativeTolerance);
+            out var jumperId, out var holePositiveTolerance, out var holeNegativeTolerance,
+            out var rawExtendedTail);
 
         // Read size/shape block (596 bytes for extended pad data)
         ReadPadSizeShapeBlock(reader, stackMode, ref shapeTop, ref shapeMiddle, ref shapeBottom,
@@ -919,6 +923,11 @@ public sealed class PcbLibReader
         Array.Copy(perLayerCornerRadii, pad.PerLayerCornerRadii, Math.Min(perLayerCornerRadii.Length, pad.PerLayerCornerRadii.Length));
         pad.HasSizeShapeBlock = hasSizeShapeBlock;
         pad.FullStackEntries.AddRange(fullStackEntries);
+        if (rawExtendedTail.Length > 0)
+            pad.RawExtendedTail = rawExtendedTail;
+        // When per-layer overrides replaced the typed shapes, keep the source's base main-block bytes.
+        if (hasRoundedRectByte != 0)
+            pad.RawMainBlockShapes = originalMainShapes;
         return pad;
     }
 
@@ -936,7 +945,8 @@ public sealed class PcbLibReader
         out int pasteMaskExpansion, out int solderMaskExpansion,
         out byte pasteMaskMode, out byte solderMaskMode,
         out short jumperId,
-        out int holePositiveTolerance, out int holeNegativeTolerance)
+        out int holePositiveTolerance, out int holeNegativeTolerance,
+        out byte[] rawExtendedTail)
     {
         stackMode = 0;
         powerPlaneConnectStyle = 0;
@@ -947,6 +957,7 @@ public sealed class PcbLibReader
         jumperId = 0;
         holePositiveTolerance = int.MaxValue; // 0x7FFFFFFF = unset
         holeNegativeTolerance = int.MaxValue;
+        rawExtendedTail = Array.Empty<byte>();
 
         // We are positioned at offset 61 (start of the extended tail). Read the rest of the
         // SubRecord into a buffer and index it by absolute offset; this also consumes the
@@ -956,6 +967,7 @@ public sealed class PcbLibReader
         if (tailLength <= 0)
             return;
         var tail = reader.ReadBytes(tailLength);
+        rawExtendedTail = tail;
 
         bool Has(int offset, int width) => offset >= PadExtendedStart
             && offset - PadExtendedStart + width <= tail.Length;
@@ -1130,6 +1142,7 @@ public sealed class PcbLibReader
         via.HoleNegativeTolerance = Coord.FromRaw(I32(295, int.MaxValue)); // 295-298
         via.DrillLayerPairType = B(312);                          // 312
 
+        via.RawSr1 = sr1;
         return via;
     }
 
@@ -1310,6 +1323,8 @@ public sealed class PcbLibReader
         result.IsTentingBottom = isTentingBottom;
         result.IsKeepout = isKeepout;
 
+        result.RawSr1 = sr1;
+        result.RawFlags = flags;
         return result;
     }
 
@@ -1376,6 +1391,11 @@ public sealed class PcbLibReader
         var parameters = ReadParameterBlock(reader, out var rawRegionParams);
         var orderedRegionParams = ParseParametersOrdered(rawRegionParams);
 
+        // The geometry section (vertex count + outline/hole doubles + trailing) starts here; capture
+        // its raw bytes so the fractional vertex doubles round-trip verbatim (the typed Outline/Holes
+        // are integer coords and would lose sub-coord precision).
+        var geomStart = reader.Position;
+
         // Read outline vertices (stored as 16-byte x,y doubles in Altium format)
         var vertexCount = reader.ReadUInt32();
         var kind = 0;
@@ -1418,8 +1438,14 @@ public sealed class PcbLibReader
         if (remaining > 0)
             reader.Skip((int)remaining);
 
+        // Capture the whole geometry section verbatim for byte-faithful replay.
+        var geomLength = (int)(startPos + sanitizedSize - geomStart);
+        var rawGeometry = geomLength > 0 ? reader.CaptureRawBytes(geomStart, geomLength) : null;
+
         var result = region.Build();
         result.RawParametersOrdered = orderedRegionParams;
+        result.RawGeometry = rawGeometry;
+        result.RawFlags = flags;
         result.ComponentIndex = componentIndex;
         result.NetIndex = netIndex;
         result.PolygonIndex = polygonIndex;

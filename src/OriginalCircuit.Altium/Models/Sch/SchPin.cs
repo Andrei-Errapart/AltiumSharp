@@ -130,6 +130,14 @@ public sealed class SchPin : ISchPin
     public string? DefaultValue { get; set; }
 
     /// <summary>
+    /// Raw bytes of the binary pin record payload as read from the source. Replayed verbatim for an
+    /// unedited component so the pin record round-trips byte-for-byte (the typed re-encode can drift on
+    /// fields like PartAndSequence, which Altium leaves empty for some pins). Null for pins built from
+    /// scratch. See SchLibWriter.WriteComponent.
+    /// </summary>
+    internal byte[]? RawPinPayload { get; set; }
+
+    /// <summary>
     /// Whether the pin is hidden.
     /// </summary>
     public bool IsHidden { get; set; }

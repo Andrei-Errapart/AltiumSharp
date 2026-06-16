@@ -280,6 +280,14 @@ public sealed class PcbVia : IPcbVia
     /// </summary>
     public Coord[] Diameters { get; } = new Coord[32];
 
+    /// <summary>
+    /// Raw bytes of the via's SubRecord-1 (offsets 0..end) as read from the source. The writer clones
+    /// this and overlays the modeled fields, so the unmodelled reserved / cache / per-via identity
+    /// bytes round-trip verbatim. Null for vias built from scratch, in which case a canonical template
+    /// is used. See PcbLibWriter.BuildViaExtended.
+    /// </summary>
+    internal byte[]? RawSr1 { get; set; }
+
     /// <inheritdoc />
     public CoordRect Bounds => CoordRect.FromCenter(Location, Diameter, Diameter);
 

@@ -21,6 +21,12 @@ internal static class PcbBinaryConstants
     internal const ushort FlagKeepout = 0x200;
 
     /// <summary>
+    /// Mask of the flag bits the model represents as typed properties. Bits outside this mask are
+    /// not modelled (e.g. selection / display state) and must be preserved verbatim from the source.
+    /// </summary>
+    internal const ushort ModeledFlagsMask = FlagUnlocked | FlagSaved | FlagTentingTop | FlagTentingBottom | FlagKeepout;
+
+    /// <summary>
     /// Decodes primitive flags into individual boolean properties.
     /// </summary>
     internal static void DecodeFlags(ushort flags, out bool isLocked, out bool isTentingTop,
@@ -31,4 +37,15 @@ internal static class PcbBinaryConstants
         isTentingBottom = (flags & FlagTentingBottom) != 0;
         isKeepout = (flags & FlagKeepout) != 0;
     }
+
+    /// <summary>
+    /// Combines freshly-encoded modelled flag bits with the unmodelled bits captured from the source
+    /// record (<paramref name="rawFlags"/>), so edits to the typed properties take effect while bits
+    /// the model does not represent round-trip verbatim. When <paramref name="rawFlags"/> is null
+    /// (a primitive built from scratch) the encoded value is used unchanged.
+    /// </summary>
+    internal static ushort MergeFlags(ushort? rawFlags, ushort encoded)
+        => rawFlags is { } raw
+            ? (ushort)((encoded & ModeledFlagsMask) | (raw & ~ModeledFlagsMask))
+            : encoded;
 }

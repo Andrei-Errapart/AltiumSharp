@@ -635,6 +635,23 @@ public sealed class PcbPad : IPcbPad
     /// </summary>
     public List<PadFullStackEntry> FullStackEntries { get; } = new();
 
+    /// <summary>
+    /// Raw bytes of the pad's main-block extended tail (SubRecord-5 offsets 61..end) as read from
+    /// the source. The writer clones this and overlays the modeled fields, so the unmodelled
+    /// reserved / pad-cache / per-pad identity bytes round-trip verbatim. Null for pads built from
+    /// scratch, in which case a canonical template is used instead. See PcbLibWriter.BuildPadExtendedTail.
+    /// </summary>
+    internal byte[]? RawExtendedTail { get; set; }
+
+    /// <summary>
+    /// The original main-block shape bytes (ShapeTop/Middle/Bottom) as read from the source, captured
+    /// only when per-layer shape overrides are active (<see cref="HasRoundedRectByte"/> set). Altium
+    /// keeps a base shape in the main block while the real per-layer shape lives in
+    /// <see cref="PerLayerShapes"/>; the reader overrides the typed Shape* for rendering, so these
+    /// preserve the base bytes for a byte-faithful round-trip. Null otherwise (the typed shapes are used).
+    /// </summary>
+    internal byte[]? RawMainBlockShapes { get; set; }
+
     /// <inheritdoc />
     public CoordRect Bounds
     {

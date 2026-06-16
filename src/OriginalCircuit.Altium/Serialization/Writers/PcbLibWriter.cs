@@ -449,9 +449,20 @@ public sealed class PcbLibWriter
             w.WriteCoordPoint(pad.SizeMiddle);
             w.WriteCoordPoint(pad.SizeBottom);
             w.WriteCoord(pad.HoleSize);
-            w.Write((byte)pad.ShapeTop);
-            w.Write((byte)pad.ShapeMiddle);
-            w.Write((byte)pad.ShapeBottom);
+            // Main-block shape bytes: replay the source's base shapes when per-layer overrides were
+            // active (the typed Shape* were overridden for rendering); otherwise write the typed shapes.
+            if (pad.RawMainBlockShapes is { Length: 3 } baseShapes)
+            {
+                w.Write(baseShapes[0]);
+                w.Write(baseShapes[1]);
+                w.Write(baseShapes[2]);
+            }
+            else
+            {
+                w.Write((byte)pad.ShapeTop);
+                w.Write((byte)pad.ShapeMiddle);
+                w.Write((byte)pad.ShapeBottom);
+            }
             w.Write(pad.Rotation);
             w.Write(pad.IsPlated);
             // Offsets 61-201: extended tail (thermal relief, mask expansion + modes,
@@ -551,7 +562,10 @@ public sealed class PcbLibWriter
     /// </summary>
     private static byte[] BuildPadExtendedTail(PcbPad pad)
     {
-        var ext = (byte[])PadExtendedTailTemplate.Clone();
+        // Clone the captured source tail when available so the unmodelled reserved / pad-cache /
+        // per-pad identity bytes round-trip verbatim; fall back to the canonical template for pads
+        // built from scratch. Either way the modeled fields below are overlaid at their offsets.
+        var ext = (byte[])(pad.RawExtendedTail ?? PadExtendedTailTemplate).Clone();
         void PutI32(int offset, int value) => BitConverter.GetBytes(value).CopyTo(ext, offset - PadExtendedStart);
         void PutI16(int offset, short value) => BitConverter.GetBytes(value).CopyTo(ext, offset - PadExtendedStart);
 
@@ -567,7 +581,10 @@ public sealed class PcbLibWriter
         ext[101 - PadExtendedStart] = (byte)pad.PasteMaskExpansionMode;  // 101
         ext[102 - PadExtendedStart] = (byte)pad.SolderMaskExpansionMode; // 102
         PutI16(110, (short)pad.JumperID);                                // 110-111
-        PutI32(114, unchecked((int)V7LayerId(pad.Layer)));               // 114-117 v7 layer id (derived)
+        // 114-117 is a derived save-id, not a read-back field; only synthesize it when building from
+        // the template (from scratch). When replaying a captured tail, keep the source bytes.
+        if (pad.RawExtendedTail is null)
+            PutI32(114, unchecked((int)V7LayerId(pad.Layer)));           // 114-117 v7 layer id (derived)
         PutI32(162, pad.HolePositiveTolerance.ToRaw());                  // 162-165
         PutI32(166, pad.HoleNegativeTolerance.ToRaw());                  // 166-169
 
@@ -628,7 +645,10 @@ public sealed class PcbLibWriter
     /// </summary>
     private static byte[] BuildViaExtended(PcbVia via)
     {
-        var b = (byte[])ViaSr1Template.Clone();
+        // Clone the captured source SubRecord-1 when available so the unmodelled reserved / cache /
+        // per-via identity bytes round-trip verbatim; fall back to the canonical template for vias
+        // built from scratch. The modeled fields below are overlaid at their offsets either way.
+        var b = (byte[])(via.RawSr1 ?? ViaSr1Template).Clone();
         void PutI32(int off, int v) => BitConverter.GetBytes(v).CopyTo(b, off);
 
         PutI32(13, via.Location.X.ToRaw());
@@ -647,17 +667,21 @@ public sealed class PcbLibWriter
         PutI32(54, via.SolderMaskExpansion.ToRaw());
         b[66] = (byte)via.SolderMaskExpansionMode;
         b[74] = (byte)via.Mode;
+        var replaying = via.RawSr1 is not null;
         var defaultDiameter = via.Diameter.ToRaw();
-        // Write per-layer diameters verbatim when the array is populated so a genuine zero on one
-        // layer of a full stack round-trips. Only fall back to the via diameter for a from-scratch
-        // via whose array is entirely zero (otherwise simple vias would be written with 0 diameter).
+        // Write per-layer diameters verbatim when the array is populated (or when replaying captured
+        // bytes) so a genuine zero on one layer of a full stack round-trips. Only fall back to the via
+        // diameter for a from-scratch via whose array is entirely zero (else simple vias get 0 diameter).
         var hasPerLayerDiameters = via.Diameters.Any(d => d.ToRaw() != 0);
         for (var i = 0; i < 32; i++)
         {
             var d = via.Diameters[i].ToRaw();
-            PutI32(75 + i * 4, hasPerLayerDiameters ? d : defaultDiameter);
+            PutI32(75 + i * 4, (replaying || hasPerLayerDiameters) ? d : defaultDiameter);
         }
-        PutI32(242, via.SolderMaskExpansion.ToRaw()); // back-side mask (symmetric)
+        // 242 (back-side mask) is derived from the front value, not read back; only synthesize it
+        // from scratch. When replaying captured bytes, keep the source's back-mask byte.
+        if (!replaying)
+            PutI32(242, via.SolderMaskExpansion.ToRaw()); // back-side mask (symmetric)
         b[258] = (byte)(via.SolderMaskExpansionFromHoleEdge ? 1 : 0);
         PutI32(291, via.HolePositiveTolerance.ToRaw());
         PutI32(295, via.HoleNegativeTolerance.ToRaw());
@@ -689,8 +713,8 @@ public sealed class PcbLibWriter
     {
         writer.WriteBlock(w =>
         {
-            var flags = EncodeFlags(text.IsLocked, text.IsTentingTop,
-                text.IsTentingBottom, text.IsKeepout);
+            var flags = PcbBinaryConstants.MergeFlags(text.RawFlags, EncodeFlags(text.IsLocked, text.IsTentingTop,
+                text.IsTentingBottom, text.IsKeepout));
             WriteCommonPrimitiveData(w, text.Layer, flags, text.NetIndex, text.ComponentIndex); // offsets 0-12
             // Offsets 13-251: geometry, font, text-box, barcode block and frame tail built
             // from a fixed template with the typed/semantic fields overlaid at their offsets.
@@ -729,7 +753,10 @@ public sealed class PcbLibWriter
     /// </summary>
     private static byte[] BuildTextExtended(PcbText text, int wideStringIndex)
     {
-        var b = (byte[])TextSr1Template.Clone();
+        // Clone the captured source SubRecord-1 when available so unmodelled reserved / cache bytes
+        // round-trip verbatim; fall back to the canonical template for text built from scratch.
+        var b = (byte[])(text.RawSr1 ?? TextSr1Template).Clone();
+        var replaying = text.RawSr1 is not null;
         void PutI32(int off, int v) => BitConverter.GetBytes(v).CopyTo(b, off);
         void PutI16(int off, short v) => BitConverter.GetBytes(v).CopyTo(b, off);
         void PutDbl(int off, double v) => BitConverter.GetBytes(v).CopyTo(b, off);
@@ -748,18 +775,25 @@ public sealed class PcbLibWriter
         PutDbl(27, text.Rotation);
         b[35] = (byte)(text.IsMirrored ? 1 : 0);
         PutI32(36, text.StrokeWidth.ToRaw());
-        if (b.Length >= 230) PutI32(226, unchecked((int)V7LayerId(text.Layer))); // 226-229 v7 layer id (derived)
+        // 226-229 is a derived v7 layer id, not a read-back field; only synthesize it from scratch.
+        if (!replaying && b.Length >= 230) PutI32(226, unchecked((int)V7LayerId(text.Layer)));
         b[40] = (byte)(text.IsComment ? 1 : 0);
         b[41] = (byte)(text.IsDesignator ? 1 : 0);
         b[42] = (byte)text.CharSet;
         // Offset 43 is the BASE font type (0=stroke, 1=TrueType). For a barcode the kind (2)
-        // lives only at offset 160 (b[160]); offset 43 stays the underlying font.
-        b[43] = text.TextKind == PcbTextKind.BarCode
-            ? (byte)(text.IsTrueType ? 1 : 0)
-            : (byte)text.TextKind;
+        // lives only at offset 160 (b[160]); offset 43 stays the underlying font. When replaying a
+        // captured record, keep the source byte (43 and 160 can disagree in ways the model flattens).
+        if (!replaying)
+            b[43] = text.TextKind == PcbTextKind.BarCode
+                ? (byte)(text.IsTrueType ? 1 : 0)
+                : (byte)text.TextKind;
         b[44] = (byte)(text.FontBold ? 1 : 0);
         b[45] = (byte)(text.FontItalic ? 1 : 0);
-        PutFont(46, text.FontName);
+        // Font fields are fixed 64-byte UTF-16 regions; PutFont clears the whole field before writing,
+        // which would wipe any source bytes the model does not represent. Only rewrite them from
+        // scratch; on replay the captured font bytes are preserved verbatim.
+        if (!replaying)
+            PutFont(46, text.FontName);
         b[110] = (byte)(text.IsInverted ? 1 : 0);
         PutI32(111, text.InvertedBorder.ToRaw());
         PutI32(115, wideStringIndex);
@@ -777,8 +811,11 @@ public sealed class PcbLibWriter
         b[157] = (byte)text.BarCodeKind;
         b[158] = (byte)text.BarCodeRenderMode;
         b[159] = (byte)(text.BarCodeInverted ? 1 : 0);
-        b[160] = (byte)text.TextKind; // bc[23]: authoritative text kind
-        PutFont(161, text.BarCodeFontName);
+        if (!replaying)
+        {
+            b[160] = (byte)text.TextKind; // bc[23]: authoritative text kind
+            PutFont(161, text.BarCodeFontName);
+        }
         b[225] = (byte)(text.BarCodeShowText ? 1 : 0);
         b[230] = (byte)(text.IsFrame ? 1 : 0);
         b[231] = (byte)(text.IsOffsetBorder ? 1 : 0);
@@ -813,8 +850,8 @@ public sealed class PcbLibWriter
     {
         writer.WriteBlock(w =>
         {
-            var flags = EncodeFlags(region.IsLocked, region.IsTentingTop,
-                region.IsTentingBottom, region.IsKeepout);
+            var flags = PcbBinaryConstants.MergeFlags(region.RawFlags, EncodeFlags(region.IsLocked, region.IsTentingTop,
+                region.IsTentingBottom, region.IsKeepout));
             WriteCommonPrimitiveData(w, region.Layer, flags, region.NetIndex, region.ComponentIndex, region.PolygonIndex);
 
             // Header: reserved byte @13 + hole_count uint16 @14-15 + 2 reserved bytes @16-17.
@@ -854,24 +891,33 @@ public sealed class PcbLibWriter
                 w.WriteCStringParameterBlock(regionParams);
             }
 
-            // Outline vertices (16-byte x,y doubles).
-            w.Write((uint)region.Outline.Count);
-            foreach (var point in region.Outline)
+            // Geometry section: replay the captured bytes verbatim so the fractional vertex doubles
+            // round-trip exactly; otherwise encode from the typed (integer) vertices.
+            if (region.RawGeometry is { Length: > 0 } rawGeometry)
             {
-                w.Write((double)point.X.ToRaw());
-                w.Write((double)point.Y.ToRaw());
+                w.Write(rawGeometry);
             }
-
-            // Hole / cutout vertex arrays: [uint32 count][count x,y doubles] per hole.
-            if (holes != null)
+            else
             {
-                foreach (var hole in holes)
+                // Outline vertices (16-byte x,y doubles).
+                w.Write((uint)region.Outline.Count);
+                foreach (var point in region.Outline)
                 {
-                    w.Write((uint)hole.Count);
-                    foreach (var point in hole)
+                    w.Write((double)point.X.ToRaw());
+                    w.Write((double)point.Y.ToRaw());
+                }
+
+                // Hole / cutout vertex arrays: [uint32 count][count x,y doubles] per hole.
+                if (holes != null)
+                {
+                    foreach (var hole in holes)
                     {
-                        w.Write((double)point.X.ToRaw());
-                        w.Write((double)point.Y.ToRaw());
+                        w.Write((uint)hole.Count);
+                        foreach (var point in hole)
+                        {
+                            w.Write((double)point.X.ToRaw());
+                            w.Write((double)point.Y.ToRaw());
+                        }
                     }
                 }
             }
