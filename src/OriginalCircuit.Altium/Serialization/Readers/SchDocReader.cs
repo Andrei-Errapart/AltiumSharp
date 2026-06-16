@@ -76,6 +76,10 @@ public sealed class SchDocReader
         ReadAdditionalStreams(accessor, document);
         ReadAdditionalHarnesses(accessor, document);
 
+        // Snapshot the primitive count AFTER all population so the writer can tell whether the
+        // document was edited after load and the byte-faithful RawRecords fast path is still valid.
+        document.LoadedPrimitiveCount = document.CountModeledPrimitives();
+
         document.Diagnostics = _diagnostics;
         return document;
     }

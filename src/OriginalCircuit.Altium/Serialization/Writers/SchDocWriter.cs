@@ -240,7 +240,8 @@ public sealed class SchDocWriter
         // Files built from scratch (or containing binary-pin records) fall through to the typed
         // serialization below.
         if (document.RawRecords is { Count: > 0 } rawRecords &&
-            document.HeaderParametersOrdered is { Count: > 0 } headerOrdered)
+            document.HeaderParametersOrdered is { Count: > 0 } headerOrdered &&
+            document.LoadedPrimitiveCount == document.CountModeledPrimitives())
         {
             writer.WriteCStringParameterBlockRaw(BuildOrderedParamString(headerOrdered));
             foreach (var rec in rawRecords)

@@ -102,6 +102,36 @@ public sealed class FidelityRegressionTests
     }
 
     [Fact]
+    public void SchDoc_EditLoadedDocument_PreservesAddedPrimitive()
+    {
+        // Round-trip a document so it becomes "loaded" (its RawRecords byte-fidelity fast path is
+        // captured), then add a wire. Regression: the writer re-emitted only the captured RawRecords
+        // and dropped primitives added after load. The added wire must survive the next save/reload.
+        var doc = new SchDocument();
+        doc.AddComponent(new SchComponent { Name = "U1", PartCount = 1 });
+
+        using var ms1 = new MemoryStream();
+        new SchDocWriter().Write(doc, ms1);
+        ms1.Position = 0;
+        var loaded = (SchDocument)new SchDocReader().Read(ms1);
+        Assert.NotNull(loaded.RawRecords); // the byte-fidelity fast path is active for this document
+        Assert.Empty(loaded.Wires);
+
+        loaded.AddPrimitive(SchWire.Create()
+            .From(Coord.FromMils(0), Coord.FromMils(0))
+            .To(Coord.FromMils(100), Coord.FromMils(0))
+            .Build());
+
+        using var ms2 = new MemoryStream();
+        new SchDocWriter().Write(loaded, ms2);
+        ms2.Position = 0;
+        var reloaded = (SchDocument)new SchDocReader().Read(ms2);
+
+        Assert.Single(reloaded.Wires);
+        Assert.Equal(loaded.Components.Count, reloaded.Components.Count); // component still present
+    }
+
+    [Fact]
     public void SchLib_UnmappedRecord_RoundTripsAsOpaque()
     {
         var library = new SchLibrary();

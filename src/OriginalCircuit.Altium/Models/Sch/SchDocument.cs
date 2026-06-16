@@ -94,6 +94,15 @@ public sealed class SchDocument : ISchDocument
     internal List<List<KeyValuePair<string, string>>>? RawRecords { get; set; }
 
     /// <summary>
+    /// Count of modeled top-level primitives captured immediately after the document was read. The
+    /// writer compares it against the live count to decide whether the byte-faithful
+    /// <see cref="RawRecords"/> fast path is still valid: if a primitive was added or removed after
+    /// load the counts differ and the writer falls back to typed serialization so the edit is not
+    /// dropped. Null for documents built from scratch.
+    /// </summary>
+    internal int? LoadedPrimitiveCount { get; set; }
+
+    /// <summary>
     /// Font table parsed from the sheet settings (RECORD=31) FontID table, used for rendering text.
     /// </summary>
     public IReadOnlyList<SchFontDefinition> Fonts { get; internal set; } = Array.Empty<SchFontDefinition>();
@@ -450,6 +459,21 @@ public sealed class SchDocument : ISchDocument
             case SchSignalHarness signalHarness: _signalHarnesses.Add(signalHarness); break;
         }
     }
+
+    /// <summary>
+    /// Counts the modeled top-level primitives the writer is responsible for: document-level
+    /// primitives, components and preserved opaque records. Component child primitives are excluded.
+    /// Used to detect structural edits made after a document was loaded (see <see cref="LoadedPrimitiveCount"/>).
+    /// </summary>
+    internal int CountModeledPrimitives()
+        => _components.Count + _wires.Count + _netLabels.Count + _junctions.Count + _powerObjects.Count
+         + _labels.Count + _parameters.Count + _lines.Count + _rectangles.Count + _polygons.Count
+         + _polylines.Count + _arcs.Count + _beziers.Count + _ellipses.Count + _roundedRectangles.Count
+         + _pies.Count + _textFrames.Count + _images.Count + _symbols.Count + _ellipticalArcs.Count
+         + _noErcs.Count + _busEntries.Count + _buses.Count + _ports.Count + _sheetSymbols.Count
+         + _sheetEntries.Count + _blankets.Count + _parameterSets.Count + _templates.Count + _notes.Count
+         + _hyperlinks.Count + _compileMasks.Count + _harnessConnectors.Count + _harnessEntries.Count
+         + _harnessTypes.Count + _signalHarnesses.Count + OpaqueRecords.Count;
 
     /// <inheritdoc />
     public async ValueTask SaveAsync(string path, OriginalCircuit.Eda.Models.SaveOptions? options = null, CancellationToken cancellationToken = default)
