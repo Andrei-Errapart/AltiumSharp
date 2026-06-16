@@ -203,60 +203,79 @@ public sealed class SchLibWriter
         // Write component record (the root primitive)
         WriteComponentRecord(writer, component, ref index);
 
+        // Dispatch a single primitive (or opaque record) to its record writer.
+        void EmitPrimitive(object prim)
+        {
+            switch (prim)
+            {
+                case SchPin pin: WritePinRecord(writer, pin, pinIndex, pinsFrac, pinsSymbolLineWidth); pinIndex++; index++; break;
+                case SchLine line: WriteLineRecord(writer, line, ref index); break;
+                case SchRectangle rect: WriteRectangleRecord(writer, rect, ref index); break;
+                case SchLabel label: WriteLabelRecord(writer, label, ref index); break;
+                case SchArc arc: WriteArcRecord(writer, arc, ref index); break;
+                case SchPolygon polygon: WritePolygonRecord(writer, polygon, ref index); break;
+                case SchPolyline polyline: WritePolylineRecord(writer, polyline, ref index); break;
+                case SchWire wire: WriteWireRecord(writer, wire, ref index); break;
+                case SchBezier bezier: WriteBezierRecord(writer, bezier, ref index); break;
+                case SchEllipse ellipse: WriteEllipseRecord(writer, ellipse, ref index); break;
+                case SchRoundedRectangle roundedRect: WriteRoundedRectangleRecord(writer, roundedRect, ref index); break;
+                case SchPie pie: WritePieRecord(writer, pie, ref index); break;
+                case SchEllipticalArc ellipticalArc: WriteEllipticalArcRecord(writer, ellipticalArc, ref index); break;
+                case SchParameter param: WriteParameterRecord(writer, param, ref index); break;
+                case SchNetLabel netLabel: WriteNetLabelRecord(writer, netLabel, ref index); break;
+                case SchJunction junction: WriteJunctionRecord(writer, junction, ref index); break;
+                case SchTextFrame textFrame: WriteTextFrameRecord(writer, textFrame, ref index); break;
+                case SchImage image: WriteImageRecord(writer, image, ref index); break;
+                case SchSymbol symbol: WriteSymbolRecord(writer, symbol, ref index); break;
+                case SchPowerObject powerObj: WritePowerObjectRecord(writer, powerObj, ref index); break;
+                case SchOpaqueRecord opaque: writer.WriteCStringParameterBlock(opaque.Parameters); index++; break;
+            }
+        }
+
+        // Emit the modeled primitive collections grouped by type (the canonical from-scratch order).
+        // include() lets the loaded path skip primitives already emitted from the captured order list.
+        void EmitModeledPrimitives(Func<object, bool> include)
+        {
+            foreach (var pin in component.Pins) if (include(pin)) EmitPrimitive(pin);
+            foreach (var line in component.Lines) if (include(line)) EmitPrimitive(line);
+            foreach (var rect in component.Rectangles) if (include(rect)) EmitPrimitive(rect);
+            foreach (var label in component.Labels) if (include(label)) EmitPrimitive(label);
+            foreach (var arc in component.Arcs) if (include(arc)) EmitPrimitive(arc);
+            foreach (var polygon in component.Polygons) if (include(polygon)) EmitPrimitive(polygon);
+            foreach (var polyline in component.Polylines) if (include(polyline)) EmitPrimitive(polyline);
+            foreach (var wire in component.Wires) if (include(wire)) EmitPrimitive(wire);
+            foreach (var bezier in component.Beziers) if (include(bezier)) EmitPrimitive(bezier);
+            foreach (var ellipse in component.Ellipses) if (include(ellipse)) EmitPrimitive(ellipse);
+            foreach (var roundedRect in component.RoundedRectangles) if (include(roundedRect)) EmitPrimitive(roundedRect);
+            foreach (var pie in component.Pies) if (include(pie)) EmitPrimitive(pie);
+            foreach (var ellipticalArc in component.EllipticalArcs) if (include(ellipticalArc)) EmitPrimitive(ellipticalArc);
+            foreach (var param in component.Parameters) if (include(param)) EmitPrimitive(param);
+            foreach (var netLabel in component.NetLabels) if (include(netLabel)) EmitPrimitive(netLabel);
+            foreach (var junction in component.Junctions) if (include(junction)) EmitPrimitive(junction);
+            foreach (var textFrame in component.TextFrames) if (include(textFrame)) EmitPrimitive(textFrame);
+            foreach (var image in component.Images) if (include(image)) EmitPrimitive(image);
+            foreach (var symbol in component.Symbols) if (include(symbol)) EmitPrimitive(symbol);
+            foreach (var powerObj in component.PowerObjects) if (include(powerObj)) EmitPrimitive(powerObj);
+        }
+
         if (component.ReadOrderedPrimitives.Count > 0)
         {
-            // Reproduce the exact on-disk record order captured on read.
+            // Reproduce the exact on-disk record order captured on read, then emit any primitive that
+            // was added to the modeled collections after load (and so is absent from the captured
+            // order). Without the second pass, edits to a loaded component are silently dropped on
+            // save; with it, an unmodified component re-emits byte-for-byte (nothing new to append).
+            var written = new HashSet<object>(ReferenceEqualityComparer.Instance);
             foreach (var prim in component.ReadOrderedPrimitives)
             {
-                switch (prim)
-                {
-                    case SchPin pin: WritePinRecord(writer, pin, pinIndex, pinsFrac, pinsSymbolLineWidth); pinIndex++; index++; break;
-                    case SchLine line: WriteLineRecord(writer, line, ref index); break;
-                    case SchRectangle rect: WriteRectangleRecord(writer, rect, ref index); break;
-                    case SchLabel label: WriteLabelRecord(writer, label, ref index); break;
-                    case SchArc arc: WriteArcRecord(writer, arc, ref index); break;
-                    case SchPolygon polygon: WritePolygonRecord(writer, polygon, ref index); break;
-                    case SchPolyline polyline: WritePolylineRecord(writer, polyline, ref index); break;
-                    case SchWire wire: WriteWireRecord(writer, wire, ref index); break;
-                    case SchBezier bezier: WriteBezierRecord(writer, bezier, ref index); break;
-                    case SchEllipse ellipse: WriteEllipseRecord(writer, ellipse, ref index); break;
-                    case SchRoundedRectangle roundedRect: WriteRoundedRectangleRecord(writer, roundedRect, ref index); break;
-                    case SchPie pie: WritePieRecord(writer, pie, ref index); break;
-                    case SchEllipticalArc ellipticalArc: WriteEllipticalArcRecord(writer, ellipticalArc, ref index); break;
-                    case SchParameter param: WriteParameterRecord(writer, param, ref index); break;
-                    case SchNetLabel netLabel: WriteNetLabelRecord(writer, netLabel, ref index); break;
-                    case SchJunction junction: WriteJunctionRecord(writer, junction, ref index); break;
-                    case SchTextFrame textFrame: WriteTextFrameRecord(writer, textFrame, ref index); break;
-                    case SchImage image: WriteImageRecord(writer, image, ref index); break;
-                    case SchSymbol symbol: WriteSymbolRecord(writer, symbol, ref index); break;
-                    case SchPowerObject powerObj: WritePowerObjectRecord(writer, powerObj, ref index); break;
-                    case SchOpaqueRecord opaque: writer.WriteCStringParameterBlock(opaque.Parameters); index++; break;
-                }
+                written.Add(prim);
+                EmitPrimitive(prim);
             }
+            EmitModeledPrimitives(written.Add);
         }
         else
         {
             // Components built from scratch: emit records grouped by type.
-            foreach (var pin in component.Pins) { WritePinRecord(writer, (SchPin)pin, pinIndex, pinsFrac, pinsSymbolLineWidth); pinIndex++; index++; }
-            foreach (var line in component.Lines) WriteLineRecord(writer, (SchLine)line, ref index);
-            foreach (var rect in component.Rectangles) WriteRectangleRecord(writer, (SchRectangle)rect, ref index);
-            foreach (var label in component.Labels) WriteLabelRecord(writer, (SchLabel)label, ref index);
-            foreach (var arc in component.Arcs) WriteArcRecord(writer, (SchArc)arc, ref index);
-            foreach (var polygon in component.Polygons) WritePolygonRecord(writer, (SchPolygon)polygon, ref index);
-            foreach (var polyline in component.Polylines) WritePolylineRecord(writer, (SchPolyline)polyline, ref index);
-            foreach (var wire in component.Wires) WriteWireRecord(writer, (SchWire)wire, ref index);
-            foreach (var bezier in component.Beziers) WriteBezierRecord(writer, (SchBezier)bezier, ref index);
-            foreach (var ellipse in component.Ellipses) WriteEllipseRecord(writer, (SchEllipse)ellipse, ref index);
-            foreach (var roundedRect in component.RoundedRectangles) WriteRoundedRectangleRecord(writer, (SchRoundedRectangle)roundedRect, ref index);
-            foreach (var pie in component.Pies) WritePieRecord(writer, (SchPie)pie, ref index);
-            foreach (var ellipticalArc in component.EllipticalArcs) WriteEllipticalArcRecord(writer, (SchEllipticalArc)ellipticalArc, ref index);
-            foreach (var param in component.Parameters) WriteParameterRecord(writer, (SchParameter)param, ref index);
-            foreach (var netLabel in component.NetLabels) WriteNetLabelRecord(writer, (SchNetLabel)netLabel, ref index);
-            foreach (var junction in component.Junctions) WriteJunctionRecord(writer, (SchJunction)junction, ref index);
-            foreach (var textFrame in component.TextFrames) WriteTextFrameRecord(writer, (SchTextFrame)textFrame, ref index);
-            foreach (var image in component.Images) WriteImageRecord(writer, (SchImage)image, ref index);
-            foreach (var symbol in component.Symbols) WriteSymbolRecord(writer, (SchSymbol)symbol, ref index);
-            foreach (var powerObj in component.PowerObjects) WritePowerObjectRecord(writer, (SchPowerObject)powerObj, ref index);
+            EmitModeledPrimitives(static _ => true);
         }
 
         // Write implementation records (records 44-48) — Altium writes these at the end

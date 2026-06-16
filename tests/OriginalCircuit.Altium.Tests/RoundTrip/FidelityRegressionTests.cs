@@ -67,6 +67,41 @@ public sealed class FidelityRegressionTests
     }
 
     [Fact]
+    public void SchLib_EditLoadedComponent_PreservesAddedPrimitive()
+    {
+        // Build a component, round-trip it (so it becomes a "loaded" component with a populated
+        // ReadOrderedPrimitives byte-fidelity list), then add a new primitive and save again.
+        // Regression: WriteComponent emitted only ReadOrderedPrimitives for a loaded component, so a
+        // primitive added afterward (which lives only in the typed collection) was silently dropped.
+        var library = new SchLibrary();
+        var component = new SchComponent { Name = "U1", PartCount = 1 };
+        component.AddPin(SchPin.Create("1").WithName("A")
+            .At(Coord.FromMils(0), Coord.FromMils(0))
+            .Length(Coord.FromMils(100)).Orient(PinOrientation.Right).Build());
+        library.Add(component);
+
+        using var ms1 = new MemoryStream();
+        new SchLibWriter().Write(library, ms1);
+        ms1.Position = 0;
+        var loaded = (SchLibrary)new SchLibReader().Read(ms1);
+
+        var loadedComp = (SchComponent)loaded.Components.First();
+        Assert.NotEmpty(loadedComp.ReadOrderedPrimitives); // it is a "loaded" component
+        var originalLabelCount = loadedComp.Labels.Count;
+        loadedComp.AddLabel(new SchLabel { Text = "R", FontId = 1, Color = 128 });
+
+        using var ms2 = new MemoryStream();
+        new SchLibWriter().Write(loaded, ms2);
+        ms2.Position = 0;
+        var reloaded = (SchLibrary)new SchLibReader().Read(ms2);
+
+        var reloadedComp = (SchComponent)reloaded.Components.First();
+        Assert.Equal(originalLabelCount + 1, reloadedComp.Labels.Count);
+        Assert.Equal(loadedComp.Pins.Count, reloadedComp.Pins.Count); // original primitives still present
+        Assert.Contains(reloadedComp.Labels.Cast<SchLabel>(), l => l.Text == "R");
+    }
+
+    [Fact]
     public void SchLib_UnmappedRecord_RoundTripsAsOpaque()
     {
         var library = new SchLibrary();
