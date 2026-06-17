@@ -147,8 +147,51 @@ public sealed class PcbLibWriter
         // Write models
         WriteLibraryModels(libraryStorage, library);
 
+        // Write the modeled library metadata storages (emitted for from-scratch libraries too).
+        WriteLayerKindMapping(libraryStorage, library);
+        WritePadViaLibrary(libraryStorage, library);
+
         // Write additional library-level streams (ComponentParamsTOC, EmbeddedFonts, etc.)
         WriteAdditionalLibraryStreams(libraryStorage, library);
+    }
+
+    private static void WriteLayerKindMapping(CompoundStorage libraryStorage, PcbLibrary library)
+    {
+        var lkm = library.LayerKindMapping;
+        var storage = libraryStorage.AddStorage("LayerKindMapping");
+        WriteStorageHeader(storage, 1);
+        using var ms = new MemoryStream();
+        var textBytes = System.Text.Encoding.Unicode.GetBytes((lkm.FormatVersion ?? "1.0") + '\0');
+        ms.Write(BitConverter.GetBytes(textBytes.Length));
+        ms.Write(textBytes);
+        ms.Write(lkm.ReservedTail.Length == 8 ? lkm.ReservedTail : new byte[8]);
+        storage.AddStream("Data").SetData(ms.ToArray());
+    }
+
+    private static void WritePadViaLibrary(CompoundStorage libraryStorage, PcbLibrary library)
+    {
+        var pvl = library.PadViaLibrary;
+        var storage = libraryStorage.AddStorage("PadViaLibrary");
+        WriteStorageHeader(storage, 0);   // PadViaLibrary header count is 0 even with one record
+
+        string text;
+        if (pvl.RawParametersOrdered is { Count: > 0 } ordered)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var kvp in ordered) sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+            text = sb.ToString();
+        }
+        else
+        {
+            text = $"|PADVIALIBRARY.LIBRARYID={{{pvl.LibraryId.ToString("D").ToUpperInvariant()}}}" +
+                   $"|PADVIALIBRARY.LIBRARYNAME={pvl.LibraryName}" +
+                   $"|PADVIALIBRARY.DISPLAYUNITS={pvl.DisplayUnits.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+        }
+        var payload = AltiumEncoding.Windows1252.GetBytes(text + '\0');
+        using var ms = new MemoryStream();
+        ms.Write(BitConverter.GetBytes(payload.Length));
+        ms.Write(payload);
+        storage.AddStream("Data").SetData(ms.ToArray());
     }
 
     internal static void WriteStorageHeader(CompoundStorage storage, int recordCount)

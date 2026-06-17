@@ -67,6 +67,24 @@ public sealed class PcbLibrary : IPcbLibrary
     /// </summary>
     public Dictionary<string, byte[]>? AdditionalRootStreams { get; set; }
 
+    /// <summary>
+    /// The <c>Library/LayerKindMapping</c> metadata Altium writes in every PcbLib. Modeled as a typed
+    /// record (rather than an opaque stream) so it round-trips and is emitted for from-scratch libraries.
+    /// </summary>
+    public PcbLayerKindMapping LayerKindMapping { get; set; } = new();
+
+    /// <summary>
+    /// The <c>Library/PadViaLibrary</c> local pad/via template-library identity. Modeled so it round-trips
+    /// and is authored for from-scratch libraries.
+    /// </summary>
+    public PcbPadViaLibrary PadViaLibrary { get; set; } = new();
+
+    /// <summary>
+    /// The <c>Library/ComponentParamsTOC</c> per-footprint summary table. Rebuilt from the components on
+    /// write; populated on read for inspection.
+    /// </summary>
+    public List<PcbComponentParamsTocEntry> ComponentParamsToc { get; } = new();
+
     /// <inheritdoc />
     public IReadOnlyList<IPcbComponent> Components => _components;
 

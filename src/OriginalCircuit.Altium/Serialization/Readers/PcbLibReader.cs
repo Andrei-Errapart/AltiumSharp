@@ -268,10 +268,15 @@ public sealed class PcbLibReader
             }
         }
 
-        // Preserve additional library-level streams for round-trip fidelity
+        // Parse the modeled library metadata storages into typed records (so they round-trip and can be
+        // authored from scratch) instead of capturing them as opaque bytes.
+        ReadLayerKindMapping(libraryStorage, library);
+        ReadPadViaLibrary(libraryStorage, library);
+
+        // Preserve any remaining additional library-level streams for round-trip fidelity
         library.AdditionalLibraryStreams = new Dictionary<string, byte[]>();
         var knownLibraryChildren = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "Header", "Data", "Models" };
+            { "Header", "Data", "Models", "LayerKindMapping", "PadViaLibrary" };
         foreach (var entry in libraryStorage.EnumerateEntries())
         {
             if (knownLibraryChildren.Contains(entry.Name))
@@ -316,6 +321,45 @@ public sealed class PcbLibReader
                 : null);
 
         library.Models.AddRange(models);
+    }
+
+    private static void ReadLayerKindMapping(CompoundStorage libraryStorage, PcbLibrary library)
+    {
+        // Library/LayerKindMapping/Data = [u32 text byte-count][UTF-16LE FormatVersion + NUL][8 reserved].
+        if (!libraryStorage.TryGetStorage("LayerKindMapping", out var storage)) return;
+        if (!storage.TryGetStream("Data", out var stream)) return;
+        var data = stream.GetData();
+        if (data.Length < 4) return;
+        var textLen = BitConverter.ToInt32(data, 0);
+        if (textLen < 0 || 4 + textLen > data.Length) return;
+        var text = System.Text.Encoding.Unicode.GetString(data, 4, textLen).TrimEnd('\0');
+        library.LayerKindMapping = new PcbLayerKindMapping { FormatVersion = text };
+        var tailStart = 4 + textLen;
+        if (data.Length >= tailStart + 8)
+            library.LayerKindMapping.ReservedTail = data.AsSpan(tailStart, 8).ToArray();
+    }
+
+    private static void ReadPadViaLibrary(CompoundStorage libraryStorage, PcbLibrary library)
+    {
+        // Library/PadViaLibrary/Data = [u32 byte-count][CP1252 |KEY=VALUE| block + NUL].
+        if (!libraryStorage.TryGetStorage("PadViaLibrary", out var storage)) return;
+        if (!storage.TryGetStream("Data", out var stream)) return;
+        var data = stream.GetData();
+        if (data.Length < 4) return;
+        var len = BitConverter.ToInt32(data, 0);
+        if (len <= 0 || 4 + len > data.Length) return;
+        var text = AltiumEncoding.Windows1252.GetString(data, 4, len).TrimEnd('\0');
+        var ordered = ParseParametersOrdered(text);
+        var pvl = new PcbPadViaLibrary { RawParametersOrdered = ordered };
+        foreach (var kvp in ordered)
+        {
+            if (kvp.Key.Equals("PADVIALIBRARY.LIBRARYID", StringComparison.OrdinalIgnoreCase)
+                && Guid.TryParse(kvp.Value, out var g)) pvl.LibraryId = g;
+            else if (kvp.Key.Equals("PADVIALIBRARY.LIBRARYNAME", StringComparison.OrdinalIgnoreCase)) pvl.LibraryName = kvp.Value;
+            else if (kvp.Key.Equals("PADVIALIBRARY.DISPLAYUNITS", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(kvp.Value, out var u)) pvl.DisplayUnits = u;
+        }
+        library.PadViaLibrary = pvl;
     }
 
     private string GetSectionKeyFromRefName(string refName)
