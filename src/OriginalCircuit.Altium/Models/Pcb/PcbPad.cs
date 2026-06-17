@@ -174,7 +174,7 @@ public sealed class PcbPad : IPcbPad
     public int DrillType { get; set; }
 
     /// <summary>
-    /// Power plane connection style (0=Direct, 1=Relief, 2=No Connect).
+    /// Power plane connection style (Altium TPlaneConnectStyle: 0=Relief, 1=Direct, 2=No Connect).
     /// </summary>
     public int PowerPlaneConnectStyle { get; set; }
 
