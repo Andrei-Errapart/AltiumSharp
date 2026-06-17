@@ -1340,9 +1340,30 @@ public sealed class PcbLibReader
         result.IsTentingBottom = isTentingBottom;
         result.IsKeepout = isKeepout;
 
-        result.RawSr1 = sr1;
+        // Store offsets 43/160 only when they disagree with the value derived from TextKind/IsTrueType,
+        // so the writer can derive them for from-scratch text while round-tripping exact source bytes.
+        var isTrue = textKind == PcbTextKind.TrueType;
+        var baseDerived = (byte)(textKind == PcbTextKind.BarCode ? (isTrue ? 1 : 0) : (int)textKind);
+        result.BaseFontType = fontTypeAt43 != baseDerived ? fontTypeAt43 : null;
+        result.TextKindByte = bcFontType != (byte)textKind ? bcFontType : null;
+        // Capture the 64-byte font-name fields only when their trailing padding differs from a clean
+        // (name + zero-fill) emit, so the handful of texts with dirty padding round-trip exactly while
+        // everything else stays fully modeled.
+        result.FontFieldRaw = DirtyFontField(sr1, 46, fontName);
+        result.BarCodeFontFieldRaw = DirtyFontField(sr1, 161, bcFontName);
         result.RawFlags = flags;
         return result;
+    }
+
+    // Returns the exact 64-byte font field at <paramref name="off"/> when it differs from the modeled
+    // "UTF-16 name (max 62 bytes) + zero fill" form the writer would emit; otherwise null.
+    private static byte[]? DirtyFontField(byte[] sr1, int off, string name)
+    {
+        if (off + 64 > sr1.Length) return null;
+        var modeled = new byte[64];
+        var nameBytes = System.Text.Encoding.Unicode.GetBytes(name ?? string.Empty);
+        Array.Copy(nameBytes, 0, modeled, 0, Math.Min(nameBytes.Length, 62));
+        return sr1.AsSpan(off, 64).SequenceEqual(modeled) ? null : sr1.AsSpan(off, 64).ToArray();
     }
 
     internal static PcbFill? ReadFill(BinaryFormatReader reader)

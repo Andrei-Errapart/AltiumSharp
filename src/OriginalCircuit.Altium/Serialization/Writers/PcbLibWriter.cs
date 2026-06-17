@@ -766,15 +766,15 @@ public sealed class PcbLibWriter
     /// </summary>
     private static byte[] BuildTextExtended(PcbText text, int wideStringIndex)
     {
-        // Clone the captured source SubRecord-1 when available so unmodelled reserved / cache bytes
-        // round-trip verbatim; fall back to the canonical template for text built from scratch.
-        var b = (byte[])(text.RawSr1 ?? TextSr1Template).Clone();
-        var replaying = text.RawSr1 is not null;
+        // Fully modeled — no raw replay. Start from the reserved-constant template and overlay every
+        // varying byte from a typed field; the v7 layer id is derived.
+        var b = (byte[])TextSr1Template.Clone();
         void PutI32(int off, int v) => BitConverter.GetBytes(v).CopyTo(b, off);
         void PutI16(int off, short v) => BitConverter.GetBytes(v).CopyTo(b, off);
         void PutDbl(int off, double v) => BitConverter.GetBytes(v).CopyTo(b, off);
-        void PutFont(int off, string? s)
+        void PutFont(int off, string? s, byte[]? raw)
         {
+            if (raw is { Length: 64 }) { raw.CopyTo(b, off); return; }   // dirty-padding texts: exact field
             Array.Clear(b, off, 64);
             if (string.IsNullOrEmpty(s)) return;
             var bytes = System.Text.Encoding.Unicode.GetBytes(s);
@@ -788,25 +788,17 @@ public sealed class PcbLibWriter
         PutDbl(27, text.Rotation);
         b[35] = (byte)(text.IsMirrored ? 1 : 0);
         PutI32(36, text.StrokeWidth.ToRaw());
-        // 226-229 is a derived v7 layer id, not a read-back field; only synthesize it from scratch.
-        if (!replaying && b.Length >= 230) PutI32(226, unchecked((int)V7LayerId(text.Layer)));
+        if (b.Length >= 230) PutI32(226, unchecked((int)V7LayerId(text.Layer))); // 226-229 v7 layer id (derived)
         b[40] = (byte)(text.IsComment ? 1 : 0);
         b[41] = (byte)(text.IsDesignator ? 1 : 0);
         b[42] = (byte)text.CharSet;
-        // Offset 43 is the BASE font type (0=stroke, 1=TrueType). For a barcode the kind (2)
-        // lives only at offset 160 (b[160]); offset 43 stays the underlying font. When replaying a
-        // captured record, keep the source byte (43 and 160 can disagree in ways the model flattens).
-        if (!replaying)
-            b[43] = text.TextKind == PcbTextKind.BarCode
-                ? (byte)(text.IsTrueType ? 1 : 0)
-                : (byte)text.TextKind;
+        // 43 base font type: derived from the kind, with an override for sources that disagree.
+        b[43] = text.BaseFontType ?? (byte)(text.TextKind == PcbTextKind.BarCode
+            ? (text.IsTrueType ? 1 : 0)
+            : (int)text.TextKind);
         b[44] = (byte)(text.FontBold ? 1 : 0);
         b[45] = (byte)(text.FontItalic ? 1 : 0);
-        // Font fields are fixed 64-byte UTF-16 regions; PutFont clears the whole field before writing,
-        // which would wipe any source bytes the model does not represent. Only rewrite them from
-        // scratch; on replay the captured font bytes are preserved verbatim.
-        if (!replaying)
-            PutFont(46, text.FontName);
+        PutFont(46, text.FontName, text.FontFieldRaw);   // 46-109 primary font field
         b[110] = (byte)(text.IsInverted ? 1 : 0);
         PutI32(111, text.InvertedBorder.ToRaw());
         PutI32(115, wideStringIndex);
@@ -824,11 +816,8 @@ public sealed class PcbLibWriter
         b[157] = (byte)text.BarCodeKind;
         b[158] = (byte)text.BarCodeRenderMode;
         b[159] = (byte)(text.BarCodeInverted ? 1 : 0);
-        if (!replaying)
-        {
-            b[160] = (byte)text.TextKind; // bc[23]: authoritative text kind
-            PutFont(161, text.BarCodeFontName);
-        }
+        b[160] = text.TextKindByte ?? (byte)text.TextKind;   // 160 authoritative text kind (derived + override)
+        PutFont(161, text.BarCodeFontName, text.BarCodeFontFieldRaw);   // 161-224 barcode font field
         b[225] = (byte)(text.BarCodeShowText ? 1 : 0);
         b[230] = (byte)(text.IsFrame ? 1 : 0);
         b[231] = (byte)(text.IsOffsetBorder ? 1 : 0);

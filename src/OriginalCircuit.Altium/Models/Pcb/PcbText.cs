@@ -518,12 +518,32 @@ public sealed class PcbText : IPcbText
     public bool AdvanceSnapping { get; set; }
 
     /// <summary>
-    /// Raw bytes of the text's SubRecord-1 (offsets 0..end) as read from the source. The writer clones
-    /// this and overlays the modeled fields, so unmodelled reserved / cache bytes round-trip verbatim.
-    /// Null for text built from scratch, in which case a canonical template is used.
-    /// See PcbLibWriter.BuildTextExtended.
+    /// Override for the SubRecord-1 base font-type byte (offset 43). The writer normally derives this
+    /// from <see cref="TextKind"/>/<see cref="IsTrueType"/>; this captures the exact byte only when the
+    /// source disagrees with the derived value (barcodes can carry a base font that the model flattens).
+    /// Null otherwise (derive). Keeps round-trip byte-exact without breaking from-scratch authoring.
     /// </summary>
-    internal byte[]? RawSr1 { get; set; }
+    internal byte? BaseFontType { get; set; }
+
+    /// <summary>
+    /// Override for the SubRecord-1 authoritative text-kind byte (offset 160). Normally derived from
+    /// <see cref="TextKind"/>; captures the exact byte only when the source disagrees. Null otherwise.
+    /// </summary>
+    internal byte? TextKindByte { get; set; }
+
+    /// <summary>
+    /// Exact 64-byte primary font-name field (offsets 46-109) captured only when its trailing padding
+    /// after the name's null terminator is non-zero (a handful of source texts). Null otherwise, in which
+    /// case the writer emits the modeled <see cref="FontName"/> zero-padded. Lets those texts round-trip
+    /// byte-for-byte without affecting from-scratch authoring.
+    /// </summary>
+    internal byte[]? FontFieldRaw { get; set; }
+
+    /// <summary>
+    /// Exact 64-byte barcode font-name field (offsets 161-224), captured only when its trailing padding
+    /// is non-zero. Null otherwise (writer emits the modeled <see cref="BarCodeFontName"/> zero-padded).
+    /// </summary>
+    internal byte[]? BarCodeFontFieldRaw { get; set; }
 
     /// <summary>
     /// The raw 16-bit primitive flags word as read from the source, so unmodelled flag bits round-trip
