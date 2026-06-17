@@ -90,6 +90,8 @@ public sealed class PcbDocWriter
         WriteRules(cf, document);
         WriteClasses(cf, document);
         WriteSignalClasses(cf, document);
+        WriteSmartUnions(cf, document);
+        WriteUnionNames(cf, document);
         WriteDifferentialPairs(cf, document);
         WriteRooms(cf, document);
         WriteWideStrings(cf, document);
@@ -302,6 +304,39 @@ public sealed class PcbDocWriter
         foreach (var sc in document.SignalClasses)
             texts.Add(BuildParamText(sc.RawParametersOrdered, sc.ToParameters()));
         WriteParameterStringStorage(cf, "SignalClasses", texts);
+    }
+
+    private static void WriteSmartUnions(CompoundFileAccessor cf, PcbDocument document)
+    {
+        if (document.SmartUnions.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "SmartUnions");
+            return;
+        }
+        var texts = new List<string>();
+        foreach (var u in document.SmartUnions)
+            texts.Add(BuildParamText(u.RawParametersOrdered, u.ToParameters()));
+        WriteParameterStringStorage(cf, "SmartUnions", texts);
+    }
+
+    private static void WriteUnionNames(CompoundFileAccessor cf, PcbDocument document)
+    {
+        // UnionNames/Header is the constant 1; Data is [u32 count][per record...] and is always present
+        // (a [u32 0] for an empty list) whenever the storage existed.
+        if (document.UnionNames.Count == 0 && !document.PresentStorages.Contains("UnionNames"))
+            return;
+        var storage = cf.RootStorage.AddStorage("UnionNames");
+        PcbLibWriter.WriteStorageHeader(storage, 1);
+        using var ms = new MemoryStream();
+        ms.Write(BitConverter.GetBytes((uint)document.UnionNames.Count));
+        foreach (var n in document.UnionNames)
+        {
+            var nameBytes = System.Text.Encoding.Unicode.GetBytes(n.Name + '\0'); // UTF-16LE + 00 00
+            ms.Write(BitConverter.GetBytes(n.UnionIndex));
+            ms.Write(BitConverter.GetBytes((uint)nameBytes.Length));
+            ms.Write(nameBytes);
+        }
+        storage.AddStream("Data").SetData(ms.ToArray());
     }
 
     private static void WriteDifferentialPairs(CompoundFileAccessor cf, PcbDocument document)

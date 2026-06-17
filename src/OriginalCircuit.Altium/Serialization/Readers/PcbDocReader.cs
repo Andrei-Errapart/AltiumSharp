@@ -64,7 +64,8 @@ public sealed class PcbDocReader
         "FileHeader", "FileHeaderSix", "Board6", "Nets6", "Arcs6", "Pads6", "Vias6", "Tracks6",
         "Texts6", "Fills6", "Regions6", "ComponentBodies6", "Polygons6",
         "Components6", "WideStrings6", "EmbeddedBoards6",
-        "Rules6", "Classes6", "DifferentialPairs6", "Rooms6", "SignalClasses"
+        "Rules6", "Classes6", "DifferentialPairs6", "Rooms6", "SignalClasses",
+        "SmartUnions", "UnionNames"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
@@ -105,6 +106,8 @@ public sealed class PcbDocReader
         ReadRules(accessor, document);
         ReadClasses(accessor, document);
         ReadSignalClasses(accessor, document);
+        ReadSmartUnions(accessor, document);
+        ReadUnionNames(accessor, document);
         ReadDifferentialPairs(accessor, document);
         ReadRooms(accessor, document);
 
@@ -421,6 +424,39 @@ public sealed class PcbDocReader
             if (parameters.TryGetValue("ENABLED", out var en)) sc.Enabled = en.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
             document.AddSignalClass(sc);
         });
+    }
+
+    private void ReadSmartUnions(CompoundFileAccessor accessor, PcbDocument document)
+    {
+        ReadParameterBlockStorage(accessor, "SmartUnions", (parameters, ordered) =>
+        {
+            var u = new PcbSmartUnion { Parameters = parameters, RawParametersOrdered = ordered };
+            if (parameters.TryGetValue("UNIONINDEX", out var idx) && int.TryParse(idx, out var i)) u.UnionIndex = i;
+            if (parameters.TryGetValue("UNIONTYPE", out var t) && int.TryParse(t, out var ty)) u.UnionType = ty;
+            document.AddSmartUnion(u);
+        });
+    }
+
+    private void ReadUnionNames(CompoundFileAccessor accessor, PcbDocument document)
+    {
+        // UnionNames/Data = [u32 count][per record: u32 union_index][u32 byte_count][UTF-16LE name + 00 00].
+        var storage = accessor.TryGetStorage("UnionNames");
+        if (storage == null) return;
+        var dataStream = PcbLibReader.GetChildStream(storage, "Data");
+        if (dataStream == null) return;
+        var data = dataStream.GetData();
+        if (data.Length < 4) return;
+        var pos = 0;
+        var count = BitConverter.ToUInt32(data, pos); pos += 4;
+        for (var r = 0; r < count && pos + 8 <= data.Length; r++)
+        {
+            var unionIndex = BitConverter.ToInt32(data, pos); pos += 4;
+            var byteCount = (int)BitConverter.ToUInt32(data, pos); pos += 4;
+            if (pos + byteCount > data.Length) break;
+            var name = System.Text.Encoding.Unicode.GetString(data, pos, byteCount).TrimEnd('\0');
+            pos += byteCount;
+            document.AddUnionName(new PcbUnionName { UnionIndex = unionIndex, Name = name });
+        }
     }
 
     private void ReadDifferentialPairs(CompoundFileAccessor accessor, PcbDocument document)

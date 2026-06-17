@@ -90,6 +90,18 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>Adds a signal class.</summary>
     public void AddSignalClass(PcbSignalClass signalClass) => _signalClasses.Add(signalClass);
 
+    private readonly List<PcbSmartUnion> _smartUnions = new();
+    /// <summary>The document's union groupings (SmartUnions storage).</summary>
+    public IReadOnlyList<PcbSmartUnion> SmartUnions => _smartUnions;
+    /// <summary>Adds a smart union.</summary>
+    public void AddSmartUnion(PcbSmartUnion union) => _smartUnions.Add(union);
+
+    private readonly List<PcbUnionName> _unionNames = new();
+    /// <summary>Named unions (UnionNames storage), keyed by union index.</summary>
+    public IReadOnlyList<PcbUnionName> UnionNames => _unionNames;
+    /// <summary>Adds a union name.</summary>
+    public void AddUnionName(PcbUnionName name) => _unionNames.Add(name);
+
     /// <summary>
     /// All differential pairs in this document.
     /// </summary>
