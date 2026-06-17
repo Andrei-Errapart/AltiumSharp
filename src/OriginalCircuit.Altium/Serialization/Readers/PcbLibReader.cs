@@ -1311,7 +1311,7 @@ public sealed class PcbLibReader
         result.UseInvertedRectangle = useInvertedRect;
         result.InvertedRectWidth = Coord.FromRaw(textboxWidth);
         result.InvertedRectHeight = Coord.FromRaw(textboxHeight);
-        result.InvertedRectJustification = (TextJustification)textboxJustification;
+        result.InvertedRectJustification = (PcbTextJustification)textboxJustification;
         result.InvertedRectTextOffset = Coord.FromRaw(textOffsetWidth);
         result.BarCodeFullWidth = Coord.FromRaw(bcFullWidth);
         result.BarCodeFullHeight = Coord.FromRaw(bcFullHeight);

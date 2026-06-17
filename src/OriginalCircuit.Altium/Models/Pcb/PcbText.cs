@@ -13,6 +13,27 @@ public enum PcbStrokeFont
 }
 
 /// <summary>
+/// Anchor / justification of PCB text inside its frame (the "inverted rectangle" / text-box
+/// justification byte). Values match Altium's <c>TTextAutoposition</c> encoding exactly (column-major,
+/// 1-based, with <see cref="Manual"/> = 0). NOTE: this is a different ordering from the schematic
+/// <c>TextJustification</c> (which is 0-based, row-major from bottom).
+/// </summary>
+public enum PcbTextJustification
+{
+    /// <summary>No automatic justification (0).</summary>
+    Manual = 0,
+    LeftTop = 1,
+    LeftCenter = 2,
+    LeftBottom = 3,
+    CenterTop = 4,
+    CenterCenter = 5,
+    CenterBottom = 6,
+    RightTop = 7,
+    RightCenter = 8,
+    RightBottom = 9
+}
+
+/// <summary>
 /// Represents PCB text.
 /// </summary>
 public sealed class PcbText : IPcbText
@@ -115,9 +136,11 @@ public sealed class PcbText : IPcbText
     public Coord InvertedRectHeight { get; set; }
 
     /// <summary>
-    /// Justification within the inverted rectangle.
+    /// Justification / anchor of the text within its frame (the "inverted rectangle"). Uses the
+    /// Altium PCB encoding (<see cref="PcbTextJustification"/>), which differs from the schematic
+    /// <c>TextJustification</c> ordering.
     /// </summary>
-    public TextJustification InvertedRectJustification { get; set; }
+    public PcbTextJustification InvertedRectJustification { get; set; }
 
     /// <summary>
     /// Text offset within the inverted rectangle.
