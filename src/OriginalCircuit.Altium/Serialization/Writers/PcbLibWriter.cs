@@ -150,6 +150,7 @@ public sealed class PcbLibWriter
         // Write the modeled library metadata storages (emitted for from-scratch libraries too).
         WriteLayerKindMapping(libraryStorage, library);
         WritePadViaLibrary(libraryStorage, library);
+        WriteComponentParamsToc(libraryStorage, library);
 
         // Write additional library-level streams (ComponentParamsTOC, EmbeddedFonts, etc.)
         WriteAdditionalLibraryStreams(libraryStorage, library);
@@ -165,6 +166,39 @@ public sealed class PcbLibWriter
         ms.Write(BitConverter.GetBytes(textBytes.Length));
         ms.Write(textBytes);
         ms.Write(lkm.ReservedTail.Length == 8 ? lkm.ReservedTail : new byte[8]);
+        storage.AddStream("Data").SetData(ms.ToArray());
+    }
+
+    private static void WriteComponentParamsToc(CompoundStorage libraryStorage, PcbLibrary library)
+    {
+        // Rebuild from the captured TOC entries (byte-exact); from-scratch libraries derive entries
+        // from their components. Each footprint is "Name=..|Pad Count=..|Height=..|Description=..\r\n",
+        // all concatenated into one NUL-terminated chunk.
+        var entries = library.ComponentParamsToc;
+        if (entries.Count == 0)
+        {
+            foreach (var c in library.Components)
+                entries.Add(new PcbComponentParamsTocEntry
+                {
+                    Name = c.Name,
+                    PadCount = c.Pads.Count,
+                    Height = "0",
+                    Description = c.Description ?? string.Empty,
+                });
+        }
+        if (entries.Count == 0) return;
+
+        var sb = new System.Text.StringBuilder();
+        foreach (var e in entries)
+            sb.Append("Name=").Append(e.Name).Append("|Pad Count=").Append(e.PadCount.ToString(System.Globalization.CultureInfo.InvariantCulture))
+              .Append("|Height=").Append(e.Height).Append("|Description=").Append(e.Description).Append("\r\n");
+        var payload = AltiumEncoding.Windows1252.GetBytes(sb.ToString() + '\0');
+
+        var storage = libraryStorage.AddStorage("ComponentParamsTOC");
+        WriteStorageHeader(storage, 1);
+        using var ms = new MemoryStream();
+        ms.Write(BitConverter.GetBytes(payload.Length));
+        ms.Write(payload);
         storage.AddStream("Data").SetData(ms.ToArray());
     }
 

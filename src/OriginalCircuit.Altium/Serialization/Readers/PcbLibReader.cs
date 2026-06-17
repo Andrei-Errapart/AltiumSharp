@@ -272,11 +272,12 @@ public sealed class PcbLibReader
         // authored from scratch) instead of capturing them as opaque bytes.
         ReadLayerKindMapping(libraryStorage, library);
         ReadPadViaLibrary(libraryStorage, library);
+        ReadComponentParamsToc(libraryStorage, library);
 
         // Preserve any remaining additional library-level streams for round-trip fidelity
         library.AdditionalLibraryStreams = new Dictionary<string, byte[]>();
         var knownLibraryChildren = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "Header", "Data", "Models", "LayerKindMapping", "PadViaLibrary" };
+            { "Header", "Data", "Models", "LayerKindMapping", "PadViaLibrary", "ComponentParamsTOC" };
         foreach (var entry in libraryStorage.EnumerateEntries())
         {
             if (knownLibraryChildren.Contains(entry.Name))
@@ -360,6 +361,35 @@ public sealed class PcbLibReader
                 && int.TryParse(kvp.Value, out var u)) pvl.DisplayUnits = u;
         }
         library.PadViaLibrary = pvl;
+    }
+
+    private static void ReadComponentParamsToc(CompoundStorage libraryStorage, PcbLibrary library)
+    {
+        // Library/ComponentParamsTOC/Data = [u32 byte-count][CP1252 "Name=..|Pad Count=..|Height=..|
+        // Description=..\r\n" per footprint, concatenated + NUL].
+        if (!libraryStorage.TryGetStorage("ComponentParamsTOC", out var storage)) return;
+        if (!storage.TryGetStream("Data", out var stream)) return;
+        var data = stream.GetData();
+        if (data.Length < 4) return;
+        var len = BitConverter.ToInt32(data, 0);
+        if (len <= 0 || 4 + len > data.Length) return;
+        var text = AltiumEncoding.Windows1252.GetString(data, 4, len).TrimEnd('\0');
+        foreach (var line in text.Split("\r\n", StringSplitOptions.RemoveEmptyEntries))
+        {
+            var entry = new PcbComponentParamsTocEntry();
+            foreach (var part in line.Split('|'))
+            {
+                var eq = part.IndexOf('=');
+                if (eq < 0) continue;
+                var key = part[..eq];
+                var val = part[(eq + 1)..];
+                if (key.Equals("Name", StringComparison.OrdinalIgnoreCase)) entry.Name = val;
+                else if (key.Equals("Pad Count", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out var pc)) entry.PadCount = pc;
+                else if (key.Equals("Height", StringComparison.OrdinalIgnoreCase)) entry.Height = val;
+                else if (key.Equals("Description", StringComparison.OrdinalIgnoreCase)) entry.Description = val;
+            }
+            library.ComponentParamsToc.Add(entry);
+        }
     }
 
     private string GetSectionKeyFromRefName(string refName)
