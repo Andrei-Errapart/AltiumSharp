@@ -893,34 +893,38 @@ public sealed class PcbLibWriter
                 w.WriteCStringParameterBlock(regionParams);
             }
 
-            // Geometry section: replay the captured bytes verbatim so the fractional vertex doubles
-            // round-trip exactly; otherwise encode from the typed (integer) vertices.
-            if (region.RawGeometry is { Length: > 0 } rawGeometry)
+            // Geometry section, fully modeled (no raw replay). Loaded regions carry exact IEEE-double
+            // vertices (sub-coord precision); from-scratch regions encode the integer vertices as doubles.
+            var outlineExact = region.OutlineExact;
+            if (outlineExact is { } oe && oe.Count == region.Outline.Count)
             {
-                w.Write(rawGeometry);
+                w.Write((uint)oe.Count);
+                foreach (var (x, y) in oe) { w.Write(x); w.Write(y); }
             }
             else
             {
-                // Outline vertices (16-byte x,y doubles).
                 w.Write((uint)region.Outline.Count);
                 foreach (var point in region.Outline)
                 {
                     w.Write((double)point.X.ToRaw());
                     w.Write((double)point.Y.ToRaw());
                 }
+            }
 
-                // Hole / cutout vertex arrays: [uint32 count][count x,y doubles] per hole.
-                if (holes != null)
+            // Hole / cutout vertex arrays: [uint32 count][count x,y doubles] per hole.
+            if (holes != null)
+            {
+                var holesExact = region.HolesExact;
+                for (var h = 0; h < holes.Count; h++)
                 {
-                    foreach (var hole in holes)
-                    {
-                        w.Write((uint)hole.Count);
-                        foreach (var point in hole)
-                        {
-                            w.Write((double)point.X.ToRaw());
-                            w.Write((double)point.Y.ToRaw());
-                        }
-                    }
+                    var hole = holes[h];
+                    var hExact = holesExact is not null && h < holesExact.Count && holesExact[h].Count == hole.Count
+                        ? holesExact[h] : null;
+                    w.Write((uint)hole.Count);
+                    if (hExact is not null)
+                        foreach (var (x, y) in hExact) { w.Write(x); w.Write(y); }
+                    else
+                        foreach (var point in hole) { w.Write((double)point.X.ToRaw()); w.Write((double)point.Y.ToRaw()); }
                 }
             }
         });

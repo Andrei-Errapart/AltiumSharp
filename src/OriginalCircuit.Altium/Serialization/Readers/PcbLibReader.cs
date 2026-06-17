@@ -1429,12 +1429,8 @@ public sealed class PcbLibReader
         var parameters = ReadParameterBlock(reader, out var rawRegionParams);
         var orderedRegionParams = ParseParametersOrdered(rawRegionParams);
 
-        // The geometry section (vertex count + outline/hole doubles + trailing) starts here; capture
-        // its raw bytes so the fractional vertex doubles round-trip verbatim (the typed Outline/Holes
-        // are integer coords and would lose sub-coord precision).
-        var geomStart = reader.Position;
-
-        // Read outline vertices (stored as 16-byte x,y doubles in Altium format)
+        // Read outline vertices (stored as 16-byte x,y doubles in Altium format). The exact doubles are
+        // preserved alongside the integer Outline so the fractional sub-coord precision round-trips.
         var vertexCount = reader.ReadUInt32();
         var kind = 0;
         if (parameters.TryGetValue("KIND", out var kindStr))
@@ -1444,15 +1440,18 @@ public sealed class PcbLibReader
             .OnLayer(layer)
             .Kind(kind);
 
+        var outlineExact = new List<(double X, double Y)>((int)vertexCount);
         for (var i = 0; i < vertexCount; i++)
         {
-            var x = Coord.FromRaw((int)reader.ReadDouble());
-            var y = Coord.FromRaw((int)reader.ReadDouble());
-            region.AddPoint(x, y);
+            var dx = reader.ReadDouble();
+            var dy = reader.ReadDouble();
+            outlineExact.Add((dx, dy));
+            region.AddPoint(Coord.FromRaw((int)dx), Coord.FromRaw((int)dy));
         }
 
         // Read hole / cutout contours: [uint32 count][count x,y doubles] per hole.
         var holes = new List<List<CoordPoint>>(holeCount);
+        var holesExact = new List<List<(double X, double Y)>>(holeCount);
         for (var h = 0; h < holeCount; h++)
         {
             if (reader.Position - startPos + 4 > sanitizedSize)
@@ -1461,13 +1460,16 @@ public sealed class PcbLibReader
             if (reader.Position - startPos + (long)holeVertexCount * 16 > sanitizedSize)
                 break;
             var hole = new List<CoordPoint>((int)holeVertexCount);
+            var holeExact = new List<(double X, double Y)>((int)holeVertexCount);
             for (var i = 0; i < holeVertexCount; i++)
             {
-                var hx = Coord.FromRaw((int)reader.ReadDouble());
-                var hy = Coord.FromRaw((int)reader.ReadDouble());
-                hole.Add(new CoordPoint(hx, hy));
+                var hx = reader.ReadDouble();
+                var hy = reader.ReadDouble();
+                holeExact.Add((hx, hy));
+                hole.Add(new CoordPoint(Coord.FromRaw((int)hx), Coord.FromRaw((int)hy)));
             }
             holes.Add(hole);
+            holesExact.Add(holeExact);
         }
 
         // Skip trailing data
@@ -1476,13 +1478,10 @@ public sealed class PcbLibReader
         if (remaining > 0)
             reader.Skip((int)remaining);
 
-        // Capture the whole geometry section verbatim for byte-faithful replay.
-        var geomLength = (int)(startPos + sanitizedSize - geomStart);
-        var rawGeometry = geomLength > 0 ? reader.CaptureRawBytes(geomStart, geomLength) : null;
-
         var result = region.Build();
         result.RawParametersOrdered = orderedRegionParams;
-        result.RawGeometry = rawGeometry;
+        result.OutlineExact = outlineExact;
+        result.HolesExact = holesExact;
         result.RawFlags = flags;
         result.ComponentIndex = componentIndex;
         result.NetIndex = netIndex;
