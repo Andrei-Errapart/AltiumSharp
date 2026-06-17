@@ -914,12 +914,26 @@ public sealed class PcbLibReader
         pad.FullStackEntries.AddRange(fullStackEntries);
         if (rawExtendedTail.Length > 0)
         {
-            pad.RawExtendedTail = rawExtendedTail;
-            // Surface the per-pad identity GUID (SubRecord-5 offset 125 = tail offset 64) for the API;
-            // the captured tail is still replayed verbatim, so this does not affect the round-trip.
-            const int uidTailOffset = 125 - PadExtendedStart;
-            if (rawExtendedTail.Length >= uidTailOffset + 16)
-                pad.IdentityGuid = new Guid(rawExtendedTail.AsSpan(uidTailOffset, 16));
+            // Fully model the extended tail (no raw replay): the two identity GUIDs, the thermal/mask
+            // cache-validity bytes, and the reserved marker. Everything else is a modeled field
+            // (overlaid above) or a constant/derived value reproduced by BuildPadExtendedTail.
+            byte TB(int sr5) => sr5 - PadExtendedStart < rawExtendedTail.Length ? rawExtendedTail[sr5 - PadExtendedStart] : (byte)0;
+            int TI32(int sr5) => sr5 - PadExtendedStart + 4 <= rawExtendedTail.Length
+                ? BitConverter.ToInt32(rawExtendedTail, sr5 - PadExtendedStart) : 0;
+            Guid TG(int sr5) => (sr5 - PadExtendedStart + 16 <= rawExtendedTail.Length)
+                ? new Guid(rawExtendedTail.AsSpan(sr5 - PadExtendedStart, 16)) : Guid.Empty;
+            pad.IdentityGuid = TG(126);                                  // GUID-A (per-pad)
+            pad.IdentityGuidB = TG(142);                                 // GUID-B (footprint/stack)
+            pad.CachePlaneConnectionValid = TB(96);
+            pad.CacheReliefConductorWidthValid = TB(97);
+            pad.CacheReliefEntriesValid = TB(98);
+            pad.CacheReliefAirGapValid = TB(99);
+            pad.CachePowerPlaneReliefExpansionValid = TB(100);
+            pad.CachePasteMaskExpansionValid = TB(103);
+            pad.CacheSolderMaskExpansionValid = TB(104);
+            pad.SolderMaskCache = TI32(121);
+            pad.Marker172 = TB(172);
+            pad.ReservedMarker185 = TB(185);
         }
         // When per-layer overrides replaced the typed shapes, keep the source's base main-block bytes.
         if (hasRoundedRectByte != 0)

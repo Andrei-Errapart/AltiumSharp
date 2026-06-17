@@ -636,22 +636,49 @@ public sealed class PcbPad : IPcbPad
     public List<PadFullStackEntry> FullStackEntries { get; } = new();
 
     /// <summary>
-    /// Raw bytes of the pad's main-block extended tail (SubRecord-5 offsets 61..end) as read from
-    /// the source. The writer clones this and overlays the modeled fields, so the unmodelled
-    /// reserved / pad-cache / per-pad identity bytes round-trip verbatim. Null for pads built from
-    /// scratch, in which case a canonical template is used instead. See PcbLibWriter.BuildPadExtendedTail.
-    /// </summary>
-    internal byte[]? RawExtendedTail { get; set; }
-
-    /// <summary>
-    /// Per-pad unique identity (the 16-byte GUID Altium stores in the pad's SubRecord-5 at offset 125).
-    /// Set fresh for pads built from scratch so each pad has a distinct identity (replaying a single
-    /// template would make every authored pad collide); read from the source for loaded pads. On the
-    /// from-scratch write path this is overlaid into the record; loaded pads replay their captured tail
-    /// verbatim. Altium does not enforce uniqueness (duplicates load fine), but distinct ids match how
-    /// Altium authors new primitives.
+    /// Per-pad unique identity GUID (SubRecord-5 offsets 126-141, "GUID-A"). Round-tripped from a
+    /// loaded pad; freshly generated per pad when authored from scratch (Altium does not enforce
+    /// uniqueness — duplicates load fine — but distinct ids match how Altium authors new primitives).
     /// </summary>
     public Guid IdentityGuid { get; set; }
+
+    /// <summary>
+    /// Pad-stack / footprint-scoped identity GUID (SubRecord-5 offsets 142-157, "GUID-B"). Shared by
+    /// all pads of one footprint and distinct per footprint; round-tripped from a loaded pad, generated
+    /// once per component when authored from scratch.
+    /// </summary>
+    public Guid IdentityGuidB { get; set; }
+
+    // --- SubRecord-5 thermal/mask cache-validity bytes (offsets 94-104) ---
+    // Altium revalidates these on load, so the exact value is not required for a from-scratch pad to
+    // open correctly; they are modeled (not replayed) only so a loaded pad round-trips byte-for-byte.
+    // Defaults are Altium's "needs revalidation" template values.
+    internal byte CachePlaneConnectionValid { get; set; }              // 96
+    internal byte CacheReliefConductorWidthValid { get; set; }         // 97
+    internal byte CacheReliefEntriesValid { get; set; }                // 98
+    internal byte CacheReliefAirGapValid { get; set; }                 // 99
+    internal byte CachePowerPlaneReliefExpansionValid { get; set; }    // 100
+    internal byte CachePasteMaskExpansionValid { get; set; }           // 103
+    internal byte CacheSolderMaskExpansionValid { get; set; }          // 104
+
+    /// <summary>
+    /// SubRecord-5 solder-mask cache word (offsets 121-124). Usually mirrors the manual
+    /// <see cref="SolderMaskExpansion"/> but is 0 for some pads, so it is modeled (round-tripped)
+    /// rather than derived. Altium revalidates it on load.
+    /// </summary>
+    internal int SolderMaskCache { get; set; }
+
+    /// <summary>
+    /// SubRecord-5 reserved marker byte at offset 172 (0x1A in PcbLib pads, 0x12 in PcbDoc pads).
+    /// Modeled so both round-trip exactly; default is the PcbLib value.
+    /// </summary>
+    internal byte Marker172 { get; set; } = 0x1A;
+
+    /// <summary>
+    /// SubRecord-5 reserved marker byte at offset 185 (observed values 0x03/0x01/0x11; default 0x03).
+    /// Modeled so a loaded pad round-trips exactly; Altium does not require a specific value here.
+    /// </summary>
+    internal byte ReservedMarker185 { get; set; } = 0x03;
 
     /// <summary>
     /// The original main-block shape bytes (ShapeTop/Middle/Bottom) as read from the source, captured
@@ -697,7 +724,9 @@ public sealed class PadBuilder
     internal PadBuilder(string? designator)
     {
         _pad.Designator = designator;
-        _pad.IdentityGuid = Guid.NewGuid(); // fresh per-pad identity for from-scratch authoring
+        // Fresh identity for from-scratch authoring (loaded pads overwrite these from the file).
+        _pad.IdentityGuid = Guid.NewGuid();   // GUID-A: per-pad
+        _pad.IdentityGuidB = Guid.NewGuid();  // GUID-B: per pad-stack (Altium tolerates per-pad ids)
     }
 
     /// <summary>

@@ -565,12 +565,13 @@ public sealed class PcbLibWriter
     /// </summary>
     private static byte[] BuildPadExtendedTail(PcbPad pad)
     {
-        // Clone the captured source tail when available so the unmodelled reserved / pad-cache /
-        // per-pad identity bytes round-trip verbatim; fall back to the canonical template for pads
-        // built from scratch. Either way the modeled fields below are overlaid at their offsets.
-        var ext = (byte[])(pad.RawExtendedTail ?? PadExtendedTailTemplate).Clone();
+        // Fully modeled — no raw replay. Start from the reserved-constant template and overlay every
+        // varying byte from a typed field (modeled geometry, the two identity GUIDs, the cache-validity
+        // bytes and reserved marker) or a derived value (the v7 layer id and the solder-mask cache copy).
+        var ext = (byte[])PadExtendedTailTemplate.Clone();
         void PutI32(int offset, int value) => BitConverter.GetBytes(value).CopyTo(ext, offset - PadExtendedStart);
         void PutI16(int offset, short value) => BitConverter.GetBytes(value).CopyTo(ext, offset - PadExtendedStart);
+        void PutGuid(int offset, Guid g) => g.ToByteArray().CopyTo(ext, offset - PadExtendedStart);
 
         ext[62 - PadExtendedStart] = (byte)pad.Mode;                      // 62: pad stack mode
         ext[67 - PadExtendedStart] = (byte)pad.PowerPlaneConnectStyle;    // 67: plane connection style
@@ -581,21 +582,24 @@ public sealed class PcbLibWriter
         PutI32(82, pad.PowerPlaneClearance.ToRaw());                     // 82-85
         PutI32(86, pad.PasteMaskExpansion.ToRaw());                      // 86-89 (manual paste)
         PutI32(90, pad.SolderMaskExpansion.ToRaw());                     // 90-93 (manual solder)
+        ext[96 - PadExtendedStart] = pad.CachePlaneConnectionValid;       // 96-100, 103-104: cache validity
+        ext[97 - PadExtendedStart] = pad.CacheReliefConductorWidthValid;
+        ext[98 - PadExtendedStart] = pad.CacheReliefEntriesValid;
+        ext[99 - PadExtendedStart] = pad.CacheReliefAirGapValid;
+        ext[100 - PadExtendedStart] = pad.CachePowerPlaneReliefExpansionValid;
         ext[101 - PadExtendedStart] = (byte)pad.PasteMaskExpansionMode;  // 101
         ext[102 - PadExtendedStart] = (byte)pad.SolderMaskExpansionMode; // 102
+        ext[103 - PadExtendedStart] = pad.CachePasteMaskExpansionValid;
+        ext[104 - PadExtendedStart] = pad.CacheSolderMaskExpansionValid;
         PutI16(110, (short)pad.JumperID);                                // 110-111
-        // 114-117 is a derived save-id, not a read-back field; only synthesize it when building from
-        // the template (from scratch). When replaying a captured tail, keep the source bytes.
-        if (pad.RawExtendedTail is null)
-        {
-            PutI32(114, unchecked((int)V7LayerId(pad.Layer)));           // 114-117 v7 layer id (derived)
-            // Overlay a per-pad identity GUID (offset 125) so authored pads don't all share the
-            // template's identity. Loaded pads keep their captured tail (this branch is skipped).
-            if (pad.IdentityGuid != Guid.Empty)
-                pad.IdentityGuid.ToByteArray().CopyTo(ext, 125 - PadExtendedStart);
-        }
+        PutI32(114, unchecked((int)V7LayerId(pad.Layer)));               // 114-117 v7 layer id (derived)
+        PutI32(121, pad.SolderMaskCache);                                // 121-124 solder-mask cache word (modeled)
+        PutGuid(126, pad.IdentityGuid);                                  // 126-141 GUID-A (per-pad identity)
+        PutGuid(142, pad.IdentityGuidB);                                 // 142-157 GUID-B (footprint/stack identity)
         PutI32(162, pad.HolePositiveTolerance.ToRaw());                  // 162-165
         PutI32(166, pad.HoleNegativeTolerance.ToRaw());                  // 166-169
+        ext[172 - PadExtendedStart] = pad.Marker172;                     // 172 reserved marker (1A PcbLib / 12 PcbDoc)
+        ext[185 - PadExtendedStart] = pad.ReservedMarker185;             // 185 reserved marker
 
         // Reproduce the original SubRecord-5 length (PcbLib pads are 202 bytes, PcbDoc pads 194).
         var targetTailLength = pad.Sr5Length - PadExtendedStart;
