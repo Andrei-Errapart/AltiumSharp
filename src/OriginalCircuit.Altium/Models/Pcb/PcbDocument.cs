@@ -124,6 +124,14 @@ public sealed class PcbDocument : IPcbDocument
     /// </summary>
     internal HashSet<string> PresentStorages { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Per-document GUID from the modern <c>FileHeaderSix</c> stream. Round-tripped from a loaded
+    /// document; a freshly created document defaults to a new GUID so it is authored with the
+    /// identity Altium expects. Set to <c>null</c> only when a loaded document had no
+    /// <c>FileHeaderSix</c> stream (so the writer reproduces its absence exactly).
+    /// </summary>
+    public Guid? FileGuid { get; set; } = Guid.NewGuid();
+
     private PcbLayerStack? _layerStackCache;
 
     /// <summary>

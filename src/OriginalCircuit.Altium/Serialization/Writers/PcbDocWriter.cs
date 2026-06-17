@@ -70,6 +70,7 @@ public sealed class PcbDocWriter
         using var cf = CompoundFileAccessor.Create();
 
         WriteFileHeader(cf, document);
+        WriteFileHeaderSix(cf, document);
         WriteBoard(cf, document);
         WriteNets(cf, document);
         cancellationToken.ThrowIfCancellationRequested();
@@ -106,6 +107,33 @@ public sealed class PcbDocWriter
         // we emit the exact bytes. (The real 6.0 version stamp + per-document GUID live in
         // FileHeaderSix; see WriteFileHeaderSix.)
         headerStream.SetData(LegacyFileHeaderStamp);
+    }
+
+    private static void WriteFileHeaderSix(CompoundFileAccessor cf, PcbDocument document)
+    {
+        // The modern 6.0 version stamp + per-document GUID (docs/decompile/fileheaders.md §4). Fully
+        // modeled — no replay. 75-byte two-block layout: version text + 5.01 double (both Reserved
+        // constants) and the document GUID (Identity) as a brace-wrapped uppercase token. A loaded
+        // document without a FileHeaderSix stream leaves FileGuid null and emits nothing.
+        if (document.FileGuid is not Guid guid)
+            return;
+
+        var headerStream = cf.RootStorage.AddStream("FileHeaderSix");
+        using var ms = new MemoryStream();
+        using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
+
+        const string versionText = "PCB 6.0 Binary File";   // Reserved constant
+        writer.Write(versionText.Length);
+        writer.WritePascalShortString(versionText);
+
+        writer.Write(5.01d);                                 // Reserved constant (no length prefix)
+
+        var guidText = "{" + guid.ToString("D").ToUpperInvariant() + "}";   // Identity (38 chars)
+        writer.Write(guidText.Length);
+        writer.WritePascalShortString(guidText);
+
+        writer.Flush();
+        headerStream.SetData(ms.ToArray());
     }
 
     private static void WriteBoard(CompoundFileAccessor cf, PcbDocument document)
