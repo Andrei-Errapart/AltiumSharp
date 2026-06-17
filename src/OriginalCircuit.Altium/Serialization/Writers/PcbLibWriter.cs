@@ -452,13 +452,13 @@ public sealed class PcbLibWriter
             w.WriteCoordPoint(pad.SizeMiddle);
             w.WriteCoordPoint(pad.SizeBottom);
             w.WriteCoord(pad.HoleSize);
-            // Main-block shape bytes: replay the source's base shapes when per-layer overrides were
-            // active (the typed Shape* were overridden for rendering); otherwise write the typed shapes.
-            if (pad.RawMainBlockShapes is { Length: 3 } baseShapes)
+            // Main-block base shapes: when per-layer overrides were active the typed Shape* were
+            // overridden for rendering, so emit the modeled base shapes; otherwise the typed shapes.
+            if (pad.MainBlockBaseShapes is { } baseShapes)
             {
-                w.Write(baseShapes[0]);
-                w.Write(baseShapes[1]);
-                w.Write(baseShapes[2]);
+                w.Write(baseShapes.Top);
+                w.Write(baseShapes.Middle);
+                w.Write(baseShapes.Bottom);
             }
             else
             {

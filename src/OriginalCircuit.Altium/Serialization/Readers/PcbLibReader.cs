@@ -935,9 +935,9 @@ public sealed class PcbLibReader
             pad.Marker172 = TB(172);
             pad.ReservedMarker185 = TB(185);
         }
-        // When per-layer overrides replaced the typed shapes, keep the source's base main-block bytes.
+        // When per-layer overrides replaced the typed shapes, keep the source's base main-block shapes.
         if (hasRoundedRectByte != 0)
-            pad.RawMainBlockShapes = originalMainShapes;
+            pad.MainBlockBaseShapes = (originalMainShapes[0], originalMainShapes[1], originalMainShapes[2]);
         return pad;
     }
 

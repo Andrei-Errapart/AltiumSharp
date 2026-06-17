@@ -681,13 +681,13 @@ public sealed class PcbPad : IPcbPad
     internal byte ReservedMarker185 { get; set; } = 0x03;
 
     /// <summary>
-    /// The original main-block shape bytes (ShapeTop/Middle/Bottom) as read from the source, captured
-    /// only when per-layer shape overrides are active (<see cref="HasRoundedRectByte"/> set). Altium
-    /// keeps a base shape in the main block while the real per-layer shape lives in
-    /// <see cref="PerLayerShapes"/>; the reader overrides the typed Shape* for rendering, so these
-    /// preserve the base bytes for a byte-faithful round-trip. Null otherwise (the typed shapes are used).
+    /// The main-block base shapes (ShapeTop/Middle/Bottom) modeled separately from the typed
+    /// <see cref="ShapeTop"/> etc., which the reader overrides with the per-layer shape for rendering
+    /// when overrides are active (<see cref="HasRoundedRectByte"/> set). Altium keeps a base shape in
+    /// the main block while the real per-layer shape lives in <see cref="PerLayerShapes"/>; these
+    /// preserve the base shapes for a byte-faithful round-trip. Null when the typed shapes are the base.
     /// </summary>
-    internal byte[]? RawMainBlockShapes { get; set; }
+    internal (byte Top, byte Middle, byte Bottom)? MainBlockBaseShapes { get; set; }
 
     /// <inheritdoc />
     public CoordRect Bounds
