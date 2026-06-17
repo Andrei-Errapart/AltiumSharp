@@ -68,7 +68,8 @@ internal sealed partial record PcbTextDto
     public int TextKind { get; init; }
 
     /// <summary>
-    /// Stroke font type (0=Default, 1=SansSerif, 3=Serif).
+    /// Font-table index for the text (Altium <c>fontID</c>). The built-in stroke fonts use ids
+    /// 1=Default, 2=Sans-Serif, 3=Serif; other ids reference custom / TrueType fonts.
     /// </summary>
     [AltiumParameter("STROKEFONT")]
     public int StrokeFont { get; init; }

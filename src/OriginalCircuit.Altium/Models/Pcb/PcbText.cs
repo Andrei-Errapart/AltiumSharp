@@ -3,12 +3,20 @@ using OriginalCircuit.Eda.Primitives;
 namespace OriginalCircuit.Altium.Models.Pcb;
 
 /// <summary>
-/// Stroke font type. This is an Altium-specific enum.
+/// The three built-in (vector) stroke fonts that Altium ships in the default font table.
+/// These are the well-known low font-table IDs stored in a PCB text record's font field
+/// (see <see cref="PcbText.FontId"/>); the underlying value is a font-table index, so values
+/// outside this set are possible (custom / TrueType fonts) and are represented directly by
+/// <see cref="PcbText.FontId"/>. Verified against Altium AD25 (a default stroke text uses
+/// <see cref="Default"/> = 1) and the altium_monkey reference (1=Default, 2=Sans Serif, 3=Serif).
 /// </summary>
 public enum PcbStrokeFont
 {
-    Default = 0,
-    SansSerif = 1,
+    /// <summary>Altium's default stroke font (font-table id 1).</summary>
+    Default = 1,
+    /// <summary>The built-in sans-serif stroke font (font-table id 2).</summary>
+    SansSerif = 2,
+    /// <summary>The built-in serif stroke font (font-table id 3).</summary>
     Serif = 3
 }
 
@@ -96,9 +104,15 @@ public sealed class PcbText : IPcbText
     public PcbTextKind TextKind { get; set; }
 
     /// <summary>
-    /// Stroke font type.
+    /// Convenience view of <see cref="FontId"/> as one of the three built-in stroke fonts.
+    /// Reads/writes <see cref="FontId"/> directly, so a font-table index outside 1..3 round-trips
+    /// faithfully via <see cref="FontId"/> even though it has no named <see cref="PcbStrokeFont"/> value.
     /// </summary>
-    public PcbStrokeFont StrokeFont { get; set; }
+    public PcbStrokeFont StrokeFont
+    {
+        get => (PcbStrokeFont)FontId;
+        set => FontId = (int)value;
+    }
 
     /// <summary>
     /// Whether the font is bold.
@@ -158,9 +172,13 @@ public sealed class PcbText : IPcbText
     public Coord BarcodeTBMargin { get; set; }
 
     /// <summary>
-    /// Font ID (stroke font index).
+    /// Altium font-table index for this text (the record's <c>fontID</c> field, stored as the
+    /// 16-bit value at binary offset 25). For stroke text this selects the vector font; ids
+    /// 1/2/3 are the built-in Default/Sans-Serif/Serif stroke fonts (see <see cref="PcbStrokeFont"/>
+    /// and <see cref="StrokeFont"/>). Defaults to 1 (Altium's default), matching how Altium writes
+    /// a freshly created stroke text.
     /// </summary>
-    public int FontId { get; set; }
+    public int FontId { get; set; } = 1;
 
     /// <summary>
     /// Whether to use TrueType fonts.

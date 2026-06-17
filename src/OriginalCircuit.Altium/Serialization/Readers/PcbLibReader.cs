@@ -1232,7 +1232,7 @@ public sealed class PcbLibReader
         var x = I32(13);
         var y = I32(17);
         var height = I32(21);
-        var strokeFont = I16(25);
+        var fontId = I16(25);                                       // font-table index (Altium fontID)
         var rotation = Dbl(27);
         var mirrored = B(35) != 0;
         var strokeWidth = I32(36);
@@ -1292,7 +1292,7 @@ public sealed class PcbLibReader
             .Layer(layer)
             .Build();
 
-        result.StrokeFont = (PcbStrokeFont)strokeFont;
+        result.FontId = fontId;                                     // 25-26 font-table index (Altium fontID)
         result.TextKind = textKind;
         result.NetIndex = U16(3);                                   // 3-4 net index
         var textComp = U16(7);                                      // 7-8 component index

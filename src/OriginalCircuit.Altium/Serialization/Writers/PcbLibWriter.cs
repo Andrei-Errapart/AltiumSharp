@@ -791,7 +791,7 @@ public sealed class PcbLibWriter
         PutI32(13, text.Location.X.ToRaw());
         PutI32(17, text.Location.Y.ToRaw());
         PutI32(21, text.Height.ToRaw());
-        PutI16(25, (short)text.StrokeFont);
+        PutI16(25, (short)text.FontId);     // 25-26 font-table index (Altium fontID)
         PutDbl(27, text.Rotation);
         b[35] = (byte)(text.IsMirrored ? 1 : 0);
         PutI32(36, text.StrokeWidth.ToRaw());
