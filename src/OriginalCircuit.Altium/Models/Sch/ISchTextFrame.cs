@@ -21,5 +21,5 @@ public interface ISchTextFrame : IPrimitive
     bool WordWrap { get; }
     bool ClipToRect { get; }
     int LineWidth { get; }
-    TextJustification Alignment { get; }
+    SchTextFrameAlignment Alignment { get; }
 }

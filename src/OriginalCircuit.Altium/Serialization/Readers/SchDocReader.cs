@@ -1062,7 +1062,7 @@ public sealed class SchDocReader
             Corner1 = new CoordPoint(CoordFromDxp(dto.LocationX, dto.LocationXFrac), CoordFromDxp(dto.LocationY, dto.LocationYFrac)),
             Corner2 = new CoordPoint(CoordFromDxp(dto.CornerX, dto.CornerXFrac), CoordFromDxp(dto.CornerY, dto.CornerYFrac)),
             Orientation = dto.Orientation,
-            Alignment = (TextJustification)dto.Alignment,
+            Alignment = (SchTextFrameAlignment)dto.Alignment,
             FontId = dto.FontId,
             TextColor = dto.TextColor,
             BorderColor = dto.Color,

@@ -763,7 +763,16 @@ public sealed class SchComponentRenderer
                 context.SetClipRect(x, y, w, h);
             }
 
-            var (hAlign, vAlign) = MapJustification(textFrame.Alignment);
+            // Text-frame alignment is a 3-value horizontal alignment (Center/Left/Right); the renderer
+            // positions each line vertically itself, so only the horizontal component is used.
+            var hAlign = textFrame.Alignment switch
+            {
+                SchTextFrameAlignment.Left => TextHAlign.Left,
+                SchTextFrameAlignment.Right => TextHAlign.Right,
+                _ => TextHAlign.Center
+            };
+            // Text-frame text flows from the top of the frame (Altium has no vertical justification here).
+            var vAlign = TextVAlign.Top;
             var options = new TextRenderOptions
             {
                 FontFamily = font.FontName,

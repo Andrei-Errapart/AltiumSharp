@@ -896,7 +896,7 @@ public sealed class SchDocPropertyCoverageTests
             Corner2 = new CoordPoint(Coord.FromMils(500), Coord.FromMils(400)),
             Text = "Hello World",
             Orientation = 1,
-            Alignment = SchTextJustification.MiddleCenter,
+            Alignment = SchTextFrameAlignment.Right,
             FontId = 2,
             TextColor = 0x0000FF,
             BorderColor = 0xFF0000,
@@ -926,7 +926,7 @@ public sealed class SchDocPropertyCoverageTests
         Assert.Equal(400, t.Corner2.Y.ToMils(), 1);
         Assert.Equal("Hello World", t.Text);
         Assert.Equal(1, t.Orientation);
-        Assert.Equal(SchTextJustification.MiddleCenter, t.Alignment);
+        Assert.Equal(SchTextFrameAlignment.Right, t.Alignment);
         Assert.Equal(2, t.FontId);
         Assert.Equal(0x0000FF, t.TextColor);
         Assert.Equal(0xFF0000, t.BorderColor);

@@ -530,7 +530,7 @@ public sealed class SchLibRoundTripTests
             FillColor = 16777215,
             FontId = 1,
             Orientation = 0,
-            Alignment = SchTextJustification.MiddleCenter,
+            Alignment = SchTextFrameAlignment.Right,
             IsFilled = true,
             ShowBorder = true,
             WordWrap = true,
@@ -550,7 +550,7 @@ public sealed class SchLibRoundTripTests
         Assert.Equal(255, tf.TextColor);
         Assert.Equal(16777215, tf.FillColor);
         Assert.Equal(1, tf.FontId);
-        Assert.Equal(SchTextJustification.MiddleCenter, tf.Alignment);
+        Assert.Equal(SchTextFrameAlignment.Right, tf.Alignment);
         Assert.True(tf.IsFilled);
         Assert.True(tf.ShowBorder);
         Assert.True(tf.WordWrap);

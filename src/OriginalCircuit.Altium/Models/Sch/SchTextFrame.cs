@@ -3,6 +3,21 @@ using OriginalCircuit.Eda.Primitives;
 namespace OriginalCircuit.Altium.Models.Sch;
 
 /// <summary>
+/// Horizontal alignment of text within a schematic text frame / note. This is a 3-value alignment
+/// (NOT the 9-corner schematic <c>TextJustification</c>); the Altium <c>ALIGNMENT</c> byte encodes
+/// <see cref="Center"/> = 0 (default), <see cref="Left"/> = 1, <see cref="Right"/> = 2.
+/// </summary>
+public enum SchTextFrameAlignment
+{
+    /// <summary>Centered (the default, value 0).</summary>
+    Center = 0,
+    /// <summary>Left-aligned (value 1).</summary>
+    Left = 1,
+    /// <summary>Right-aligned (value 2).</summary>
+    Right = 2
+}
+
+/// <summary>
 /// Represents a schematic text frame (multiline text with border).
 /// </summary>
 public sealed class SchTextFrame : ISchTextFrame
@@ -22,9 +37,10 @@ public sealed class SchTextFrame : ISchTextFrame
     public int Orientation { get; set; }
 
     /// <summary>
-    /// Text alignment within the frame.
+    /// Horizontal alignment of the text within the frame (Center/Left/Right). Note: this is a
+    /// 3-value alignment, distinct from the 9-corner schematic <c>TextJustification</c>.
     /// </summary>
-    public TextJustification Alignment { get; set; } = TextJustification.BottomLeft;
+    public SchTextFrameAlignment Alignment { get; set; } = SchTextFrameAlignment.Center;
 
     /// <summary>
     /// Font ID reference.
@@ -187,7 +203,7 @@ public sealed class TextFrameBuilder
     /// <summary>
     /// Sets the text alignment.
     /// </summary>
-    public TextFrameBuilder Align(TextJustification alignment)
+    public TextFrameBuilder Align(SchTextFrameAlignment alignment)
     {
         _frame.Alignment = alignment;
         return this;
