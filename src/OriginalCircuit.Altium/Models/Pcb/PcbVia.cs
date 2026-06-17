@@ -281,19 +281,25 @@ public sealed class PcbVia : IPcbVia
     public Coord[] Diameters { get; } = new Coord[32];
 
     /// <summary>
-    /// Raw bytes of the via's SubRecord-1 (offsets 0..end) as read from the source. The writer clones
-    /// this and overlays the modeled fields, so the unmodelled reserved / cache / per-via identity
-    /// bytes round-trip verbatim. Null for vias built from scratch, in which case a canonical template
-    /// is used. See PcbLibWriter.BuildViaExtended.
-    /// </summary>
-    internal byte[]? RawSr1 { get; set; }
-
-    /// <summary>
-    /// Per-via unique identity (the 16-byte GUID Altium stores in the via's SubRecord-1 at offset 259).
-    /// Set fresh for vias built from scratch so each via has a distinct identity; read from the source
-    /// for loaded vias (which replay their captured record verbatim). See PcbPad.IdentityGuid.
+    /// Per-via unique identity GUID (SubRecord-1 offsets 259-274, "uid"). Round-tripped from a loaded
+    /// via; freshly generated per via when authored from scratch.
     /// </summary>
     public Guid IdentityGuid { get; set; }
+
+    /// <summary>
+    /// Footprint/component-scoped identity GUID (SubRecord-1 offsets 275-290, "sig"). Shared across a
+    /// component's vias and distinct per footprint; round-tripped from a loaded via, generated when
+    /// authored from scratch.
+    /// </summary>
+    public Guid IdentityGuidB { get; set; }
+
+    // --- SubRecord-1 cache / reserved bytes modeled (not replayed) so a loaded via round-trips
+    // byte-for-byte while a from-scratch via gets sensible defaults Altium revalidates. ---
+    internal int CacheValid61 { get; set; } = 0x01010101;   // 61-64 cache-validity word
+    internal byte CacheValid67 { get; set; } = 0x01;        // 67 cache-validity byte
+    internal byte ReservedByte70 { get; set; }              // 70 (low-cardinality reserved/index byte)
+    internal byte ReservedByte72 { get; set; }              // 72 (flag byte 0x00/0x10/0x20)
+    internal int SolderMaskBackRaw { get; set; }            // 242-245 back-side mask (usually == front, 0 for some)
 
     /// <inheritdoc />
     public CoordRect Bounds => CoordRect.FromCenter(Location, Diameter, Diameter);
@@ -311,7 +317,12 @@ public sealed class ViaBuilder
 {
     private readonly PcbVia _via = new();
 
-    internal ViaBuilder() { _via.IdentityGuid = Guid.NewGuid(); } // fresh per-via identity for from-scratch
+    internal ViaBuilder()
+    {
+        // Fresh identity for from-scratch authoring (loaded vias overwrite these from the file).
+        _via.IdentityGuid = Guid.NewGuid();   // uid: per-via
+        _via.IdentityGuidB = Guid.NewGuid();  // sig: per pad-stack
+    }
 
     /// <summary>
     /// Sets the via location.

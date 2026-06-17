@@ -658,11 +658,12 @@ public sealed class PcbLibWriter
     /// </summary>
     private static byte[] BuildViaExtended(PcbVia via)
     {
-        // Clone the captured source SubRecord-1 when available so the unmodelled reserved / cache /
-        // per-via identity bytes round-trip verbatim; fall back to the canonical template for vias
-        // built from scratch. The modeled fields below are overlaid at their offsets either way.
-        var b = (byte[])(via.RawSr1 ?? ViaSr1Template).Clone();
+        // Fully modeled — no raw replay. Start from the reserved-constant template and overlay every
+        // varying byte from a typed field (geometry, thermal/mask, per-layer diameters, the two identity
+        // GUIDs, the cache-validity bytes) or a derived value (the symmetric back-side mask).
+        var b = (byte[])ViaSr1Template.Clone();
         void PutI32(int off, int v) => BitConverter.GetBytes(v).CopyTo(b, off);
+        void PutGuid(int off, Guid g) => g.ToByteArray().CopyTo(b, off);
 
         PutI32(13, via.Location.X.ToRaw());
         PutI32(17, via.Location.Y.ToRaw());
@@ -678,30 +679,23 @@ public sealed class PcbLibWriter
         PutI32(46, via.PowerPlaneClearance.ToRaw());
         PutI32(50, via.PasteMaskExpansion.ToRaw());
         PutI32(54, via.SolderMaskExpansion.ToRaw());
+        PutI32(61, via.CacheValid61);                     // 61-64 cache-validity word (modeled)
         b[66] = (byte)via.SolderMaskExpansionMode;
+        b[67] = via.CacheValid67;                         // 67 cache-validity byte (modeled)
+        b[70] = via.ReservedByte70;                       // 70 (modeled)
+        b[72] = via.ReservedByte72;                       // 72 (modeled)
         b[74] = (byte)via.Mode;
-        var replaying = via.RawSr1 is not null;
-        var defaultDiameter = via.Diameter.ToRaw();
-        // Write per-layer diameters verbatim when the array is populated (or when replaying captured
-        // bytes) so a genuine zero on one layer of a full stack round-trips. Only fall back to the via
-        // diameter for a from-scratch via whose array is entirely zero (else simple vias get 0 diameter).
+        // Per-layer diameters: write the populated array verbatim (so a genuine zero on one layer of a
+        // full stack round-trips); fall back to the via diameter only for a from-scratch via whose array
+        // is entirely zero (else a simple via would get 0 diameter on every layer).
         var hasPerLayerDiameters = via.Diameters.Any(d => d.ToRaw() != 0);
+        var defaultDiameter = via.Diameter.ToRaw();
         for (var i = 0; i < 32; i++)
-        {
-            var d = via.Diameters[i].ToRaw();
-            PutI32(75 + i * 4, (replaying || hasPerLayerDiameters) ? d : defaultDiameter);
-        }
-        // 242 (back-side mask) is derived from the front value, not read back; only synthesize it
-        // from scratch. When replaying captured bytes, keep the source's back-mask byte.
-        if (!replaying)
-        {
-            PutI32(242, via.SolderMaskExpansion.ToRaw()); // back-side mask (symmetric)
-            // Overlay a per-via identity GUID (offset 259) so authored vias don't all share the
-            // template's identity. Loaded vias keep their captured record (this branch is skipped).
-            if (via.IdentityGuid != Guid.Empty && b.Length >= 259 + 16)
-                via.IdentityGuid.ToByteArray().CopyTo(b, 259);
-        }
+            PutI32(75 + i * 4, hasPerLayerDiameters ? via.Diameters[i].ToRaw() : defaultDiameter);
+        PutI32(242, via.SolderMaskBackRaw);               // 242-245 back-side mask (modeled)
         b[258] = (byte)(via.SolderMaskExpansionFromHoleEdge ? 1 : 0);
+        PutGuid(259, via.IdentityGuid);                   // 259-274 uid (per-via identity)
+        PutGuid(275, via.IdentityGuidB);                  // 275-290 sig (footprint/stack identity)
         PutI32(291, via.HolePositiveTolerance.ToRaw());
         PutI32(295, via.HoleNegativeTolerance.ToRaw());
         b[312] = (byte)via.DrillLayerPairType;

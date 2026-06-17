@@ -1152,11 +1152,14 @@ public sealed class PcbLibReader
         via.HoleNegativeTolerance = Coord.FromRaw(I32(295, int.MaxValue)); // 295-298
         via.DrillLayerPairType = B(312);                          // 312
 
-        via.RawSr1 = sr1;
-        // Surface the per-via identity GUID (SubRecord-1 offset 259) for the API; the captured record
-        // is still replayed verbatim, so this does not affect the round-trip.
-        if (sr1.Length >= 259 + 16)
-            via.IdentityGuid = new Guid(sr1.AsSpan(259, 16));
+        // Fully model the cache/reserved/identity bytes (no raw replay).
+        via.CacheValid61 = I32(61);                                // 61-64 cache-validity word
+        via.CacheValid67 = B(67);                                  // 67 cache-validity byte
+        via.ReservedByte70 = B(70);                                // 70
+        via.ReservedByte72 = B(72);                                // 72
+        via.SolderMaskBackRaw = I32(242);                          // 242-245 back-side mask
+        if (sr1.Length >= 259 + 16) via.IdentityGuid = new Guid(sr1.AsSpan(259, 16));   // uid
+        if (sr1.Length >= 275 + 16) via.IdentityGuidB = new Guid(sr1.AsSpan(275, 16));  // sig
         return via;
     }
 
