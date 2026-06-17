@@ -124,13 +124,6 @@ public sealed class PcbDocument : IPcbDocument
     /// </summary>
     internal HashSet<string> PresentStorages { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// The raw FileHeader version marker bytes from the source file, reproduced verbatim on write.
-    /// This is a fixed file-format version stamp (not record data); null for documents created
-    /// from scratch, in which case a default marker is written.
-    /// </summary>
-    internal byte[]? RawFileHeader { get; set; }
-
     private PcbLayerStack? _layerStackCache;
 
     /// <summary>

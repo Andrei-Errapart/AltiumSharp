@@ -67,14 +67,6 @@ public sealed class PcbLibrary : IPcbLibrary
     /// </summary>
     public Dictionary<string, byte[]>? AdditionalRootStreams { get; set; }
 
-    /// <summary>
-    /// The raw FileHeader stream bytes from the source, replayed verbatim on write so the version
-    /// stamp, format-version double and unique-library-id round-trip exactly (the reader/writer parse
-    /// is a lossy heuristic). Null for libraries created from scratch, in which case the header is
-    /// synthesized from <see cref="UniqueId"/> and the format constants.
-    /// </summary>
-    internal byte[]? RawFileHeader { get; set; }
-
     /// <inheritdoc />
     public IReadOnlyList<IPcbComponent> Components => _components;
 
@@ -141,7 +133,11 @@ public sealed class PcbLibrary : IPcbLibrary
         return ValueTask.CompletedTask;
     }
 
-    private static string GenerateUniqueId()
+    /// <summary>
+    /// Generates a fresh 8-character library identifier (8 uniformly random uppercase ASCII letters),
+    /// matching Altium's generation. Used for the FileHeader Identity field on new libraries.
+    /// </summary>
+    internal static string GenerateUniqueId()
     {
         const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
         var random = Random.Shared;

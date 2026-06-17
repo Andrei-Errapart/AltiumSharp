@@ -64,26 +64,21 @@ public sealed class PcbLibWriter
     {
         var headerStream = cf.RootStorage.AddStream("FileHeader");
 
-        // Replay the captured header verbatim when available (byte-exact, and robust to layouts the
-        // synthesized path below would mangle, e.g. a non-empty placeholder string).
-        if (library.RawFileHeader is { Length: > 0 } rawHeader)
-        {
-            headerStream.SetData(rawHeader);
-            return;
-        }
-
+        // Fully modeled — no replay. The 53-byte FileHeader is two pascal-string blocks with the
+        // 5.01 version double between them (docs/decompile/fileheaders.md §1). Everything except the
+        // 8-char UniqueId is a fixed constant; UniqueId is the library's Identity (round-tripped on
+        // read, freshly generated for a new library by PcbLibrary.UniqueId's default).
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
-        var versionText = "PCB 6.0 Binary Library File";
+        const string versionText = "PCB 6.0 Binary Library File";   // Reserved constant
         writer.Write(versionText.Length);
         writer.WritePascalShortString(versionText);
 
-        // Weight/version double (5.01), written directly after the version string (no length prefix).
-        writer.Write(5.01d);
+        writer.Write(5.01d);                                        // Reserved constant (no length prefix)
 
         // 8-character unique library identifier as a string block: [4-byte char count][pascal-string].
-        var uniqueId = library.UniqueId ?? "AAAAAAAA";
+        var uniqueId = string.IsNullOrEmpty(library.UniqueId) ? PcbLibrary.GenerateUniqueId() : library.UniqueId;
         writer.Write(uniqueId.Length);
         writer.WritePascalShortString(uniqueId);
 

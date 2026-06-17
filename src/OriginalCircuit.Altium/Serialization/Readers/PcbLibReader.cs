@@ -107,48 +107,34 @@ public sealed class PcbLibReader
             return;
 
         var data = stream.GetData();
-        // Preserve the whole header verbatim so the writer reproduces it exactly (the typed parse
-        // below is a lossy heuristic used only to recover UniqueId).
-        library.RawFileHeader = data;
         using var ms = new MemoryStream(data);
         using var reader = new BinaryFormatReader(ms, leaveOpen: true);
 
-        // Read the version string: int32 length + pascal short string
-        var blockLen = reader.ReadInt32();
-        if (blockLen <= 0)
+        // PcbLib FileHeader is a fixed 53-byte, two-block layout (docs/decompile/fileheaders.md §1):
+        //   [u32 len][b len][versionText "PCB 6.0 Binary Library File"]   (Reserved constant)
+        //   [double 5.01]                                                 (Reserved constant, no prefix)
+        //   [u32 len][b len][uniqueId 8×A-Z]                              (Identity — the only per-library datum)
+        // Everything but the 8-char UniqueId is constant, so we model the whole header from UniqueId.
+        var versionBlockLen = reader.ReadInt32();
+        if (versionBlockLen <= 0)
             return;
-        var stringLen = reader.ReadByte();
-        reader.Skip(stringLen);
-        var consumed = 4 + 1 + stringLen;
-        // Skip any padding within the block
-        if (consumed < 4 + blockLen)
-            reader.Skip(4 + blockLen - consumed);
+        var versionLen = reader.ReadByte();
+        reader.Skip(versionLen);            // versionText — Reserved constant, not retained
+        if (!reader.HasMore)
+            return;
+        reader.Skip(8);                     // 5.01 format-version double — Reserved constant
 
-        // After the version string block, there are 3 pascal short strings:
-        // 1) Format version double (5.01) + 2 padding bytes
-        // 2) Empty string (placeholder)
-        // 3) 8-character unique library identifier
-        if (reader.HasMore)
+        if (!reader.HasMore)
+            return;
+        var idBlockLen = reader.ReadInt32();
+        if (idBlockLen <= 0)
+            return;
+        var idLen = reader.ReadByte();
+        if (idLen > 0)
         {
-            var versionLen = reader.ReadByte();
-            if (versionLen > 0)
-                reader.Skip(versionLen); // skip version double + padding
-        }
-        if (reader.HasMore)
-        {
-            var emptyLen = reader.ReadByte();
-            if (emptyLen > 0)
-                reader.Skip(emptyLen); // skip empty string
-        }
-        if (reader.HasMore)
-        {
-            var idLen = reader.ReadByte();
-            if (idLen > 0)
-            {
-                var idBytes = new byte[idLen];
-                reader.ReadExact(idBytes);
-                library.UniqueId = AltiumEncoding.Windows1252.GetString(idBytes);
-            }
+            var idBytes = new byte[idLen];
+            reader.ReadExact(idBytes);
+            library.UniqueId = AltiumEncoding.Windows1252.GetString(idBytes);
         }
     }
 

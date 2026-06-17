@@ -14,6 +14,22 @@ namespace OriginalCircuit.Altium.Serialization.Writers;
 public sealed class PcbDocWriter
 {
     /// <summary>
+    /// The fixed 24-byte legacy <c>FileHeader</c> stamp every PcbDoc carries: <c>uint32</c> char-count
+    /// 19 followed by the truncated UTF-16LE text <c>"PCB 5.0 Bi"</c> (docs/decompile/fileheaders.md §3).
+    /// Entirely constant — no per-document data.
+    /// </summary>
+    private static readonly byte[] LegacyFileHeaderStamp = BuildLegacyFileHeaderStamp();
+
+    private static byte[] BuildLegacyFileHeaderStamp()
+    {
+        var payload = System.Text.Encoding.Unicode.GetBytes("PCB 5.0 Bi"); // 20 bytes UTF-16LE
+        var stamp = new byte[4 + payload.Length];
+        BitConverter.TryWriteBytes(stamp, 19);                              // char-count = 19 (constant)
+        payload.CopyTo(stamp, 4);
+        return stamp;
+    }
+
+    /// <summary>
     /// Writes a PcbDoc file to the specified path.
     /// </summary>
     /// <param name="document">The PCB document to write.</param>
@@ -84,22 +100,12 @@ public sealed class PcbDocWriter
     {
         var headerStream = cf.RootStorage.AddStream("FileHeader");
 
-        // Reproduce the source version marker verbatim (it is a fixed format stamp, not record data).
-        if (document.RawFileHeader is { Length: > 0 })
-        {
-            headerStream.SetData(document.RawFileHeader);
-            return;
-        }
-
-        using var ms = new MemoryStream();
-        using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
-
-        var versionText = "PCB 6.0 Binary Document File";
-        writer.Write(versionText.Length);
-        writer.WritePascalShortString(versionText);
-
-        writer.Flush();
-        headerStream.SetData(ms.ToArray());
+        // Fully modeled — no replay. The legacy PcbDoc FileHeader is a fixed 24-byte stamp
+        // (docs/decompile/fileheaders.md §3): a uint32 char-count of 19 followed by the truncated
+        // UTF-16LE text "PCB 5.0 Bi" (20 bytes). It is entirely constant — no per-document data — so
+        // we emit the exact bytes. (The real 6.0 version stamp + per-document GUID live in
+        // FileHeaderSix; see WriteFileHeaderSix.)
+        headerStream.SetData(LegacyFileHeaderStamp);
     }
 
     private static void WriteBoard(CompoundFileAccessor cf, PcbDocument document)
