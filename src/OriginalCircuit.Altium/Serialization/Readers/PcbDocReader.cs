@@ -64,7 +64,7 @@ public sealed class PcbDocReader
         "FileHeader", "FileHeaderSix", "Board6", "Nets6", "Arcs6", "Pads6", "Vias6", "Tracks6",
         "Texts6", "Fills6", "Regions6", "ComponentBodies6", "Polygons6",
         "Components6", "WideStrings6", "EmbeddedBoards6",
-        "Rules6", "Classes6", "DifferentialPairs6", "Rooms6"
+        "Rules6", "Classes6", "DifferentialPairs6", "Rooms6", "SignalClasses"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
@@ -104,6 +104,7 @@ public sealed class PcbDocReader
         // Read parameter-block storages
         ReadRules(accessor, document);
         ReadClasses(accessor, document);
+        ReadSignalClasses(accessor, document);
         ReadDifferentialPairs(accessor, document);
         ReadRooms(accessor, document);
 
@@ -405,6 +406,20 @@ public sealed class PcbDocReader
             }
 
             document.AddClass(objectClass);
+        });
+    }
+
+    private void ReadSignalClasses(CompoundFileAccessor accessor, PcbDocument document)
+    {
+        ReadParameterBlockStorage(accessor, "SignalClasses", (parameters, ordered) =>
+        {
+            var sc = new PcbSignalClass { Parameters = parameters, RawParametersOrdered = ordered };
+            if (parameters.TryGetValue("NAME", out var name)) sc.Name = name;
+            if (parameters.TryGetValue("KIND", out var kind) && int.TryParse(kind, out var k)) sc.Kind = k;
+            if (parameters.TryGetValue("UNIQUEID", out var uid)) sc.UniqueId = uid;
+            if (parameters.TryGetValue("SUPERCLASS", out var sup)) sc.SuperClass = sup.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
+            if (parameters.TryGetValue("ENABLED", out var en)) sc.Enabled = en.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
+            document.AddSignalClass(sc);
         });
     }
 

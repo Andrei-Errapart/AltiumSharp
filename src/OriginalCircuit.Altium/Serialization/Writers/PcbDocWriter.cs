@@ -89,6 +89,7 @@ public sealed class PcbDocWriter
         WriteEmbeddedBoards(cf, document);
         WriteRules(cf, document);
         WriteClasses(cf, document);
+        WriteSignalClasses(cf, document);
         WriteDifferentialPairs(cf, document);
         WriteRooms(cf, document);
         WriteWideStrings(cf, document);
@@ -287,6 +288,20 @@ public sealed class PcbDocWriter
         foreach (var objectClass in document.Classes)
             texts.Add(BuildParamText(objectClass.RawParametersOrdered, objectClass.ToParameters()));
         WriteParameterStringStorage(cf, "Classes6", texts);
+    }
+
+    private static void WriteSignalClasses(CompoundFileAccessor cf, PcbDocument document)
+    {
+        if (document.SignalClasses.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "SignalClasses");
+            return;
+        }
+
+        var texts = new List<string>();
+        foreach (var sc in document.SignalClasses)
+            texts.Add(BuildParamText(sc.RawParametersOrdered, sc.ToParameters()));
+        WriteParameterStringStorage(cf, "SignalClasses", texts);
     }
 
     private static void WriteDifferentialPairs(CompoundFileAccessor cf, PcbDocument document)

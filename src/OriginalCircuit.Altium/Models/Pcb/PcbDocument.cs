@@ -84,6 +84,12 @@ public sealed class PcbDocument : IPcbDocument
     /// </summary>
     public IReadOnlyList<PcbObjectClass> Classes => _classes;
 
+    private readonly List<PcbSignalClass> _signalClasses = new();
+    /// <summary>The document's xSignal / net classes (SignalClasses storage).</summary>
+    public IReadOnlyList<PcbSignalClass> SignalClasses => _signalClasses;
+    /// <summary>Adds a signal class.</summary>
+    public void AddSignalClass(PcbSignalClass signalClass) => _signalClasses.Add(signalClass);
+
     /// <summary>
     /// All differential pairs in this document.
     /// </summary>
