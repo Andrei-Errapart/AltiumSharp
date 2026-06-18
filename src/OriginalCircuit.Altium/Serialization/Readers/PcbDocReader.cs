@@ -68,7 +68,7 @@ public sealed class PcbDocReader
         "SmartUnions", "UnionNames", "BoardRegions",
         "Dimensions6", "Coordinates6", "FromTos6", "Embeddeds6", "PrimitiveGuids",
         "UniqueIDPrimitiveInformation", "FileVersionInfo",
-        "LayerKindMapping", "PadViaLibrary", "PadViaLibraryLinks"
+        "LayerKindMapping", "PadViaLibrary", "PadViaLibraryLinks", "Textures", "ModelsNoEmbed"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)

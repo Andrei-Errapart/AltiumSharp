@@ -102,6 +102,8 @@ public sealed class PcbDocWriter
         WriteEmptyStorageIfPresent(cf, document, "Coordinates6");
         WriteEmptyStorageIfPresent(cf, document, "FromTos6");
         WriteEmptyStorageIfPresent(cf, document, "Embeddeds6");
+        WriteEmptyStorageIfPresent(cf, document, "Textures");
+        WriteEmptyStorageIfPresent(cf, document, "ModelsNoEmbed");
         WriteDocumentPrimitiveGuids(cf, document);
         WriteDocumentPrimitiveUniqueIds(cf, document);
         PcbLibWriter.WriteFileVersionInfo(cf.RootStorage, document.FileVersionInfo);
