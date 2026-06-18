@@ -69,7 +69,7 @@ public sealed class PcbDocReader
         "Dimensions6", "Coordinates6", "FromTos6", "Embeddeds6", "PrimitiveGuids",
         "UniqueIDPrimitiveInformation", "FileVersionInfo",
         "LayerKindMapping", "PadViaLibrary", "PadViaLibraryLinks", "Textures", "ModelsNoEmbed",
-        "ShapeBasedRegions6", "ShapeBasedComponentBodies6", "PrimitiveParameters"
+        "ShapeBasedRegions6", "ShapeBasedComponentBodies6", "PrimitiveParameters", "PadViaLibraryCache"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
@@ -111,8 +111,7 @@ public sealed class PcbDocReader
         if (lkmStorage != null && lkmStorage.TryGetStream("Data", out var lkmData))
             document.LayerKindMapping = PcbLibReader.ParseLayerKindMapping(lkmData.GetData());
         document.PadViaLibrary = PcbLibReader.ParsePadViaLibrary(accessor.RootStorage, "PadViaLibrary");
-        // PadViaLibraryCache carries a large binary template cache in some files; left in the
-        // AdditionalStreams catch-all (round-trips verbatim) until that cache is reverse-engineered.
+        document.PadViaLibraryCache = PcbLibReader.ParsePadViaLibrary(accessor.RootStorage, "PadViaLibraryCache");
         ReadComponentBodies(accessor, document, cancellationToken);
         ReadPolygons(accessor, document, cancellationToken);
         ReadComponents(accessor, document, cancellationToken);

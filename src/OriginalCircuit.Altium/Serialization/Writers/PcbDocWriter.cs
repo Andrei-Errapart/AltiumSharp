@@ -112,6 +112,7 @@ public sealed class PcbDocWriter
         PcbLibWriter.WriteFileVersionInfo(cf.RootStorage, document.FileVersionInfo);
         if (document.LayerKindMapping is { } lkm) PcbLibWriter.WriteLayerKindMapping(cf.RootStorage, lkm);
         if (document.PadViaLibrary is { } pvl) PcbLibWriter.WritePadViaLibrary(cf.RootStorage, pvl, "PadViaLibrary");
+        if (document.PadViaLibraryCache is { } pvlc) PcbLibWriter.WritePadViaLibrary(cf.RootStorage, pvlc, "PadViaLibraryCache");
         WriteEmptyStorageIfPresent(cf, document, "PadViaLibraryLinks");
         WriteAdditionalStreams(cf, document);
 

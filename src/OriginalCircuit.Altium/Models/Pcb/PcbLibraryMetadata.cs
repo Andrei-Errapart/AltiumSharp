@@ -32,11 +32,21 @@ public sealed class PcbPadViaLibrary
     /// <summary>Display-units enum (0=mil,1=mm,2=µm,3=in); default 1.</summary>
     public int DisplayUnits { get; set; } = 1;
 
+    /// <summary>The storage header value (0 for PadViaLibrary; the template count for a populated cache).</summary>
+    internal int HeaderCount { get; set; }
+
     /// <summary>
     /// Ordered parameter list captured from the source for byte-exact round-trip; null for from-scratch
     /// instances, which emit the typed fields in canonical order.
     /// </summary>
     internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+
+    /// <summary>
+    /// Optional binary pad/via template cache that follows the parameter block in a
+    /// <c>PadViaLibraryCache</c> stream (structure not reverse-engineered; preserved verbatim).
+    /// Null/empty for the plain <c>PadViaLibrary</c> stream.
+    /// </summary>
+    internal byte[]? TemplateCache { get; set; }
 }
 
 /// <summary>

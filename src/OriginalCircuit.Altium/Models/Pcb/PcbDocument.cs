@@ -134,6 +134,9 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>The root <c>PadViaLibrary</c> identity (typed; null when absent).</summary>
     public PcbPadViaLibrary? PadViaLibrary { get; set; }
 
+    /// <summary>The root <c>PadViaLibraryCache</c> (param block + opaque binary template cache).</summary>
+    public PcbPadViaLibrary? PadViaLibraryCache { get; set; }
+
     /// <summary>
     /// All differential pairs in this document.
     /// </summary>

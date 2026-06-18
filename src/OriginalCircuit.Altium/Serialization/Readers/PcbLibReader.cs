@@ -356,6 +356,11 @@ public sealed class PcbLibReader
         var text = AltiumEncoding.Windows1252.GetString(data, 4, len).TrimEnd('\0');
         var ordered = ParseParametersOrdered(text);
         var pvl = new PcbPadViaLibrary { RawParametersOrdered = ordered };
+        if (storage.TryGetStream("Header", out var hdr))
+        {
+            var hb = hdr.GetData();
+            if (hb.Length >= 4) pvl.HeaderCount = BitConverter.ToInt32(hb, 0);
+        }
         foreach (var kvp in ordered)
         {
             if (kvp.Key.Equals("PADVIALIBRARY.LIBRARYID", StringComparison.OrdinalIgnoreCase)
@@ -364,6 +369,9 @@ public sealed class PcbLibReader
             else if (kvp.Key.Equals("PADVIALIBRARY.DISPLAYUNITS", StringComparison.OrdinalIgnoreCase)
                 && int.TryParse(kvp.Value, out var u)) pvl.DisplayUnits = u;
         }
+        // Any bytes after the parameter block are an opaque binary template cache (PadViaLibraryCache).
+        var tailStart = 4 + len;
+        if (data.Length > tailStart) pvl.TemplateCache = data.AsSpan(tailStart).ToArray();
         return pvl;
     }
 

@@ -211,7 +211,7 @@ public sealed class PcbLibWriter
     internal static void WritePadViaLibrary(CompoundStorage parentStorage, PcbPadViaLibrary pvl, string storageName)
     {
         var storage = parentStorage.AddStorage(storageName);
-        WriteStorageHeader(storage, 0);   // PadViaLibrary header count is 0 even with one record
+        WriteStorageHeader(storage, pvl.HeaderCount);   // 0 for PadViaLibrary; template count for a populated cache
 
         string text;
         if (pvl.RawParametersOrdered is { Count: > 0 } ordered)
@@ -230,6 +230,7 @@ public sealed class PcbLibWriter
         using var ms = new MemoryStream();
         ms.Write(BitConverter.GetBytes(payload.Length));
         ms.Write(payload);
+        if (pvl.TemplateCache is { Length: > 0 } cache) ms.Write(cache);   // opaque binary cache tail
         storage.AddStream("Data").SetData(ms.ToArray());
     }
 
