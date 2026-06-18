@@ -150,6 +150,17 @@ public class PcbRule
         return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var mils) ? Coord.FromRaw((int)Math.Round(mils * 10000.0)) : default;
     }
     private protected static double Dv(Dictionary<string, string> p, string k) => p.TryGetValue(k, out var v) && double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : 0;
+    private protected static Coord MilOf(string v)
+    {
+        var s = v.EndsWith("mil", StringComparison.OrdinalIgnoreCase) ? v[..^3] : v;
+        return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var mils) ? Coord.FromRaw((int)Math.Round(mils * 10000.0)) : default;
+    }
+    private static readonly string[] LayerWidthSuffixes = { "_MINWIDTH", "_MAXWIDTH", "_PREFWIDTH", "_MINGAP", "_MAXGAP", "_PREFGAP" };
+    private protected static bool IsLayerWidthKey(string key)
+    {
+        foreach (var sfx in LayerWidthSuffixes) if (key.EndsWith(sfx, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
     private protected static string F3(double v) => v.ToString("F3", CultureInfo.InvariantCulture);
     private protected static string F6(double v) => v.ToString("F6", CultureInfo.InvariantCulture);
     // VOLTAGE format: a Delphi sign column (space for >=0, "-" for <0) + magnitude to 4 significant

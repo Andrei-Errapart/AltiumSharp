@@ -506,6 +506,8 @@ public sealed class PcbDocReader
     {
         "Clearance" or "BoardOutlineClearance" => new PcbClearanceRule(),
         "ComponentClearance" => new PcbComponentClearanceRule(),
+        "Width" => new PcbWidthRule(),
+        "DiffPairsRouting" => new PcbDiffPairsRoutingRule(),
         "AssemblyTestpoint" => new PcbAssemblyTestpointRule(),
         "FabricationTestpoint" => new PcbFabricationTestpointRule(),
         "AssemblyTestPointUsage" or "SilkToBoardRegionClearance" or "UnpouredPolygon" or "UnRoutedNet" => new PcbHeaderOnlyRule(),

@@ -435,6 +435,89 @@ public sealed class PcbSolderMaskExpansionRule : PcbRule
     internal override void WriteBody(Action<string, string> add) { add("EXPANSION", Mil(Expansion)); add("ISTENTINGTOP", Bool(IsTentingTop)); }
 }
 
+/// <summary>Width rule: width limits + a dynamic per-layer width block + impedance profile.</summary>
+public sealed class PcbWidthRule : PcbRule
+{
+    public Coord MaxLimit { get; set; }
+    public Coord MinLimit { get; set; }
+    public Coord PreferredWidth { get; set; }
+    /// <summary>Per-layer width keys (e.g. <c>TOPLAYER_MINWIDTH</c>) in source order.</summary>
+    public List<KeyValuePair<string, Coord>> LayerWidths { get; } = new();
+    /// <summary>Whether the impedance-profile block is present (optional).</summary>
+    public bool HasImpedanceProfile { get; set; }
+    public bool ImpedanceProfileDriven { get; set; }
+    public string ImpedanceProfileId { get; set; } = string.Empty;
+    public double ImpedanceProfileValue { get; set; }
+    public double MinImpedance { get; set; }
+    public double MaxImpedance { get; set; }
+    public double FavoredImpedance { get; set; }
+    internal override bool IsModeled => true;
+    internal override void ReadBody(Dictionary<string, string> p)
+    {
+        MaxLimit = MilV(p, "MAXLIMIT"); MinLimit = MilV(p, "MINLIMIT"); PreferredWidth = MilV(p, "PREFEREDWIDTH");
+        HasImpedanceProfile = p.ContainsKey("IMPEDANCEPROFILEDRIVEN");
+        ImpedanceProfileDriven = Bv(p, "IMPEDANCEPROFILEDRIVEN"); ImpedanceProfileId = Sv(p, "IMPEDANCEPROFILEID") ?? string.Empty;
+        ImpedanceProfileValue = Dv(p, "IMPEDANCEPROFILEVALUE"); MinImpedance = Dv(p, "MINIMP"); MaxImpedance = Dv(p, "MAXIMP"); FavoredImpedance = Dv(p, "FAVIMP");
+    }
+    internal override void ReadOrdered(List<KeyValuePair<string, string>> ordered)
+    {
+        foreach (var (key, value) in ordered)
+            if (IsLayerWidthKey(key)) LayerWidths.Add(new KeyValuePair<string, Coord>(key, MilOf(value)));
+    }
+    internal override void WriteBody(Action<string, string> add)
+    {
+        add("MAXLIMIT", Mil(MaxLimit)); add("MINLIMIT", Mil(MinLimit)); add("PREFEREDWIDTH", Mil(PreferredWidth));
+        foreach (var (k, v) in LayerWidths) add(k, Mil(v));
+        if (!HasImpedanceProfile) return;
+        add("IMPEDANCEPROFILEDRIVEN", Bool(ImpedanceProfileDriven));
+        add("IMPEDANCEPROFILEID", ImpedanceProfileId);
+        add("IMPEDANCEPROFILEVALUE", F6(ImpedanceProfileValue));
+        add("MINIMP", F6(MinImpedance)); add("MAXIMP", F6(MaxImpedance)); add("FAVIMP", F6(FavoredImpedance));
+    }
+}
+
+/// <summary>DiffPairsRouting rule: limits + a dynamic per-layer gap/width block + impedance.</summary>
+public sealed class PcbDiffPairsRoutingRule : PcbRule
+{
+    public Coord MaxLimit { get; set; }
+    public Coord MinLimit { get; set; }
+    public Coord MostFreqGap { get; set; }
+    /// <summary>Per-layer gap/width keys (e.g. <c>TOPLAYER_MAXGAP</c>) in source order.</summary>
+    public List<KeyValuePair<string, Coord>> LayerValues { get; } = new();
+    public bool HasImpedanceProfile { get; set; }
+    public bool ImpedanceProfileDriven { get; set; }
+    public string ImpedanceProfileId { get; set; } = string.Empty;
+    public double ImpedanceProfileValue { get; set; }
+    public bool HasMaxUncoupledLength { get; set; }
+    public Coord MaxUncoupledLength { get; set; }
+    internal override bool IsModeled => true;
+    internal override void ReadBody(Dictionary<string, string> p)
+    {
+        MaxLimit = MilV(p, "MAXLIMIT"); MinLimit = MilV(p, "MINLIMIT"); MostFreqGap = MilV(p, "MOSTFREQGAP");
+        HasImpedanceProfile = p.ContainsKey("IMPEDANCEPROFILEDRIVEN");
+        ImpedanceProfileDriven = Bv(p, "IMPEDANCEPROFILEDRIVEN"); ImpedanceProfileId = Sv(p, "IMPEDANCEPROFILEID") ?? string.Empty;
+        ImpedanceProfileValue = Dv(p, "IMPEDANCEPROFILEVALUE");
+        HasMaxUncoupledLength = p.ContainsKey("MAXUNCOUPLEDLENGTH"); MaxUncoupledLength = MilV(p, "MAXUNCOUPLEDLENGTH");
+    }
+    internal override void ReadOrdered(List<KeyValuePair<string, string>> ordered)
+    {
+        foreach (var (key, value) in ordered)
+            if (IsLayerWidthKey(key)) LayerValues.Add(new KeyValuePair<string, Coord>(key, MilOf(value)));
+    }
+    internal override void WriteBody(Action<string, string> add)
+    {
+        add("MAXLIMIT", Mil(MaxLimit)); add("MINLIMIT", Mil(MinLimit)); add("MOSTFREQGAP", Mil(MostFreqGap));
+        foreach (var (k, v) in LayerValues) add(k, Mil(v));
+        if (HasImpedanceProfile)
+        {
+            add("IMPEDANCEPROFILEDRIVEN", Bool(ImpedanceProfileDriven));
+            add("IMPEDANCEPROFILEID", ImpedanceProfileId);
+            add("IMPEDANCEPROFILEVALUE", F6(ImpedanceProfileValue));
+        }
+        if (HasMaxUncoupledLength) add("MAXUNCOUPLEDLENGTH", Mil(MaxUncoupledLength));
+    }
+}
+
 /// <summary>RoutingLayers rule: per-layer routability flags (the dynamic <c>{layer}_V5</c> keys).</summary>
 public sealed class PcbRoutingLayersRule : PcbRule
 {
