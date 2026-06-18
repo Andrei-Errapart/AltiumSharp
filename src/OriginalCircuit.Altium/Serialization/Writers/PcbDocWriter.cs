@@ -961,18 +961,8 @@ public sealed class PcbDocWriter
     // component round-trips byte-for-byte without replaying the captured block.
     private static void WriteComponentParameters(BinaryFormatWriter writer, PcbComponent c)
     {
-        // UNICODE=EXISTS-wrapped records replay verbatim until that mechanism is modeled.
-        if (c.RawParametersOrdered is { Count: > 0 } ordered)
-        {
-            var ub = new System.Text.StringBuilder();
-            foreach (var kvp in ordered)
-                ub.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
-            writer.WriteCStringParameterBlockRaw(ub.ToString());
-            return;
-        }
-
-        var sb = new System.Text.StringBuilder();
-        void Add(string k, string v) => sb.Append('|').Append(k).Append('=').Append(v);
+        var pairs = new List<KeyValuePair<string, string>>();
+        void Add(string k, string v) => pairs.Add(new KeyValuePair<string, string>(k, v));
         string B(bool x) => x ? "TRUE" : "FALSE";
         string I(int x) => x.ToString(CultureInfo.InvariantCulture);
         string M(Coord co) => FormatMilUnits(co.ToRaw());
@@ -1028,6 +1018,43 @@ public sealed class PcbDocWriter
         if (c.AdditionalParameters != null)
             foreach (var kvp in c.AdditionalParameters)
                 Add(kvp.Key, kvp.Value);
+        WriteUnicodeAwareParamBlock(writer, pairs);
+    }
+
+    // Emits a parameter block, applying Altium's UNICODE=EXISTS wrapping when any value contains a
+    // codepoint that is not a single byte (>255): the inline values have those codepoints stripped,
+    // and a UNICODE__<KEY>=<comma-decimal UTF-16 code units> companion carrying the full value is
+    // appended for each affected key, bracketed by UNICODE=EXISTS markers.
+    private static void WriteUnicodeAwareParamBlock(BinaryFormatWriter writer, List<KeyValuePair<string, string>> pairs)
+    {
+        static bool NeedsUnicode(string v)
+        {
+            foreach (var ch in v) if (ch > 127) return true;
+            return false;
+        }
+        var hasUnicode = false;
+        foreach (var kv in pairs) if (NeedsUnicode(kv.Value)) { hasUnicode = true; break; }
+
+        var sb = new System.Text.StringBuilder();
+        if (hasUnicode) sb.Append("|UNICODE=EXISTS");
+        // Inline values are written as-is (the raw writer encodes them via Windows-1252); the
+        // UNICODE__ companions below carry the full code units for any non-single-byte content.
+        foreach (var (k, v) in pairs)
+            sb.Append('|').Append(k).Append('=').Append(v);
+        if (hasUnicode)
+        {
+            foreach (var (k, v) in pairs)
+            {
+                if (!NeedsUnicode(v)) continue;
+                sb.Append("|UNICODE__").Append(k).Append('=');
+                for (var i = 0; i < v.Length; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    sb.Append(((int)v[i]).ToString(CultureInfo.InvariantCulture));
+                }
+            }
+            sb.Append("|UNICODE=EXISTS");
+        }
         writer.WriteCStringParameterBlockRaw(sb.ToString());
     }
 

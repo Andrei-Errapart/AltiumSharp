@@ -394,6 +394,31 @@ public sealed class PcbDocReader
     // Parses a mil token (e.g. "1338.5827mil") into a Coord via rounded raw units.
     private static Coord ParamMilCoord(string value) => Coord.FromRaw(ParamMilUnits(value));
 
+    // Decodes the UNICODE=EXISTS wrapping: a param block with non-Latin-1 text carries the full
+    // value as a UNICODE__<KEY>=<comma-decimal UTF-16 code units> companion (the inline value has the
+    // >255 codepoints stripped). Replace each base key with its true decoded value and drop the
+    // UNICODE markers, so downstream typed parsing sees the real strings.
+    internal static void DecodeUnicodeParameters(Dictionary<string, string> p)
+    {
+        if (!p.TryGetValue("UNICODE", out var flag) || !flag.Equals("EXISTS", StringComparison.OrdinalIgnoreCase))
+            return;
+        var remove = new List<string> { "UNICODE" };
+        foreach (var kvp in p)
+        {
+            if (!kvp.Key.StartsWith("UNICODE__", StringComparison.OrdinalIgnoreCase))
+                continue;
+            remove.Add(kvp.Key);
+            var baseKey = kvp.Key.Substring("UNICODE__".Length);
+            var sb = new System.Text.StringBuilder();
+            foreach (var code in kvp.Value.Split(','))
+                if (int.TryParse(code, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cu))
+                    sb.Append((char)cu);
+            p[baseKey] = sb.ToString();
+        }
+        foreach (var k in remove)
+            p.Remove(k);
+    }
+
     private void ReadParameterBlockStorage(CompoundFileAccessor accessor, string storageName,
         Action<Dictionary<string, string>, List<KeyValuePair<string, string>>> addItem)
     {
@@ -1302,12 +1327,9 @@ public sealed class PcbDocReader
             if (parameters.Count == 0)
                 continue;
 
+            DecodeUnicodeParameters(parameters);
             var component = new PcbComponent();
             ApplyComponentParameters(component, parameters);
-            // Records using the UNICODE=EXISTS wrapping (non-Latin-1 text) replay verbatim until that
-            // param-block mechanism is modeled; everything else serializes from the typed fields.
-            if (parameters.ContainsKey("UNICODE"))
-                component.RawParametersOrdered = PcbLibReader.ParseParametersOrdered(rawComp);
             document.AddComponent(component);
         }
     }
