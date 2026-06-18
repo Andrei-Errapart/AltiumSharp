@@ -174,11 +174,16 @@ public sealed class PcbDocument : IPcbDocument
         => _boardOutline ??= PcbBoardOutline.Parse(BoardParameters);
 
     /// <summary>
-    /// Board-level parameters as an ordered key/value list, preserving key order and duplicate
-    /// keys (the block contains repeated RECORD=Board markers that delimit layer-stack
-    /// sub-records). Serialized verbatim for a byte-faithful round-trip.
+    /// Board-level parameters as an ordered key/value list — the canonical, authorable representation
+    /// of the Board6 record. It preserves key order and the duplicate keys that <see cref="BoardParameters"/>
+    /// (a flat dictionary convenience view) collapses: the block concatenates a main board-parameter
+    /// section, a board-region sub-block, and repeated <c>RECORD=</c>-delimited layer-stack/split-plane
+    /// sub-records, so several keys (the common <c>SELECTION..UNIONINDEX</c> prefix, <c>SPLITLINECOUNT</c>,
+    /// <c>RECORD</c>) appear more than once. When non-null this list is written verbatim (byte-faithful
+    /// round-trip); set it to author a Board6 with exact ordering/duplicates. When null, the writer
+    /// falls back to <see cref="BoardParameters"/>.
     /// </summary>
-    internal List<KeyValuePair<string, string>>? BoardParametersOrdered { get; set; }
+    public List<KeyValuePair<string, string>>? BoardParametersOrdered { get; set; }
 
     /// <summary>
     /// Names of root storages that were present in the source file, so the writer can reproduce
