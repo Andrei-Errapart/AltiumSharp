@@ -87,6 +87,7 @@ public sealed class PcbDocWriter
         WriteShapeBased(cf, document, "ShapeBasedComponentBodies6", document.ShapeBasedComponentBodies);
         WritePrimitiveParameters(cf, document);
         WriteExtendedPrimitiveInformation(cf, document);
+        WriteNamedParameterStorages(cf, document);
         WriteComponentBodies(cf, document);
         cancellationToken.ThrowIfCancellationRequested();
         WritePolygons(cf, document);
@@ -557,6 +558,23 @@ public sealed class PcbDocWriter
             writer.WriteCStringParameterBlockRaw(BuildParamText(info.RawParametersOrdered, info.ToParameters()));
         writer.Flush();
         storage.AddStream("Data").SetData(ms.ToArray());
+    }
+
+    private static void WriteNamedParameterStorages(CompoundFileAccessor cf, PcbDocument document)
+    {
+        foreach (var entry in document.NamedParameterStorages)
+        {
+            // Header is captured verbatim (a record count for some storages, a dirty/modified flag for
+            // others). Data is one length-prefixed C-string parameter block per record (empty when none).
+            var storage = cf.RootStorage.AddStorage(entry.Name);
+            PcbLibWriter.WriteStorageHeader(storage, entry.Header);
+            using var ms = new MemoryStream();
+            using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
+            foreach (var rec in entry.Records)
+                writer.WriteCStringParameterBlockRaw(BuildParamText(rec.RawParametersOrdered, rec.Parameters));
+            writer.Flush();
+            storage.AddStream("Data").SetData(ms.ToArray());
+        }
     }
 
     private static void WriteShapeBased(CompoundFileAccessor cf, PcbDocument document, string storageName, List<PcbShapeBasedRegion> items)

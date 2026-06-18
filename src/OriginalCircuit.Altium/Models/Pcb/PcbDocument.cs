@@ -125,6 +125,13 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>Per-primitive solder/paste-mask expansion overrides (ExtendedPrimitiveInformation).</summary>
     public List<PcbExtendedPrimitiveInfo> ExtendedPrimitiveInfo { get; } = new();
 
+    /// <summary>
+    /// Editor/DRC parameter-block storages (Design Rule Checker Options6, Advanced Placer Options6,
+    /// Pin Swap Options6, SimbeorCacheSection, TMatchedNetLengthsViolation, CustomShapes,
+    /// WaivedViolations, PinPairsSection), modeled as typed parameter records.
+    /// </summary>
+    public List<PcbNamedParameterStorage> NamedParameterStorages { get; } = new();
+
     /// <summary>The document-level <c>UniqueIDPrimitiveInformation</c> short-id tokens (typed records).</summary>
     public List<PcbPrimitiveUniqueId> PrimitiveUniqueIds { get; } = new();
 

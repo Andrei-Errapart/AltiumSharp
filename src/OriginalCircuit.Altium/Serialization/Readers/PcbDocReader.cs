@@ -70,7 +70,21 @@ public sealed class PcbDocReader
         "UniqueIDPrimitiveInformation", "FileVersionInfo",
         "LayerKindMapping", "PadViaLibrary", "PadViaLibraryLinks", "Textures", "ModelsNoEmbed",
         "ShapeBasedRegions6", "ShapeBasedComponentBodies6", "PrimitiveParameters", "PadViaLibraryCache",
-        "ExtendedPrimitiveInformation"
+        "ExtendedPrimitiveInformation",
+        "Design Rule Checker Options6", "Advanced Placer Options6", "Pin Swap Options6",
+        "SimbeorCacheSection", "TMatchedNetLengthsViolation", "CustomShapes",
+        "WaivedViolations", "PinPairsSection"
+    };
+
+    /// <summary>
+    /// Editor/DRC parameter-block storages modeled as typed <see cref="PcbNamedParameterStorage"/> records
+    /// (see that type). Each is read/written with its Header captured verbatim.
+    /// </summary>
+    private static readonly string[] NamedParameterStorageNames =
+    {
+        "Design Rule Checker Options6", "Advanced Placer Options6", "Pin Swap Options6",
+        "SimbeorCacheSection", "TMatchedNetLengthsViolation", "CustomShapes",
+        "WaivedViolations", "PinPairsSection"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
@@ -104,6 +118,7 @@ public sealed class PcbDocReader
         ReadShapeBased(accessor, "ShapeBasedComponentBodies6", 0x0C, document.ShapeBasedComponentBodies);
         ReadPrimitiveParameters(accessor, document);
         ReadExtendedPrimitiveInformation(accessor, document);
+        ReadNamedParameterStorages(accessor, document);
         ReadDocumentPrimitiveGuids(accessor, document);
         ReadDocumentPrimitiveUniqueIds(accessor, document);
         var fviStorage = accessor.TryGetStorage("FileVersionInfo");
@@ -671,6 +686,50 @@ public sealed class PcbDocReader
             if (parameters.TryGetValue("PASTEMASKEXPANSION_MANUAL", out var pmm)) info.PasteMaskExpansionManual = pmm;
             document.ExtendedPrimitiveInfo.Add(info);
         });
+    }
+
+    private void ReadNamedParameterStorages(CompoundFileAccessor accessor, PcbDocument document)
+    {
+        foreach (var name in NamedParameterStorageNames)
+        {
+            var storage = accessor.TryGetStorage(name);
+            if (storage == null) continue;
+
+            var entry = new PcbNamedParameterStorage { Name = name };
+            if (PcbLibReader.GetChildStream(storage, "Header") is { } hdr)
+            {
+                var hb = hdr.GetData();
+                if (hb.Length >= 4) entry.Header = BitConverter.ToInt32(hb, 0);
+            }
+
+            var dataStream = PcbLibReader.GetChildStream(storage, "Data");
+            var data = dataStream?.GetData() ?? Array.Empty<byte>();
+            if (data.Length > 0)
+            {
+                try
+                {
+                    using var ms = new MemoryStream(data);
+                    using var reader = new BinaryFormatReader(ms, leaveOpen: true);
+                    while (reader.HasMore)
+                    {
+                        var parameters = PcbLibReader.ReadParameterBlock(reader, out var raw);
+                        if (parameters.Count == 0) continue;
+                        entry.Records.Add(new PcbParameterRecord
+                        {
+                            Parameters = parameters,
+                            RawParametersOrdered = PcbLibReader.ParseParametersOrdered(raw),
+                        });
+                    }
+                }
+                catch (Exception ex) when (ex is EndOfStreamException or InvalidDataException or FormatException or OverflowException)
+                {
+                    _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                        $"Failed to fully parse {name}: {ex.Message}", name));
+                }
+            }
+
+            document.NamedParameterStorages.Add(entry);
+        }
     }
 
     private void ReadShapeBased(CompoundFileAccessor accessor, string storageName, byte typeByte, List<PcbShapeBasedRegion> target)
