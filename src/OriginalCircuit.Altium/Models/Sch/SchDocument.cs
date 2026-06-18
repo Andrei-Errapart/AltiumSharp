@@ -79,11 +79,12 @@ public sealed class SchDocument : ISchDocument
     public List<Dictionary<string, string>> OpaqueRecords { get; } = new();
 
     /// <summary>
-    /// The FileHeader document-header block parsed as an ordered key/value list, preserving order
-    /// and duplicate keys for a byte-faithful round-trip. The typed model and <see cref="HeaderParameters"/>
-    /// remain populated for from-scratch authoring.
+    /// The FileHeader document-header block as an ordered, authorable key/value list — the canonical
+    /// representation, preserving key order and any duplicate keys the <see cref="HeaderParameters"/>
+    /// dictionary collapses. Emitted verbatim when set; the typed model / <see cref="HeaderParameters"/>
+    /// remain the from-scratch authoring surface.
     /// </summary>
-    internal List<KeyValuePair<string, string>>? HeaderParametersOrdered { get; set; }
+    public List<KeyValuePair<string, string>>? HeaderParametersOrdered { get; set; }
 
     /// <summary>
     /// Every FileHeader record (after the document header) captured in original record order, each
@@ -93,8 +94,9 @@ public sealed class SchDocument : ISchDocument
     /// parameters round-trip exactly. This replaces the former detached whole-document record blob: the
     /// captured parameters now live with the model object, matching the PCB and SchLib pattern. Null (or
     /// after binary-pin records) falls back to typed-model serialization that supports from-scratch authoring.
+    /// This is the authorable, byte-faithful representation of the document's record stream.
     /// </summary>
-    internal List<SchOrderedRecord>? ReadOrderedRecords { get; set; }
+    public List<SchOrderedRecord>? ReadOrderedRecords { get; set; }
 
     /// <summary>
     /// Count of modeled top-level primitives captured immediately after the document was read. The

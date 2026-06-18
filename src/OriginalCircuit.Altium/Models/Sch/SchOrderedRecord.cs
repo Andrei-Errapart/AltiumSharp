@@ -5,9 +5,10 @@ namespace OriginalCircuit.Altium.Models.Sch;
 /// ordered parameters. The SchDoc writer walks <see cref="SchDocument.ReadOrderedRecords"/> to reproduce
 /// the exact on-disk record order; this is the document-level analogue of the SchLib per-component
 /// <c>ReadOrderedPrimitives</c> + <c>RawRecordParams</c> pairing, and of each PCB model's
-/// <c>RawParametersOrdered</c>.
+/// <c>RawParametersOrdered</c>. This is the authorable, byte-faithful representation of the document's
+/// record stream; the typed model collections remain the convenience/from-scratch authoring surface.
 /// </summary>
-internal sealed class SchOrderedRecord
+public sealed class SchOrderedRecord
 {
     /// <summary>
     /// The typed model object this record produced — a primitive, a <see cref="SchComponent"/>, or a
@@ -26,7 +27,7 @@ internal sealed class SchOrderedRecord
 /// Keeps the record addressable in <see cref="SchDocument.ReadOrderedRecords"/> so the on-disk order and
 /// bytes round-trip without a detached parallel record list.
 /// </summary>
-internal sealed class SchRawRecord
+public sealed class SchRawRecord
 {
     public SchRawRecord(Dictionary<string, string> parameters) => Parameters = parameters;
 
