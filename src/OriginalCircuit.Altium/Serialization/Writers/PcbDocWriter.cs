@@ -83,7 +83,8 @@ public sealed class PcbDocWriter
         WriteFills(cf, document);
         WriteRegions(cf, document);
         WriteBoardRegions(cf, document);
-        WriteShapeBasedRegions(cf, document);
+        WriteShapeBased(cf, document, "ShapeBasedRegions6", document.ShapeBasedRegions);
+        WriteShapeBased(cf, document, "ShapeBasedComponentBodies6", document.ShapeBasedComponentBodies);
         WriteComponentBodies(cf, document);
         cancellationToken.ThrowIfCancellationRequested();
         WritePolygons(cf, document);
@@ -519,19 +520,19 @@ public sealed class PcbDocWriter
         storage.AddStream("Data").SetData(PcbLibWriter.BuildPrimitiveUniqueIdData(document.PrimitiveUniqueIds));
     }
 
-    private static void WriteShapeBasedRegions(CompoundFileAccessor cf, PcbDocument document)
+    private static void WriteShapeBased(CompoundFileAccessor cf, PcbDocument document, string storageName, List<PcbShapeBasedRegion> items)
     {
-        if (document.ShapeBasedRegions.Count == 0)
+        if (items.Count == 0)
         {
-            WriteEmptyStorageIfPresent(cf, document, "ShapeBasedRegions6");
+            WriteEmptyStorageIfPresent(cf, document, storageName);
             return;
         }
-        var storage = cf.RootStorage.AddStorage("ShapeBasedRegions6");
-        PcbLibWriter.WriteStorageHeader(storage, document.ShapeBasedRegions.Count);
+        var storage = cf.RootStorage.AddStorage(storageName);
+        PcbLibWriter.WriteStorageHeader(storage, items.Count);
         using var ms = new MemoryStream();
-        foreach (var r in document.ShapeBasedRegions)
+        foreach (var r in items)
         {
-            ms.WriteByte(0x0B);
+            ms.WriteByte(r.TypeByte);
             ms.Write(r.Sr1LengthBytes.Length == 4 ? r.Sr1LengthBytes : new byte[4]);
             ms.WriteByte(r.Layer);
             ms.WriteByte(r.Flags1);

@@ -32,6 +32,9 @@ public sealed class PcbExtendedVertex
 /// </summary>
 public sealed class PcbShapeBasedRegion
 {
+    /// <summary>Record type byte (0x0B = shape-based region, 0x0C = shape-based component body).</summary>
+    internal byte TypeByte { get; set; } = 0x0B;
+
     /// <summary>Raw 4-byte SubRecord-1 length field (preserved; some records use non-standard values).</summary>
     internal byte[] Sr1LengthBytes { get; set; } = new byte[4];
     /// <summary>Layer byte.</summary>

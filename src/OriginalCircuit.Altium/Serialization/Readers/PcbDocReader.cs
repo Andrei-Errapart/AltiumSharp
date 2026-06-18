@@ -69,7 +69,7 @@ public sealed class PcbDocReader
         "Dimensions6", "Coordinates6", "FromTos6", "Embeddeds6", "PrimitiveGuids",
         "UniqueIDPrimitiveInformation", "FileVersionInfo",
         "LayerKindMapping", "PadViaLibrary", "PadViaLibraryLinks", "Textures", "ModelsNoEmbed",
-        "ShapeBasedRegions6"
+        "ShapeBasedRegions6", "ShapeBasedComponentBodies6"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
@@ -99,7 +99,8 @@ public sealed class PcbDocReader
         ReadFills(accessor, document, cancellationToken);
         ReadRegions(accessor, document, cancellationToken);
         ReadBoardRegions(accessor, document, cancellationToken);
-        ReadShapeBasedRegions(accessor, document);
+        ReadShapeBased(accessor, "ShapeBasedRegions6", 0x0B, document.ShapeBasedRegions);
+        ReadShapeBased(accessor, "ShapeBasedComponentBodies6", 0x0C, document.ShapeBasedComponentBodies);
         ReadDocumentPrimitiveGuids(accessor, document);
         ReadDocumentPrimitiveUniqueIds(accessor, document);
         var fviStorage = accessor.TryGetStorage("FileVersionInfo");
@@ -639,12 +640,12 @@ public sealed class PcbDocReader
         }, cancellationToken);
     }
 
-    private void ReadShapeBasedRegions(CompoundFileAccessor accessor, PcbDocument document)
+    private void ReadShapeBased(CompoundFileAccessor accessor, string storageName, byte typeByte, List<PcbShapeBasedRegion> target)
     {
-        // ShapeBasedRegions6 records are [u8 0x0B][u32 sr1_len][header][props][outline of extended
-        // 37-byte vertices][holes]. The standard region reader can't parse the extended vertices, so
-        // we parse the Data buffer directly. See docs/decompile/feature-shapebased-regions.md.
-        var storage = accessor.TryGetStorage("ShapeBasedRegions6");
+        // ShapeBasedRegions6 (0x0B) / ShapeBasedComponentBodies6 (0x0C) records are
+        // [u8 type][u32 sr1_len][header][props][outline of extended 37-byte vertices][holes]. The
+        // standard region reader can't parse the extended vertices, so we parse the Data buffer directly.
+        var storage = accessor.TryGetStorage(storageName);
         if (storage == null) return;
         var dataStream = PcbLibReader.GetChildStream(storage, "Data");
         if (dataStream == null) return;
@@ -652,23 +653,20 @@ public sealed class PcbDocReader
         var pos = 0;
         try
         {
-            while (pos < data.Length && data[pos] == 0x0B)
-            {
-                var region = ParseShapeBasedRegion(data, ref pos);
-                document.ShapeBasedRegions.Add(region);
-            }
+            while (pos < data.Length && data[pos] == typeByte)
+                target.Add(ParseShapeBasedRegion(data, ref pos));
         }
         catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentOutOfRangeException)
         {
             _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
-                $"Failed to fully parse ShapeBasedRegions6: {ex.Message}", "ShapeBasedRegions6"));
+                $"Failed to fully parse {storageName}: {ex.Message}", storageName));
         }
     }
 
     private static PcbShapeBasedRegion ParseShapeBasedRegion(byte[] data, ref int pos)
     {
-        pos += 1;                                                       // 0x0B type byte
-        var r = new PcbShapeBasedRegion();
+        var r = new PcbShapeBasedRegion { TypeByte = data[pos] };
+        pos += 1;                                                       // type byte (0x0B / 0x0C)
         r.Sr1LengthBytes = data.AsSpan(pos, 4).ToArray(); pos += 4;
         r.Layer = data[pos]; pos += 1;
         r.Flags1 = data[pos]; pos += 1;

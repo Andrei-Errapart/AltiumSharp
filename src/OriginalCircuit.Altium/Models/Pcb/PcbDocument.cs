@@ -114,6 +114,9 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>Shape-based regions (ShapeBasedRegions6) — regions with arc-capable extended vertices.</summary>
     public List<PcbShapeBasedRegion> ShapeBasedRegions { get; } = new();
 
+    /// <summary>Shape-based component bodies (ShapeBasedComponentBodies6) — same extended-vertex format.</summary>
+    public List<PcbShapeBasedRegion> ShapeBasedComponentBodies { get; } = new();
+
     /// <summary>The document-level <c>UniqueIDPrimitiveInformation</c> short-id tokens (typed records).</summary>
     public List<PcbPrimitiveUniqueId> PrimitiveUniqueIds { get; } = new();
 
