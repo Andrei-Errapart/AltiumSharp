@@ -365,6 +365,13 @@ public sealed class PcbComponent : IPcbComponent
     public Dictionary<string, byte[]>? AdditionalStreams { get; set; }
 
     /// <summary>
+    /// The footprint's <c>PrimitiveGuids</c> per-primitive object-GUID table (the editor's identity
+    /// cache). Modeled as typed records instead of an opaque stream; empty for from-scratch footprints
+    /// (Altium regenerates the table on demand).
+    /// </summary>
+    public List<PcbPrimitiveGuid> PrimitiveGuids { get; } = new();
+
+    /// <summary>
     /// Additional parameters from the Parameters stream that are not modeled as typed properties.
     /// Preserved for round-trip fidelity.
     /// </summary>

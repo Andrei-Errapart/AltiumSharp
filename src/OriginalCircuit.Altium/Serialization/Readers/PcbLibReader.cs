@@ -363,6 +363,23 @@ public sealed class PcbLibReader
         library.PadViaLibrary = pvl;
     }
 
+    internal static void ReadPrimitiveGuids(CompoundStorage parentStorage, PcbComponent component)
+    {
+        // PrimitiveGuids/Data = N x [u32 type_id][u32 index][16-byte GUID bytes_le]; Header = [u32 count].
+        if (!parentStorage.TryGetStorage("PrimitiveGuids", out var storage)) return;
+        if (!storage.TryGetStream("Data", out var stream)) return;
+        var data = stream.GetData();
+        for (var pos = 0; pos + 24 <= data.Length; pos += 24)
+        {
+            component.PrimitiveGuids.Add(new PcbPrimitiveGuid
+            {
+                TypeId = BitConverter.ToUInt32(data, pos),
+                Index = BitConverter.ToUInt32(data, pos + 4),
+                Guid = new Guid(data.AsSpan(pos + 8, 16)),
+            });
+        }
+    }
+
     private static void ReadComponentParamsToc(CompoundStorage libraryStorage, PcbLibrary library)
     {
         // Library/ComponentParamsTOC/Data = [u32 byte-count][CP1252 "Name=..|Pad Count=..|Height=..|
@@ -428,10 +445,13 @@ public sealed class PcbLibReader
         // Read wide strings (Unicode text for Text primitives)
         var wideStrings = ReadWideStrings(storage);
 
-        // Preserve additional component-level streams (PrimitiveGuids, UniqueIdPrimitiveInformation, etc.)
+        // Parse the modeled PrimitiveGuids identity table into typed records.
+        ReadPrimitiveGuids(storage, component);
+
+        // Preserve any remaining component-level streams (UniqueIdPrimitiveInformation, etc.)
         component.AdditionalStreams = new Dictionary<string, byte[]>();
         var knownChildren = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "Header", "Parameters", "WideStrings", "Data" };
+            { "Header", "Parameters", "WideStrings", "Data", "PrimitiveGuids" };
         foreach (var entry in storage.EnumerateEntries())
         {
             if (knownChildren.Contains(entry.Name))

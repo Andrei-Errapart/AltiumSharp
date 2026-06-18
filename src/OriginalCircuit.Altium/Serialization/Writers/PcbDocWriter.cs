@@ -102,6 +102,7 @@ public sealed class PcbDocWriter
         WriteEmptyStorageIfPresent(cf, document, "Coordinates6");
         WriteEmptyStorageIfPresent(cf, document, "FromTos6");
         WriteEmptyStorageIfPresent(cf, document, "Embeddeds6");
+        WriteDocumentPrimitiveGuids(cf, document);
         WriteAdditionalStreams(cf, document);
 
         cf.Save(stream);
@@ -477,6 +478,25 @@ public sealed class PcbDocWriter
             writer.Write((byte)11);
             PcbLibWriter.WriteRegion(writer, (PcbRegion)region);
         });
+    }
+
+    private static void WriteDocumentPrimitiveGuids(CompoundFileAccessor cf, PcbDocument document)
+    {
+        if (document.PrimitiveGuids.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "PrimitiveGuids");
+            return;
+        }
+        var storage = cf.RootStorage.AddStorage("PrimitiveGuids");
+        PcbLibWriter.WriteStorageHeader(storage, document.PrimitiveGuids.Count);
+        using var ms = new MemoryStream();
+        foreach (var g in document.PrimitiveGuids)
+        {
+            ms.Write(BitConverter.GetBytes(g.TypeId));
+            ms.Write(BitConverter.GetBytes(g.Index));
+            ms.Write(g.Guid.ToByteArray());
+        }
+        storage.AddStream("Data").SetData(ms.ToArray());
     }
 
     private static void WriteBoardRegions(CompoundFileAccessor cf, PcbDocument document)

@@ -303,7 +303,23 @@ public sealed class PcbLibWriter
         WriteWideStrings(footprintStorage, component);
         WriteFootprintData(footprintStorage, component);
         WriteUniqueIdPrimitiveInformation(footprintStorage, component);
+        WritePrimitiveGuids(footprintStorage, component);
         WriteAdditionalComponentStreams(footprintStorage, component);
+    }
+
+    internal static void WritePrimitiveGuids(CompoundStorage parentStorage, PcbComponent component)
+    {
+        if (component.PrimitiveGuids.Count == 0) return;   // from-scratch footprints omit the cache
+        var storage = parentStorage.AddStorage("PrimitiveGuids");
+        WriteStorageHeader(storage, component.PrimitiveGuids.Count);
+        using var ms = new MemoryStream();
+        foreach (var g in component.PrimitiveGuids)
+        {
+            ms.Write(BitConverter.GetBytes(g.TypeId));
+            ms.Write(BitConverter.GetBytes(g.Index));
+            ms.Write(g.Guid.ToByteArray());
+        }
+        storage.AddStream("Data").SetData(ms.ToArray());
     }
 
     private static void WriteFootprintParameters(CompoundStorage storage, PcbComponent component)

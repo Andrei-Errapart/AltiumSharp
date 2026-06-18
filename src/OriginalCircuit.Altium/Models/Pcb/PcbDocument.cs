@@ -108,6 +108,9 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>Adds a board region.</summary>
     public void AddBoardRegion(PcbRegion region) => _boardRegions.Add(region);
 
+    /// <summary>The document-level <c>PrimitiveGuids</c> object-GUID cache (typed records).</summary>
+    public List<PcbPrimitiveGuid> PrimitiveGuids { get; } = new();
+
     /// <summary>
     /// All differential pairs in this document.
     /// </summary>

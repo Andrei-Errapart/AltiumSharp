@@ -66,7 +66,7 @@ public sealed class PcbDocReader
         "Components6", "WideStrings6", "EmbeddedBoards6",
         "Rules6", "Classes6", "DifferentialPairs6", "Rooms6", "SignalClasses",
         "SmartUnions", "UnionNames", "BoardRegions",
-        "Dimensions6", "Coordinates6", "FromTos6", "Embeddeds6"
+        "Dimensions6", "Coordinates6", "FromTos6", "Embeddeds6", "PrimitiveGuids"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
@@ -96,6 +96,7 @@ public sealed class PcbDocReader
         ReadFills(accessor, document, cancellationToken);
         ReadRegions(accessor, document, cancellationToken);
         ReadBoardRegions(accessor, document, cancellationToken);
+        ReadDocumentPrimitiveGuids(accessor, document);
         ReadComponentBodies(accessor, document, cancellationToken);
         ReadPolygons(accessor, document, cancellationToken);
         ReadComponents(accessor, document, cancellationToken);
@@ -584,6 +585,24 @@ public sealed class PcbDocReader
             if (region != null)
                 document.AddRegion(region);
         }, cancellationToken);
+    }
+
+    private static void ReadDocumentPrimitiveGuids(CompoundFileAccessor accessor, PcbDocument document)
+    {
+        var storage = accessor.TryGetStorage("PrimitiveGuids");
+        if (storage == null) return;
+        var dataStream = PcbLibReader.GetChildStream(storage, "Data");
+        if (dataStream == null) return;
+        var data = dataStream.GetData();
+        for (var pos = 0; pos + 24 <= data.Length; pos += 24)
+        {
+            document.PrimitiveGuids.Add(new PcbPrimitiveGuid
+            {
+                TypeId = BitConverter.ToUInt32(data, pos),
+                Index = BitConverter.ToUInt32(data, pos + 4),
+                Guid = new Guid(data.AsSpan(pos + 8, 16)),
+            });
+        }
     }
 
     private void ReadBoardRegions(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
