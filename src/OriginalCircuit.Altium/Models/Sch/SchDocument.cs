@@ -464,9 +464,11 @@ public sealed class SchDocument : ISchDocument
     }
 
     /// <summary>
-    /// Counts the modeled top-level primitives the writer is responsible for: document-level
-    /// primitives, components and preserved opaque records. Component child primitives are excluded.
-    /// Used to detect structural edits made after a document was loaded (see <see cref="LoadedPrimitiveCount"/>).
+    /// Counts the modeled primitives the writer is responsible for: document-level primitives, components,
+    /// container children (component children, sheet-symbol entries, parameter-set and blanket parameters)
+    /// and preserved opaque records. Used to detect structural edits made after a document was loaded (see
+    /// <see cref="LoadedPrimitiveCount"/>); including container children means adding or removing one trips
+    /// the captured-order fast path and falls back to typed serialization so the edit is not dropped.
     /// </summary>
     internal int CountModeledPrimitives()
         => _components.Count + _wires.Count + _netLabels.Count + _junctions.Count + _powerObjects.Count
@@ -476,7 +478,11 @@ public sealed class SchDocument : ISchDocument
          + _noErcs.Count + _busEntries.Count + _buses.Count + _ports.Count + _sheetSymbols.Count
          + _sheetEntries.Count + _blankets.Count + _parameterSets.Count + _templates.Count + _notes.Count
          + _hyperlinks.Count + _compileMasks.Count + _harnessConnectors.Count + _harnessEntries.Count
-         + _harnessTypes.Count + _signalHarnesses.Count + OpaqueRecords.Count;
+         + _harnessTypes.Count + _signalHarnesses.Count + OpaqueRecords.Count
+         + _components.OfType<SchComponent>().Sum(c => c.CountChildPrimitives())
+         + _sheetSymbols.Sum(s => s.Entries.Count)
+         + _parameterSets.Sum(p => p.Parameters.Count)
+         + _blankets.Sum(b => b.Parameters.Count);
 
     /// <inheritdoc />
     public async ValueTask SaveAsync(string path, OriginalCircuit.Eda.Models.SaveOptions? options = null, CancellationToken cancellationToken = default)

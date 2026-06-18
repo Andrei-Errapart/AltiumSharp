@@ -132,6 +132,39 @@ public sealed class FidelityRegressionTests
     }
 
     [Fact]
+    public void SchDoc_EditLoadedComponentChild_PreservesAddedChild()
+    {
+        // Regression (the documented component-child edit gap): adding a child to a LOADED SchDoc
+        // component must survive save/reload. Previously CountModeledPrimitives ignored component
+        // children, so the edit didn't invalidate the captured-order fast path and was dropped.
+        var doc = new SchDocument();
+        var component = new SchComponent { Name = "U1", PartCount = 1 };
+        component.AddPin(SchPin.Create("1").WithName("A")
+            .At(Coord.FromMils(0), Coord.FromMils(0))
+            .Length(Coord.FromMils(100)).Orient(PinOrientation.Right).Build());
+        doc.AddComponent(component);
+
+        using var ms1 = new MemoryStream();
+        new SchDocWriter().Write(doc, ms1);
+        ms1.Position = 0;
+        var loaded = (SchDocument)new SchDocReader().Read(ms1);
+        Assert.NotNull(loaded.ReadOrderedRecords); // it is a "loaded" document
+
+        var loadedComp = (SchComponent)loaded.Components.First();
+        var originalPinCount = loadedComp.Pins.Count;
+        loadedComp.AddLabel(new SchLabel { Text = "R", FontId = 1, Color = 128 });
+
+        using var ms2 = new MemoryStream();
+        new SchDocWriter().Write(loaded, ms2);
+        ms2.Position = 0;
+        var reloaded = (SchDocument)new SchDocReader().Read(ms2);
+
+        var reloadedComp = (SchComponent)reloaded.Components.First();
+        Assert.Equal(originalPinCount, reloadedComp.Pins.Count); // original child still present
+        Assert.Contains(reloadedComp.Labels.Cast<SchLabel>(), l => l.Text == "R"); // added child survived
+    }
+
+    [Fact]
     public void SchLib_NullComponentDescription_StaysNull()
     {
         // Regression: the writer unconditionally emitted ComponentDescription="" for a component with
