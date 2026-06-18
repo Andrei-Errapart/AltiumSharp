@@ -96,6 +96,12 @@ public sealed class PcbDocWriter
         WriteDifferentialPairs(cf, document);
         WriteRooms(cf, document);
         WriteWideStrings(cf, document);
+        // Empty optional feature storages (no instances in the corpus) reproduced exactly: a
+        // [u32 count=0] Header + empty Data. Removing them from the AdditionalStreams catch-all.
+        WriteEmptyStorageIfPresent(cf, document, "Dimensions6");
+        WriteEmptyStorageIfPresent(cf, document, "Coordinates6");
+        WriteEmptyStorageIfPresent(cf, document, "FromTos6");
+        WriteEmptyStorageIfPresent(cf, document, "Embeddeds6");
         WriteAdditionalStreams(cf, document);
 
         cf.Save(stream);

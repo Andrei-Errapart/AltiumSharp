@@ -65,7 +65,8 @@ public sealed class PcbDocReader
         "Texts6", "Fills6", "Regions6", "ComponentBodies6", "Polygons6",
         "Components6", "WideStrings6", "EmbeddedBoards6",
         "Rules6", "Classes6", "DifferentialPairs6", "Rooms6", "SignalClasses",
-        "SmartUnions", "UnionNames", "BoardRegions"
+        "SmartUnions", "UnionNames", "BoardRegions",
+        "Dimensions6", "Coordinates6", "FromTos6", "Embeddeds6"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
