@@ -532,16 +532,21 @@ public sealed class PcbText : IPcbText
     internal byte? TextKindByte { get; set; }
 
     /// <summary>
-    /// Exact 64-byte primary font-name field (offsets 46-109) captured only when its trailing padding
-    /// after the name's null terminator is non-zero (a handful of source texts). Null otherwise, in which
-    /// case the writer emits the modeled <see cref="FontName"/> zero-padded. Lets those texts round-trip
-    /// byte-for-byte without affecting from-scratch authoring.
+    /// Exact 64-byte primary font-name field (offsets 46-109), captured only when its bytes after the
+    /// name's null terminator are non-zero. That trailing "dirt" is <em>non-deterministic stale heap
+    /// memory</em> Altium leaves from a reused buffer — observed to contain leftover previous font names
+    /// (e.g. "…New Roman"), heap pointers, even fragments of another record's parameter block — so it is
+    /// irreducible: it cannot be reconstructed from the model. It affects ~half of real-world texts.
+    /// Null when the field is clean, in which case the writer emits the modeled <see cref="FontName"/>
+    /// zero-padded (deterministic). From-scratch texts always write clean; this capture only lets a
+    /// loaded file round-trip byte-for-byte.
     /// </summary>
     internal byte[]? FontFieldRaw { get; set; }
 
     /// <summary>
-    /// Exact 64-byte barcode font-name field (offsets 161-224), captured only when its trailing padding
-    /// is non-zero. Null otherwise (writer emits the modeled <see cref="BarCodeFontName"/> zero-padded).
+    /// Exact 64-byte barcode font-name field (offsets 161-224), captured only when its trailing padding is
+    /// non-zero (same irreducible stale-heap dirt as <see cref="FontFieldRaw"/>). Null otherwise (writer
+    /// emits the modeled <see cref="BarCodeFontName"/> zero-padded).
     /// </summary>
     internal byte[]? BarCodeFontFieldRaw { get; set; }
 
