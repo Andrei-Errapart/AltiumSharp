@@ -122,6 +122,9 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>Captured PrimitiveParameters header value (= component count × 3); preserved for round-trip.</summary>
     internal int PrimitiveParametersHeader { get; set; }
 
+    /// <summary>Per-primitive solder/paste-mask expansion overrides (ExtendedPrimitiveInformation).</summary>
+    public List<PcbExtendedPrimitiveInfo> ExtendedPrimitiveInfo { get; } = new();
+
     /// <summary>The document-level <c>UniqueIDPrimitiveInformation</c> short-id tokens (typed records).</summary>
     public List<PcbPrimitiveUniqueId> PrimitiveUniqueIds { get; } = new();
 

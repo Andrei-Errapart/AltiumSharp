@@ -69,7 +69,8 @@ public sealed class PcbDocReader
         "Dimensions6", "Coordinates6", "FromTos6", "Embeddeds6", "PrimitiveGuids",
         "UniqueIDPrimitiveInformation", "FileVersionInfo",
         "LayerKindMapping", "PadViaLibrary", "PadViaLibraryLinks", "Textures", "ModelsNoEmbed",
-        "ShapeBasedRegions6", "ShapeBasedComponentBodies6", "PrimitiveParameters", "PadViaLibraryCache"
+        "ShapeBasedRegions6", "ShapeBasedComponentBodies6", "PrimitiveParameters", "PadViaLibraryCache",
+        "ExtendedPrimitiveInformation"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
@@ -102,6 +103,7 @@ public sealed class PcbDocReader
         ReadShapeBased(accessor, "ShapeBasedRegions6", 0x0B, document.ShapeBasedRegions);
         ReadShapeBased(accessor, "ShapeBasedComponentBodies6", 0x0C, document.ShapeBasedComponentBodies);
         ReadPrimitiveParameters(accessor, document);
+        ReadExtendedPrimitiveInformation(accessor, document);
         ReadDocumentPrimitiveGuids(accessor, document);
         ReadDocumentPrimitiveUniqueIds(accessor, document);
         var fviStorage = accessor.TryGetStorage("FileVersionInfo");
@@ -651,6 +653,24 @@ public sealed class PcbDocReader
         }
         ReadParameterBlockStorage(accessor, "PrimitiveParameters", (parameters, ordered) =>
             document.PrimitiveParameters.Add(new PcbParameterRecord { Parameters = parameters, RawParametersOrdered = ordered }));
+    }
+
+    private void ReadExtendedPrimitiveInformation(CompoundFileAccessor accessor, PcbDocument document)
+    {
+        ReadParameterBlockStorage(accessor, "ExtendedPrimitiveInformation", (parameters, ordered) =>
+        {
+            var info = new PcbExtendedPrimitiveInfo { Parameters = parameters, RawParametersOrdered = ordered };
+            if (parameters.TryGetValue("PRIMITIVEINDEX", out var idx) &&
+                int.TryParse(idx, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i))
+                info.PrimitiveIndex = i;
+            if (parameters.TryGetValue("PRIMITIVEOBJECTID", out var oid)) info.PrimitiveObjectId = oid;
+            if (parameters.TryGetValue("TYPE", out var type)) info.Type = type;
+            if (parameters.TryGetValue("SOLDERMASKEXPANSIONMODE", out var sme)) info.SolderMaskExpansionMode = sme;
+            if (parameters.TryGetValue("SOLDERMASKEXPANSION_MANUAL", out var smm)) info.SolderMaskExpansionManual = smm;
+            if (parameters.TryGetValue("PASTEMASKEXPANSIONMODE", out var pme)) info.PasteMaskExpansionMode = pme;
+            if (parameters.TryGetValue("PASTEMASKEXPANSION_MANUAL", out var pmm)) info.PasteMaskExpansionManual = pmm;
+            document.ExtendedPrimitiveInfo.Add(info);
+        });
     }
 
     private void ReadShapeBased(CompoundFileAccessor accessor, string storageName, byte typeByte, List<PcbShapeBasedRegion> target)
