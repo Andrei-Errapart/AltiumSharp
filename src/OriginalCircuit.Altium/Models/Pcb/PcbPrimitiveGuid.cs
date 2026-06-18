@@ -34,8 +34,11 @@ public sealed class PcbPrimitiveUniqueId
     /// <summary>The 8-char short-id token.</summary>
     public string UniqueId { get; set; } = string.Empty;
 
-    /// <summary>Ordered parameters captured for byte-exact round-trip; null for from-scratch.</summary>
-    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+    /// <summary>
+    /// The parameter block as an ordered, authorable key/value list — the canonical representation,
+    /// preserving key order/duplicates. Written verbatim when set; null falls back to the typed fields.
+    /// </summary>
+    public List<KeyValuePair<string, string>>? OrderedParameters { get; set; }
 
     /// <summary>The canonical record text (used when no captured order exists).</summary>
     internal string ToText() =>

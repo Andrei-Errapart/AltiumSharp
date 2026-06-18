@@ -51,10 +51,10 @@ public sealed class PcbPadViaLibrary
     internal int HeaderCount { get; set; }
 
     /// <summary>
-    /// Ordered parameter list captured from the source for byte-exact round-trip; null for from-scratch
-    /// instances, which emit the typed fields in canonical order.
+    /// The parameter block as an ordered, authorable key/value list — the canonical representation that
+    /// preserves key order/duplicates. Written verbatim when set; null emits the typed fields in canonical order.
     /// </summary>
-    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+    public List<KeyValuePair<string, string>>? OrderedParameters { get; set; }
 
     /// <summary>
     /// Optional binary pad/via template cache that follows the parameter block in a
@@ -74,8 +74,12 @@ public sealed class PcbFileVersionInfo
     /// <summary>Parsed parameters (the encoded version messages).</summary>
     public Dictionary<string, string> Parameters { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Ordered parameter list, preserved for byte-exact round-trip; null for from-scratch.</summary>
-    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+    /// <summary>
+    /// The parameter block as an ordered, authorable key/value list — the canonical representation,
+    /// preserving key order and any duplicate keys the <see cref="Parameters"/> dictionary collapses.
+    /// Written verbatim when set; null falls back to <see cref="Parameters"/>.
+    /// </summary>
+    public List<KeyValuePair<string, string>>? OrderedParameters { get; set; }
 
     /// <summary>True when this info was present in the source file (so the writer reproduces its presence).</summary>
     internal bool Present { get; set; }

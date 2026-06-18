@@ -691,7 +691,7 @@ public sealed class PcbDocWriter
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
         foreach (var rec in document.PrimitiveParameters)
-            writer.WriteCStringParameterBlockRaw(BuildParamText(rec.RawParametersOrdered, rec.Parameters));
+            writer.WriteCStringParameterBlockRaw(BuildParamText(rec.OrderedParameters, rec.Parameters));
         writer.Flush();
         storage.AddStream("Data").SetData(ms.ToArray());
     }
@@ -709,7 +709,7 @@ public sealed class PcbDocWriter
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
         foreach (var info in document.ExtendedPrimitiveInfo)
-            writer.WriteCStringParameterBlockRaw(BuildParamText(info.RawParametersOrdered, info.ToParameters()));
+            writer.WriteCStringParameterBlockRaw(BuildParamText(info.OrderedParameters, info.ToParameters()));
         writer.Flush();
         storage.AddStream("Data").SetData(ms.ToArray());
     }
@@ -733,7 +733,7 @@ public sealed class PcbDocWriter
             using var ms = new MemoryStream();
             using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
             foreach (var rec in entry.Records)
-                writer.WriteCStringParameterBlockRaw(BuildParamText(rec.RawParametersOrdered, rec.Parameters));
+                writer.WriteCStringParameterBlockRaw(BuildParamText(rec.OrderedParameters, rec.Parameters));
             writer.Flush();
             storage.AddStream("Data").SetData(ms.ToArray());
         }

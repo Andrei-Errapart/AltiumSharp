@@ -378,7 +378,7 @@ public sealed class PcbLibReader
         if (len <= 0 || 4 + len > data.Length) return null;
         var text = AltiumEncoding.Windows1252.GetString(data, 4, len).TrimEnd('\0');
         var ordered = ParseParametersOrdered(text);
-        var pvl = new PcbPadViaLibrary { RawParametersOrdered = ordered };
+        var pvl = new PcbPadViaLibrary { OrderedParameters = ordered };
         if (storage.TryGetStream("Header", out var hdr))
         {
             var hb = hdr.GetData();
@@ -423,8 +423,8 @@ public sealed class PcbLibReader
         var len = BitConverter.ToInt32(data, 0);
         if (len <= 0 || 4 + len > data.Length) return info;
         var text = AltiumEncoding.Windows1252.GetString(data, 4, len).TrimEnd('\0');
-        info.RawParametersOrdered = ParseParametersOrdered(text);
-        foreach (var kvp in info.RawParametersOrdered) info.Parameters[kvp.Key] = kvp.Value;
+        info.OrderedParameters = ParseParametersOrdered(text);
+        foreach (var kvp in info.OrderedParameters) info.Parameters[kvp.Key] = kvp.Value;
         info.Present = true;
         return info;
     }
@@ -447,7 +447,7 @@ public sealed class PcbLibReader
             var text = AltiumEncoding.Windows1252.GetString(data, pos, len).TrimEnd('\0');
             pos += len;
             var ordered = ParseParametersOrdered(text);
-            var rec = new PcbPrimitiveUniqueId { RawParametersOrdered = ordered };
+            var rec = new PcbPrimitiveUniqueId { OrderedParameters = ordered };
             foreach (var kvp in ordered)
             {
                 if (kvp.Key.Equals("PRIMITIVEINDEX", StringComparison.OrdinalIgnoreCase) && int.TryParse(kvp.Value, out var pi)) rec.PrimitiveIndex = pi;

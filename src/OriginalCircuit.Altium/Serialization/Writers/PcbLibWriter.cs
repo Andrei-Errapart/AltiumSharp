@@ -231,7 +231,7 @@ public sealed class PcbLibWriter
         WriteStorageHeader(storage, pvl.HeaderCount);   // 0 for PadViaLibrary; template count for a populated cache
 
         string text;
-        if (pvl.RawParametersOrdered is { Count: > 0 } ordered)
+        if (pvl.OrderedParameters is { Count: > 0 } ordered)
         {
             var sb = new System.Text.StringBuilder();
             foreach (var kvp in ordered) sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
@@ -1170,7 +1170,7 @@ public sealed class PcbLibWriter
     internal static byte[] BuildFileVersionInfoData(PcbFileVersionInfo info)
     {
         string text;
-        if (info.RawParametersOrdered is { Count: > 0 } ordered)
+        if (info.OrderedParameters is { Count: > 0 } ordered)
         {
             var sb = new System.Text.StringBuilder();
             foreach (var kvp in ordered) sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
@@ -1197,7 +1197,7 @@ public sealed class PcbLibWriter
         foreach (var rec in records)
         {
             string text;
-            if (rec.RawParametersOrdered is { Count: > 0 } ordered)
+            if (rec.OrderedParameters is { Count: > 0 } ordered)
             {
                 var sb = new System.Text.StringBuilder();
                 foreach (var kvp in ordered) sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
@@ -1291,7 +1291,7 @@ public sealed class PcbLibWriter
 
     internal static void WriteFileVersionInfo(CompoundStorage rootStorage, PcbFileVersionInfo info)
     {
-        if (!info.Present && info.Parameters.Count == 0 && info.RawParametersOrdered is null) return;
+        if (!info.Present && info.Parameters.Count == 0 && info.OrderedParameters is null) return;
         var storage = rootStorage.AddStorage("FileVersionInfo");
         WriteStorageHeader(storage, 1);
         storage.AddStream("Data").SetData(BuildFileVersionInfoData(info));

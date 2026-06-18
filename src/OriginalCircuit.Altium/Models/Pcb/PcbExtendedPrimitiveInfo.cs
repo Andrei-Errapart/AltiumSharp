@@ -33,8 +33,12 @@ public sealed class PcbExtendedPrimitiveInfo
     /// <summary>All parsed parameters (preserves keys the typed fields don't model).</summary>
     public Dictionary<string, string> Parameters { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Ordered parameter list captured for byte-exact round-trip; null for from-scratch.</summary>
-    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+    /// <summary>
+    /// The parameter block as an ordered, authorable key/value list — the canonical representation,
+    /// preserving key order and any duplicate keys the <see cref="Parameters"/> dictionary collapses.
+    /// Written verbatim when set; null falls back to the typed fields via <see cref="ToParameters"/>.
+    /// </summary>
+    public List<KeyValuePair<string, string>>? OrderedParameters { get; set; }
 
     /// <summary>Builds the parameter dictionary used for from-scratch serialization.</summary>
     public Dictionary<string, string> ToParameters()

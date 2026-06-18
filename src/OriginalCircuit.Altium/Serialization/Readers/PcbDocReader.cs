@@ -871,14 +871,14 @@ public sealed class PcbDocReader
             if (hb.Length >= 4) document.PrimitiveParametersHeader = BitConverter.ToInt32(hb, 0);
         }
         ReadParameterBlockStorage(accessor, "PrimitiveParameters", (parameters, ordered) =>
-            document.PrimitiveParameters.Add(new PcbParameterRecord { Parameters = parameters, RawParametersOrdered = ordered }));
+            document.PrimitiveParameters.Add(new PcbParameterRecord { Parameters = parameters, OrderedParameters = ordered }));
     }
 
     private void ReadExtendedPrimitiveInformation(CompoundFileAccessor accessor, PcbDocument document)
     {
         ReadParameterBlockStorage(accessor, "ExtendedPrimitiveInformation", (parameters, ordered) =>
         {
-            var info = new PcbExtendedPrimitiveInfo { Parameters = parameters, RawParametersOrdered = ordered };
+            var info = new PcbExtendedPrimitiveInfo { Parameters = parameters, OrderedParameters = ordered };
             if (parameters.TryGetValue("PRIMITIVEINDEX", out var idx) &&
                 int.TryParse(idx, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i))
                 info.PrimitiveIndex = i;
@@ -935,7 +935,7 @@ public sealed class PcbDocReader
                         entry.Records.Add(new PcbParameterRecord
                         {
                             Parameters = parameters,
-                            RawParametersOrdered = PcbLibReader.ParseParametersOrdered(raw),
+                            OrderedParameters = PcbLibReader.ParseParametersOrdered(raw),
                         });
                     }
                 }
