@@ -1107,9 +1107,33 @@ public sealed class PcbLibWriter
         });
     }
 
-    private static void WriteUniqueIdPrimitiveInformation(CompoundStorage storage, PcbComponent component)
+    private static void WriteUniqueIdPrimitiveInformation(CompoundStorage parentStorage, PcbComponent component)
     {
-        // UniqueIdPrimitiveInformation is optional - skip for new files
+        if (component.PrimitiveUniqueIds.Count == 0) return;   // optional; from-scratch footprints omit it
+        var storage = parentStorage.AddStorage("UniqueIDPrimitiveInformation");
+        WriteStorageHeader(storage, component.PrimitiveUniqueIds.Count);
+        storage.AddStream("Data").SetData(BuildPrimitiveUniqueIdData(component.PrimitiveUniqueIds));
+    }
+
+    // Emits the length-prefixed |KEY=VALUE| records of a UniqueIDPrimitiveInformation/Data stream.
+    internal static byte[] BuildPrimitiveUniqueIdData(IReadOnlyList<PcbPrimitiveUniqueId> records)
+    {
+        using var ms = new MemoryStream();
+        using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
+        foreach (var rec in records)
+        {
+            string text;
+            if (rec.RawParametersOrdered is { Count: > 0 } ordered)
+            {
+                var sb = new System.Text.StringBuilder();
+                foreach (var kvp in ordered) sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+                text = sb.ToString();
+            }
+            else text = rec.ToText();
+            writer.WriteCStringParameterBlockRaw(text);
+        }
+        writer.Flush();
+        return ms.ToArray();
     }
 
     private static void WriteLibraryModels(CompoundStorage libraryStorage, PcbLibrary library)

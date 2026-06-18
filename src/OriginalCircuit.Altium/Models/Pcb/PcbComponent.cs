@@ -372,6 +372,12 @@ public sealed class PcbComponent : IPcbComponent
     public List<PcbPrimitiveGuid> PrimitiveGuids { get; } = new();
 
     /// <summary>
+    /// The footprint's <c>UniqueIDPrimitiveInformation</c> short-id tokens (typed records). Empty for
+    /// from-scratch footprints.
+    /// </summary>
+    public List<PcbPrimitiveUniqueId> PrimitiveUniqueIds { get; } = new();
+
+    /// <summary>
     /// Additional parameters from the Parameters stream that are not modeled as typed properties.
     /// Preserved for round-trip fidelity.
     /// </summary>

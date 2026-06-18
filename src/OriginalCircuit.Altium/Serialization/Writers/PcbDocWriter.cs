@@ -103,6 +103,7 @@ public sealed class PcbDocWriter
         WriteEmptyStorageIfPresent(cf, document, "FromTos6");
         WriteEmptyStorageIfPresent(cf, document, "Embeddeds6");
         WriteDocumentPrimitiveGuids(cf, document);
+        WriteDocumentPrimitiveUniqueIds(cf, document);
         WriteAdditionalStreams(cf, document);
 
         cf.Save(stream);
@@ -497,6 +498,18 @@ public sealed class PcbDocWriter
             ms.Write(g.Guid.ToByteArray());
         }
         storage.AddStream("Data").SetData(ms.ToArray());
+    }
+
+    private static void WriteDocumentPrimitiveUniqueIds(CompoundFileAccessor cf, PcbDocument document)
+    {
+        if (document.PrimitiveUniqueIds.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "UniqueIDPrimitiveInformation");
+            return;
+        }
+        var storage = cf.RootStorage.AddStorage("UniqueIDPrimitiveInformation");
+        PcbLibWriter.WriteStorageHeader(storage, document.PrimitiveUniqueIds.Count);
+        storage.AddStream("Data").SetData(PcbLibWriter.BuildPrimitiveUniqueIdData(document.PrimitiveUniqueIds));
     }
 
     private static void WriteBoardRegions(CompoundFileAccessor cf, PcbDocument document)

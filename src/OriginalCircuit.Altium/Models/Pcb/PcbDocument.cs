@@ -111,6 +111,9 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>The document-level <c>PrimitiveGuids</c> object-GUID cache (typed records).</summary>
     public List<PcbPrimitiveGuid> PrimitiveGuids { get; } = new();
 
+    /// <summary>The document-level <c>UniqueIDPrimitiveInformation</c> short-id tokens (typed records).</summary>
+    public List<PcbPrimitiveUniqueId> PrimitiveUniqueIds { get; } = new();
+
     /// <summary>
     /// All differential pairs in this document.
     /// </summary>

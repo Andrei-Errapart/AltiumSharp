@@ -380,6 +380,35 @@ public sealed class PcbLibReader
         }
     }
 
+    internal static void ReadPrimitiveUniqueIds(CompoundStorage parentStorage, PcbComponent component)
+    {
+        if (!parentStorage.TryGetStorage("UniqueIDPrimitiveInformation", out var storage)) return;
+        if (!storage.TryGetStream("Data", out var stream)) return;
+        component.PrimitiveUniqueIds.AddRange(ParsePrimitiveUniqueIdRecords(stream.GetData()));
+    }
+
+    // Parses the length-prefixed |KEY=VALUE| records of a UniqueIDPrimitiveInformation/Data stream.
+    internal static IEnumerable<PcbPrimitiveUniqueId> ParsePrimitiveUniqueIdRecords(byte[] data)
+    {
+        var pos = 0;
+        while (pos + 4 <= data.Length)
+        {
+            var len = BitConverter.ToInt32(data, pos); pos += 4;
+            if (len <= 0 || pos + len > data.Length) break;
+            var text = AltiumEncoding.Windows1252.GetString(data, pos, len).TrimEnd('\0');
+            pos += len;
+            var ordered = ParseParametersOrdered(text);
+            var rec = new PcbPrimitiveUniqueId { RawParametersOrdered = ordered };
+            foreach (var kvp in ordered)
+            {
+                if (kvp.Key.Equals("PRIMITIVEINDEX", StringComparison.OrdinalIgnoreCase) && int.TryParse(kvp.Value, out var pi)) rec.PrimitiveIndex = pi;
+                else if (kvp.Key.Equals("PRIMITIVEOBJECTID", StringComparison.OrdinalIgnoreCase)) rec.ObjectId = kvp.Value;
+                else if (kvp.Key.Equals("UNIQUEID", StringComparison.OrdinalIgnoreCase)) rec.UniqueId = kvp.Value;
+            }
+            yield return rec;
+        }
+    }
+
     private static void ReadComponentParamsToc(CompoundStorage libraryStorage, PcbLibrary library)
     {
         // Library/ComponentParamsTOC/Data = [u32 byte-count][CP1252 "Name=..|Pad Count=..|Height=..|
@@ -445,13 +474,14 @@ public sealed class PcbLibReader
         // Read wide strings (Unicode text for Text primitives)
         var wideStrings = ReadWideStrings(storage);
 
-        // Parse the modeled PrimitiveGuids identity table into typed records.
+        // Parse the modeled identity tables into typed records.
         ReadPrimitiveGuids(storage, component);
+        ReadPrimitiveUniqueIds(storage, component);
 
-        // Preserve any remaining component-level streams (UniqueIdPrimitiveInformation, etc.)
+        // Preserve any remaining component-level streams.
         component.AdditionalStreams = new Dictionary<string, byte[]>();
         var knownChildren = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "Header", "Parameters", "WideStrings", "Data", "PrimitiveGuids" };
+            { "Header", "Parameters", "WideStrings", "Data", "PrimitiveGuids", "UniqueIDPrimitiveInformation" };
         foreach (var entry in storage.EnumerateEntries())
         {
             if (knownChildren.Contains(entry.Name))
