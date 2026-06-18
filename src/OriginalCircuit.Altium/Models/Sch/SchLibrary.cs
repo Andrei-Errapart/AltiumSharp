@@ -23,11 +23,12 @@ public sealed class SchLibrary : ISchLibrary
     internal Dictionary<string, string>? SectionKeys { get; set; }
 
     /// <summary>
-    /// FileHeader parameters as an ordered key/value list (HEADER, MinorVersion, UniqueID, the
-    /// font table, UseMBCS, SheetStyle, etc.). Preserved verbatim for round-trip; only Weight is
-    /// updated to the current component count. New libraries fall back to a minimal header.
+    /// FileHeader parameters as an ordered, authorable key/value list (HEADER, MinorVersion, UniqueID,
+    /// the font table, UseMBCS, SheetStyle, etc.) — the canonical representation of the library header.
+    /// Emitted verbatim (only Weight is updated to the current component count); null falls back to a
+    /// minimal header. The font table is also surfaced typed via <see cref="Fonts"/>.
     /// </summary>
-    internal List<KeyValuePair<string, string>>? HeaderParameters { get; set; }
+    public List<KeyValuePair<string, string>>? HeaderParameters { get; set; }
 
     /// <summary>
     /// Font table parsed from the FileHeader FontID table, shared by all components for rendering.
