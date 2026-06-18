@@ -292,15 +292,7 @@ public sealed class SchLibWriter
             switch (prim)
             {
                 case SchPin pin:
-                    if (unedited && pin.RawPinPayload is { Length: > 0 } pinPayload)
-                    {
-                        writer.WriteBlock(pinPayload, 0x01); // replay the binary pin record verbatim
-                        CollectPinAuxData(pin, pinIndex, pinsFrac, pinsSymbolLineWidth);
-                    }
-                    else
-                    {
-                        WritePinRecord(writer, pin, pinIndex, pinsFrac, pinsSymbolLineWidth);
-                    }
+                    WritePinRecord(writer, pin, pinIndex, pinsFrac, pinsSymbolLineWidth);
                     pinIndex++; index++;
                     break;
                 case SchLine line: WriteLineRecord(writer, line, ref index); break;
@@ -540,12 +532,14 @@ public sealed class SchLibWriter
             w.WritePascalShortString(pin.Name ?? string.Empty);
             w.WritePascalShortString(pin.Designator ?? string.Empty);
             w.WritePascalShortString(string.Empty); // SwapIdGroup (always empty in binary format)
-            // PartAndSequence: format is "Part|&|Sequence", Altium always writes "|&|" even when empty
+            // PartAndSequence: "{Part}|&|{Sequence}" when the pin has a swap-id field, else "".
+            // HasSwapIdField distinguishes the two (e.g. vendor MCU pins omit the field entirely).
             var partAndSequence = string.Empty;
-            if (pin.SwapIdPart != null && pin.SwapIdPart != "0")
-                partAndSequence = $"{pin.SwapIdPart}|&|";
-            else
-                partAndSequence = "|&|"; // Altium always writes this delimiter
+            if (pin.HasSwapIdField)
+            {
+                var part = pin.SwapIdPart != null && pin.SwapIdPart != "0" ? pin.SwapIdPart : string.Empty;
+                partAndSequence = $"{part}|&|{pin.SwapIdSequence ?? string.Empty}";
+            }
             w.WritePascalShortString(partAndSequence);
             w.WritePascalShortString(pin.DefaultValue ?? string.Empty);
         }, 0x01); // Flag = 1 for pin records
@@ -590,8 +584,8 @@ public sealed class SchLibWriter
         // Bit 3: show name, Bit 4: show designator (set = visible)
         if (pin.ShowName) conglomerate |= 0x08;
         if (pin.ShowDesignator) conglomerate |= 0x10;
-        // Bit 5: unknown, always set by Altium
-        conglomerate |= 0x20;
+        // Bit 5: IsNotAccessible, Bit 6: graphically locked.
+        if (pin.IsNotAccessible) conglomerate |= 0x20;
         if (pin.GraphicallyLocked) conglomerate |= 0x40;
 
         return conglomerate;

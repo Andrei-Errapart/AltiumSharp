@@ -316,7 +316,7 @@ public sealed class SchLibReader
         while (reader.HasMore)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var parameters = ReadRecordParameters(reader, out var orderedParams, out _, out var binaryPayload);
+            var parameters = ReadRecordParameters(reader, out var orderedParams, out _);
             if (parameters == null)
             {
                 _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
@@ -375,8 +375,6 @@ public sealed class SchLibReader
                     AddPrimitiveToComponent(component, primitive);
                     if (orderedParams != null)
                         rawRecordParams[primitive] = orderedParams;
-                    else if (binaryPayload != null && primitive is SchPin schPin)
-                        schPin.RawPinPayload = binaryPayload; // verbatim binary-pin replay
                 }
                 else if (primitive == null)
                 {
@@ -420,21 +418,16 @@ public sealed class SchLibReader
     internal static Dictionary<string, string>? ReadRecordParameters(BinaryFormatReader reader)
         => ReadRecordParameters(reader, out _, out _);
 
-    internal static Dictionary<string, string>? ReadRecordParameters(BinaryFormatReader reader,
-        out List<KeyValuePair<string, string>>? ordered, out bool isBinaryRecord)
-        => ReadRecordParameters(reader, out ordered, out isBinaryRecord, out _);
-
     /// <summary>
     /// Reads a record's parameters, additionally reporting the parameters as an ordered key/value
-    /// list (for byte-faithful verbatim round-trip) and whether the record was a binary pin record
-    /// (which has no textual parameter string and therefore cannot be re-emitted verbatim).
+    /// list (for byte-faithful verbatim round-trip of text records) and whether the record was a
+    /// binary pin record (which is decoded into the model and re-encoded by the writer, not replayed).
     /// </summary>
     internal static Dictionary<string, string>? ReadRecordParameters(BinaryFormatReader reader,
-        out List<KeyValuePair<string, string>>? ordered, out bool isBinaryRecord, out byte[]? binaryPayload)
+        out List<KeyValuePair<string, string>>? ordered, out bool isBinaryRecord)
     {
         ordered = null;
         isBinaryRecord = false;
-        binaryPayload = null;
 
         if (!reader.HasMore)
             return null;
@@ -457,13 +450,11 @@ public sealed class SchLibReader
 
             if (flags == 0x01)
             {
-                // Binary pin record — no textual parameter string to capture verbatim, so capture the
-                // raw payload bytes instead for a byte-faithful replay of the whole record.
+                // Binary pin record — decoded into the typed model and re-encoded byte-exactly by
+                // WritePinRecord (every field, incl. conglomerate flags and the part-and-sequence
+                // field, is modeled), so no verbatim payload capture is needed.
                 isBinaryRecord = true;
-                var payloadStart = reader.Position;
-                var dict = ReadBinaryPinRecord(reader, dataSize);
-                binaryPayload = reader.CaptureRawBytes(payloadStart, dataSize);
-                return dict;
+                return ReadBinaryPinRecord(reader, dataSize);
             }
             else
             {
@@ -522,10 +513,13 @@ public sealed class SchLibReader
         var partAndSequence = reader.ReadPascalShortString();
         var defaultValue = reader.ReadPascalShortString();
 
-        // SwapIdPart is encoded as "{Part}|&|{Sequence}"; recover the Part so it round-trips
-        // (binary pins otherwise always read back SwapIdPart = 0).
+        // The part-and-sequence field is "{Part}|&|{Sequence}" when present, or an empty string when
+        // the pin has no swap-id field. Decode all three (part, sequence, presence) so the writer can
+        // reproduce the exact bytes without replaying the captured string.
+        var hasSwapIdField = partAndSequence.Length > 0;
         var swapSepIndex = partAndSequence.IndexOf("|&|", StringComparison.Ordinal);
         var swapIdPart = swapSepIndex >= 0 ? partAndSequence[..swapSepIndex] : partAndSequence;
+        var swapIdSequence = swapSepIndex >= 0 ? partAndSequence[(swapSepIndex + 3)..] : string.Empty;
 
         // Consume any remaining bytes in the block
         var consumed = (int)(reader.Position - startPos);
@@ -559,6 +553,10 @@ public sealed class SchLibReader
 
         if (!string.IsNullOrEmpty(swapIdPart))
             parameters["SWAPIDPART"] = swapIdPart;
+        if (!string.IsNullOrEmpty(swapIdSequence))
+            parameters["__SWAPIDSEQUENCE"] = swapIdSequence;
+        // Mark whether the |&| block was present (distinguishes "" from "|&|" on an empty pin).
+        parameters["__HASSWAPIDFIELD"] = hasSwapIdField ? "1" : "0";
 
         return parameters;
     }
@@ -1246,14 +1244,20 @@ public sealed class SchLibReader
         pin.HiddenNetName = dto.HiddenNetName;
         pin.PinPackageLength = CoordFromDxp(dto.PinPackageLength, 0);
         pin.OwnerIndex = dto.OwnerIndex;
-        pin.IsNotAccessible = dto.IsNotAccessible;
+        // For binary pins these flags live in the conglomerate byte (like IsHidden at 0x04 above),
+        // not in separate params, so OR them in so the writer re-encodes the exact byte.
+        pin.IsNotAccessible = dto.IsNotAccessible || (cong & 0x20) != 0;
         pin.IndexInSheet = dto.IndexInSheet;
         pin.OwnerPartId = dto.OwnerPartId;
         pin.OwnerPartDisplayMode = dto.OwnerPartDisplayMode;
-        pin.GraphicallyLocked = dto.GraphicallyLocked;
+        pin.GraphicallyLocked = dto.GraphicallyLocked || (cong & 0x40) != 0;
         pin.Disabled = dto.Disabled;
         pin.Dimmed = dto.Dimmed;
         pin.UniqueId = dto.UniqueId;
+        if (parameters.TryGetValue("__SWAPIDSEQUENCE", out var swapSeq))
+            pin.SwapIdSequence = swapSeq;
+        if (parameters.TryGetValue("__HASSWAPIDFIELD", out var hasSwap))
+            pin.HasSwapIdField = hasSwap == "1";
 
         return pin;
     }

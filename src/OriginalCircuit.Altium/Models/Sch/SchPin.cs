@@ -95,6 +95,19 @@ public sealed class SchPin : ISchPin
     public string? SwapIdPart { get; set; }
 
     /// <summary>
+    /// Swap ID sequence (the text after the <c>|&amp;|</c> delimiter in the binary pin's
+    /// part-and-sequence field). Empty for most pins.
+    /// </summary>
+    public string? SwapIdSequence { get; set; }
+
+    /// <summary>
+    /// Whether the binary pin record carries a part-and-sequence field with the <c>|&amp;|</c>
+    /// delimiter (Altium writes <c>"{part}|&amp;|{sequence}"</c>) versus an empty string. Defaults
+    /// to true to match Altium's usual output; set false when the source pin had no swap-id field.
+    /// </summary>
+    internal bool HasSwapIdField { get; set; } = true;
+
+    /// <summary>
     /// Pin propagation delay.
     /// </summary>
     public int PinPropagationDelay { get; set; }
@@ -128,14 +141,6 @@ public sealed class SchPin : ISchPin
     /// Default value of the pin.
     /// </summary>
     public string? DefaultValue { get; set; }
-
-    /// <summary>
-    /// Raw bytes of the binary pin record payload as read from the source. Replayed verbatim for an
-    /// unedited component so the pin record round-trips byte-for-byte (the typed re-encode can drift on
-    /// fields like PartAndSequence, which Altium leaves empty for some pins). Null for pins built from
-    /// scratch. See SchLibWriter.WriteComponent.
-    /// </summary>
-    internal byte[]? RawPinPayload { get; set; }
 
     /// <summary>
     /// Whether the pin is hidden.
