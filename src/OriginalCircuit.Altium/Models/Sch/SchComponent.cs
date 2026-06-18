@@ -15,29 +15,6 @@ public sealed class SchComponent : ISchComponent
     internal List<object> ReadOrderedPrimitives { get; } = new();
 
     /// <summary>
-    /// Maps each child primitive (or <see cref="SchOpaqueRecord"/>) captured on read to its original
-    /// ordered parameter list, so an unedited component's text records replay byte-for-byte instead of
-    /// being regenerated from the typed model (which can drift on default/omitted params and key order).
-    /// Binary pin records are not included (they re-encode byte-faithfully from the model). Null/empty
-    /// for components built from scratch. See SchLibWriter.WriteComponent.
-    /// </summary>
-    internal Dictionary<object, List<KeyValuePair<string, string>>>? RawRecordParams { get; set; }
-
-    /// <summary>
-    /// The component-definition record's (RECORD=1) original ordered parameter list, replayed verbatim
-    /// for an unedited component so its param order/formatting round-trips exactly (the typed writer can
-    /// reorder keys such as DesignItemId). Null for components built from scratch.
-    /// </summary>
-    internal List<KeyValuePair<string, string>>? RawComponentRecord { get; set; }
-
-    /// <summary>
-    /// The child-primitive count captured immediately after load. The writer compares it to the live
-    /// count to decide whether the verbatim <see cref="RawRecordParams"/> replay is still valid (an
-    /// add/remove invalidates it, falling back to typed serialization). Null when built from scratch.
-    /// </summary>
-    internal int? LoadedChildCount { get; set; }
-
-    /// <summary>
     /// Counts modeled child primitives plus captured opaque records — the records that follow the
     /// component-definition record in the component's Data stream. Used to detect post-load edits.
     /// </summary>

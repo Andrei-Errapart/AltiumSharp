@@ -259,36 +259,13 @@ public sealed class SchLibWriter
         var index = 0;
         var pinIndex = 0;
 
-        // Byte-faithful replay is valid only when the component's child set is unchanged since load
-        // (no add/remove). An edit invalidates the count and falls through to typed serialization.
-        var unedited = component.LoadedChildCount is { } loadedCount
-            && loadedCount == component.CountChildPrimitives();
-        var rawRecordParams = unedited ? component.RawRecordParams : null;
-
-        // Write component record (the root primitive). Replay its captured params verbatim for an
-        // unedited component so the key order round-trips; otherwise regenerate from the typed model.
-        if (unedited && component.RawComponentRecord is { Count: > 0 } headerRaw)
-        {
-            writer.WriteCStringParameterBlockRaw(BuildOrderedParamString(headerRaw));
-            index++;
-        }
-        else
-        {
-            WriteComponentRecord(writer, component, ref index);
-        }
+        // Write the component record (the root primitive) from the typed model. The typed serialization
+        // is byte-exact for the whole corpus, so no captured-parameter replay is needed.
+        WriteComponentRecord(writer, component, ref index);
 
         // Dispatch a single primitive (or opaque record) to its record writer.
         void EmitPrimitive(object prim)
         {
-            // Replay the captured ordered params verbatim for an unedited text record (avoids
-            // default/omitted-param drift from typed regeneration). Pins are never captured here
-            // (binary records) and always take the typed path below.
-            if (rawRecordParams != null && rawRecordParams.TryGetValue(prim, out var orderedRaw))
-            {
-                writer.WriteCStringParameterBlockRaw(BuildOrderedParamString(orderedRaw));
-                index++;
-                return;
-            }
             switch (prim)
             {
                 case SchPin pin:
@@ -314,7 +291,13 @@ public sealed class SchLibWriter
                 case SchImage image: WriteImageRecord(writer, image, ref index); break;
                 case SchSymbol symbol: WriteSymbolRecord(writer, symbol, ref index); break;
                 case SchPowerObject powerObj: WritePowerObjectRecord(writer, powerObj, ref index); break;
-                case SchOpaqueRecord opaque: writer.WriteCStringParameterBlock(opaque.Parameters); index++; break;
+                case SchOpaqueRecord opaque:
+                    if (opaque.OrderedParameters is { Count: > 0 } op)
+                        writer.WriteCStringParameterBlockRaw(BuildOrderedParamString(op));
+                    else
+                        writer.WriteCStringParameterBlock(opaque.Parameters);
+                    index++;
+                    break;
             }
         }
 
@@ -417,8 +400,6 @@ public sealed class SchLibWriter
                 parameters["SourceLibraryName"] = schComp.SourceLibraryName;
             if (!string.IsNullOrEmpty(schComp.LibReference))
                 parameters["LibReference"] = schComp.LibReference;
-            if (!string.IsNullOrEmpty(schComp.DesignItemId))
-                parameters["DesignItemId"] = schComp.DesignItemId;
             // Note: DesignatorPrefix is NOT written to RECORD=1 (Altium derives it from the child Designator parameter text)
             AddNonZero(parameters, "ComponentKind", schComp.ComponentKind);
             AddBool(parameters, "OverideColors", schComp.OverrideColors);
@@ -427,6 +408,9 @@ public sealed class SchLibWriter
             AddNonZero(parameters, "Color", schComp.Color);
             AddBool(parameters, "DesignatorLocked", schComp.DesignatorLocked);
             AddBool(parameters, "PartIDLocked", schComp.PartIdLocked);
+            // Altium emits DesignItemId after PartIDLocked (before SymbolReference).
+            if (!string.IsNullOrEmpty(schComp.DesignItemId))
+                parameters["DesignItemId"] = schComp.DesignItemId;
             if (!string.IsNullOrEmpty(schComp.SymbolReference))
                 parameters["SymbolReference"] = schComp.SymbolReference;
             if (!string.IsNullOrEmpty(schComp.SheetPartFileName) && schComp.SheetPartFileName != "*")
@@ -633,7 +617,7 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Corner.X", rect.Corner2.X);
         AddCoordParam(parameters, "Corner.Y", rect.Corner2.Y);
         AddNonZero(parameters, "LineStyleExt", rect.LineStyle); // rectangles store the style in LineStyleExt only, before LineWidth
-        parameters["LineWidth"] = LineWidthToIndex(rect.LineWidth).ToString(CultureInfo.InvariantCulture);
+        AddNonZero(parameters, "LineWidth", LineWidthToIndex(rect.LineWidth)); // omitted when 0 (Altium)
         AddNonZero(parameters, "Color", rect.Color);
         AddNonZero(parameters, "AreaColor", rect.FillColor); // omitted when 0
         AddBool(parameters, "IsSolid", rect.IsFilled);
@@ -922,12 +906,17 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.Y", param.Location.Y);
         AddNonZero(parameters, "Color", param.Color);
         parameters["FontID"] = param.FontId.ToString(CultureInfo.InvariantCulture);
+        if (!param.IsVisible) parameters["IsHidden"] = "T"; // Altium emits IsHidden right after FontID
         // Preserve the %UTF8% prefix for round-trip fidelity, and auto-promote any value that
         // Windows-1252 cannot represent (otherwise the block encoder would replace those chars
         // with '?'). When UTF-8, the value is encoded so the block emits its UTF-8 byte sequence.
-        var useUtf8 = param.TextIsUtf8 || RequiresUtf8(param.Value);
-        parameters[useUtf8 ? "%UTF8%Text" : "Text"] =
-            useUtf8 ? AltiumEncoding.EncodeUtf8ParameterValue(param.Value) : param.Value;
+        // Altium omits the Text key entirely when the value is empty (e.g. a power port's designator).
+        if (!string.IsNullOrEmpty(param.Value))
+        {
+            var useUtf8 = param.TextIsUtf8 || RequiresUtf8(param.Value);
+            parameters[useUtf8 ? "%UTF8%Text" : "Text"] =
+                useUtf8 ? AltiumEncoding.EncodeUtf8ParameterValue(param.Value) : param.Value;
+        }
         parameters["Name"] = param.Name;
         if (param.IsReadOnly) parameters["ReadOnlyState"] = "1";
         AddNonZero(parameters, "ParamType", param.ParamType);
@@ -935,7 +924,6 @@ public sealed class SchLibWriter
         AddNonZero(parameters, "Justification", (int)param.Justification);
         AddBool(parameters, "ShowName", param.ShowName);
         AddBool(parameters, "IsMirrored", param.IsMirrored);
-        if (!param.IsVisible) parameters["IsHidden"] = "T";
         AddNonZero(parameters, "AreaColor", param.AreaColor);
         AddNonZero(parameters, "AutoPosition", param.AutoPosition);
         AddBool(parameters, "IsConfigurable", param.IsConfigurable);
@@ -1057,14 +1045,16 @@ public sealed class SchLibWriter
         AddCoordParam(parameters, "Location.Y", textFrame.Corner1.Y);
         AddCoordParam(parameters, "Corner.X", textFrame.Corner2.X);
         AddCoordParam(parameters, "Corner.Y", textFrame.Corner2.Y);
-        // Altium order: [Color] AreaColor [TextColor] FontID [LineWidth LineStyle] ShowBorder
-        // [Orientation] Alignment WordWrap ClipToRect Text TextMargin[_Frac]
+        // Altium order: [LineWidth] [Color] [LineStyle] AreaColor [TextColor] FontID IsSolid ShowBorder
+        // [Orientation] Alignment WordWrap ClipToRect Text TextMargin[_Frac] [Transparent]. LineWidth
+        // leads (before Color), and IsSolid follows FontID (both omitted when default).
+        AddNonZero(parameters, "LineWidth", textFrame.LineWidth); // omitted when 0
         AddNonZero(parameters, "Color", textFrame.BorderColor);
+        AddNonZero(parameters, "LineStyle", textFrame.LineStyle);
         parameters["AreaColor"] = textFrame.FillColor.ToString(CultureInfo.InvariantCulture);
         AddNonZero(parameters, "TextColor", textFrame.TextColor);
         parameters["FontID"] = textFrame.FontId.ToString(CultureInfo.InvariantCulture);
-        AddNonZero(parameters, "LineWidth", textFrame.LineWidth); // omitted when 0
-        AddNonZero(parameters, "LineStyle", textFrame.LineStyle);
+        AddBool(parameters, "IsSolid", textFrame.IsFilled);
         AddBool(parameters, "ShowBorder", textFrame.ShowBorder);
         AddNonZero(parameters, "Orientation", textFrame.Orientation);
         AddNonZero(parameters, "Alignment", (int)textFrame.Alignment);
@@ -1074,7 +1064,6 @@ public sealed class SchLibWriter
         AddNonZero(parameters, "TextMargin", textFrame.TextMargin);
         AddNonZero(parameters, "TextMargin_Frac", textFrame.TextMarginFrac);
         AddBool(parameters, "Transparent", textFrame.IsTransparent);
-        AddBool(parameters, "IsSolid", textFrame.IsFilled);
         AddUniqueId(parameters, textFrame.UniqueId);
 
         writer.WriteCStringParameterBlock(parameters);

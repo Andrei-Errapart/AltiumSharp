@@ -309,9 +309,6 @@ public sealed class SchLibReader
         var isFirstRecord = true;
         var pinIndex = 0;
         SchImplementation? currentImplementation = null;
-        // Capture each text record's ordered params keyed by the primitive instance, so an unedited
-        // component replays verbatim (avoids default/omitted-param drift from typed regeneration).
-        var rawRecordParams = new Dictionary<object, List<KeyValuePair<string, string>>>(ReferenceEqualityComparer.Instance);
 
         while (reader.HasMore)
         {
@@ -336,7 +333,6 @@ public sealed class SchLibReader
                 if (recordType == (int)SchRecordType.Component)
                 {
                     ApplyComponentParameters(component, parameters);
-                    component.RawComponentRecord = orderedParams;
                 }
                 isFirstRecord = false;
             }
@@ -373,17 +369,13 @@ public sealed class SchLibReader
                 {
                     // Skip string markers (ImplementationList, MapDefinerList, ImplementationParameters)
                     AddPrimitiveToComponent(component, primitive);
-                    if (orderedParams != null)
-                        rawRecordParams[primitive] = orderedParams;
                 }
                 else if (primitive == null)
                 {
                     // Record type is not modelled for SchLib (e.g. Note/Hyperlink/Harness): preserve it
                     // as an opaque record at its original position so it still round-trips, and note it.
-                    var opaque = new SchOpaqueRecord(parameters);
+                    var opaque = new SchOpaqueRecord(parameters) { OrderedParameters = orderedParams };
                     component.ReadOrderedPrimitives.Add(opaque);
-                    if (orderedParams != null)
-                        rawRecordParams[opaque] = orderedParams;
                     _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
                         $"Unsupported SchLib record type {recordType} preserved as an opaque record.", sectionKey));
                 }
@@ -403,10 +395,6 @@ public sealed class SchLibReader
         // Parse PinSymbolLineWidth auxiliary stream to set per-pin SymbolLineWidth values.
         if (pinSymLineWidthRawData is { Length: > 0 })
             ApplyPinSymbolLineWidths(component, pinSymLineWidthRawData);
-
-        if (rawRecordParams.Count > 0)
-            component.RawRecordParams = rawRecordParams;
-        component.LoadedChildCount = component.CountChildPrimitives();
 
         return component;
     }
