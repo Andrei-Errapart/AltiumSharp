@@ -1302,118 +1302,95 @@ public sealed class PcbDocReader
             if (parameters.Count == 0)
                 continue;
 
-            var component = new PcbComponent { RawParametersOrdered = PcbLibReader.ParseParametersOrdered(rawComp) };
+            var component = new PcbComponent();
             ApplyComponentParameters(component, parameters);
+            // Records using the UNICODE=EXISTS wrapping (non-Latin-1 text) replay verbatim until that
+            // param-block mechanism is modeled; everything else serializes from the typed fields.
+            if (parameters.ContainsKey("UNICODE"))
+                component.RawParametersOrdered = PcbLibReader.ParseParametersOrdered(rawComp);
             document.AddComponent(component);
         }
     }
 
-    private static void ApplyComponentParameters(PcbComponent component, Dictionary<string, string> parameters)
+    // Parses a Components6 record's parameters into a fully typed PcbComponent. Optional keys whose
+    // presence is not inferable from the value are modeled as nullable fields (null => omit on write).
+    private static void ApplyComponentParameters(PcbComponent c, Dictionary<string, string> p)
     {
-        var knownKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        void Track(params string[] keys) { foreach (var k in keys) knownKeys.Add(k); }
+        string? S(string k) => p.TryGetValue(k, out var v) ? v : null;
+        bool Bv(string k) => p.TryGetValue(k, out var v) && v.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
+        int? NI(string k) => p.TryGetValue(k, out var v) && int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : null;
 
-        // Basic identity
-        Track("PATTERN", "DESCRIPTION", "HEIGHT", "COMMENT", "X", "Y", "ROTATION", "LAYER");
-        if (parameters.TryGetValue("PATTERN", out var pattern))
-            component.Name = pattern;
-        if (parameters.TryGetValue("DESCRIPTION", out var description))
-            component.Description = description;
-        if (TryParseMilCoord(parameters, "HEIGHT", out var height))
-            component.Height = height;
-        if (parameters.TryGetValue("COMMENT", out var comment))
-            component.Comment = comment;
-        if (TryParseMilCoord(parameters, "X", out var x))
-            component.X = x;
-        if (TryParseMilCoord(parameters, "Y", out var y))
-            component.Y = y;
-        if (parameters.TryGetValue("ROTATION", out var rotStr) && double.TryParse(rotStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var rotation))
-            component.Rotation = rotation;
-        if (parameters.TryGetValue("LAYER", out var layerStr))
-            component.Layer = ParseLayerValue(layerStr);
+        c.Selection = Bv("SELECTION");
+        if (S("LAYER") is { } layer) c.Layer = ParseLayerValue(layer);
+        c.Locked = Bv("LOCKED");
+        c.PolygonOutline = Bv("POLYGONOUTLINE");
+        c.UserRouted = Bv("USERROUTED");
+        c.IsKeepout = Bv("KEEPOUT");
+        c.PrimitiveLock = Bv("PRIMITIVELOCK");
+        if (S("X") is { } xs) c.X = ParamMilCoord(xs);
+        if (S("Y") is { } ys) c.Y = ParamMilCoord(ys);
+        if (S("PATTERN") is { } pat) c.Name = pat;
+        c.Description = S("DESCRIPTION");
+        c.NameOn = Bv("NAMEON");
+        c.CommentOn = Bv("COMMENTON");
+        c.Comment = S("COMMENT");
+        c.LockStrings = Bv("LOCKSTRINGS");
+        if (NI("GROUPNUM") is { } gn) c.GroupNum = gn;
+        if (NI("COUNT") is { } cnt) c.Count = cnt;
+        if (S("ROTATION") is { } rot && double.TryParse(rot.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var rotation))
+            c.Rotation = rotation;
+        if (S("HEIGHT") is { } h) c.Height = ParamMilCoord(h);
+        c.NameAutoPosition = NI("NAMEAUTOPOSITION");
+        c.CommentAutoPosition = NI("COMMENTAUTOPOSITION");
+        if (NI("UNIONINDEX") is { } ui) c.UnionIndex = ui;
+        if (p.ContainsKey("ENABLED")) c.Enabled = Bv("ENABLED");
+        c.FlippedOnLayer = Bv("FLIPPEDONLAYER");
+        c.IsBGA = Bv("ISBGA");
+        c.ComponentKind = NI("COMPONENTKIND");
+        c.ComponentKindVersion2 = NI("COMPONENTKINDVERSION2");
+        c.ChannelOffset = NI("CHANNELOFFSET");
+        c.SourceDesignator = S("SOURCEDESIGNATOR");
+        c.SourceUniqueId = S("SOURCEUNIQUEID");
+        c.SourceHierarchicalPath = S("SOURCEHIERARCHICALPATH");
+        c.SourceFootprintLibrary = S("SOURCEFOOTPRINTLIBRARY");
+        c.SourceComponentLibrary = S("SOURCECOMPONENTLIBRARY");
+        c.SourceLibReference = S("SOURCELIBREFERENCE");
+        c.SourceDescription = S("SOURCEDESCRIPTION");
+        c.FootprintDescription = S("FOOTPRINTDESCRIPTION");
+        c.SourceCompDesignItemID = S("SOURCECOMPDESIGNITEMID");
+        c.SourceCompLibIdentifierKind = NI("SOURCECOMPLIBIDENTIFIERKIND");
+        c.SourceCompLibraryIdentifier = S("SOURCECOMPLIBRARYIDENTIFIER");
+        c.VaultGUID = S("VAULTGUID");
+        c.ItemGUID = S("ITEMGUID");
+        c.ItemRevisionGUID = S("ITEMREVISIONGUID");
+        c.ModelHash = S("MODELHASH");
+        c.PackageSpecificHash = S("PACKAGESPECIFICHASH");
+        c.DefaultPCB3DModel = S("DEFAULTPCB3DMODEL");
+        if (S("UNIQUEID") is { } uid) c.UniqueId = uid;
+        if (p.ContainsKey("JUMPERSVISIBLE")) c.JumpersVisible = Bv("JUMPERSVISIBLE");
+        if (S("AREA") is { } ar && decimal.TryParse(ar, NumberStyles.Float, CultureInfo.InvariantCulture, out var area))
+            c.Area = area;
 
-        // Display
-        Track("COMMENTON", "COMMENTAUTOPOSITION", "NAMEON", "NAMEAUTOPOSITION", "LOCKSTRINGS");
-        if (TryGetBool(parameters, "COMMENTON", out var commentOn))
-            component.CommentOn = commentOn;
-        if (parameters.TryGetValue("COMMENTAUTOPOSITION", out var capStr) && int.TryParse(capStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cap))
-            component.CommentAutoPosition = cap;
-        if (TryGetBool(parameters, "NAMEON", out var nameOn))
-            component.NameOn = nameOn;
-        if (parameters.TryGetValue("NAMEAUTOPOSITION", out var napStr) && int.TryParse(napStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var nap))
-            component.NameAutoPosition = nap;
-        if (TryGetBool(parameters, "LOCKSTRINGS", out var lockStrings))
-            component.LockStrings = lockStrings;
-
-        // Component state
-        Track("COMPONENTKIND", "ENABLED", "FLIPPEDONLAYER", "GROUPNUM", "ISBGA", "CHANNELOFFSET");
-        if (parameters.TryGetValue("COMPONENTKIND", out var ckStr) && int.TryParse(ckStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ck))
-            component.ComponentKind = ck;
-        if (TryGetBool(parameters, "ENABLED", out var enabled))
-            component.Enabled = enabled;
-        if (TryGetBool(parameters, "FLIPPEDONLAYER", out var flipped))
-            component.FlippedOnLayer = flipped;
-        if (parameters.TryGetValue("GROUPNUM", out var gnStr) && int.TryParse(gnStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var gn))
-            component.GroupNum = gn;
-        if (TryGetBool(parameters, "ISBGA", out var isBga))
-            component.IsBGA = isBga;
-        if (parameters.TryGetValue("CHANNELOFFSET", out var coStr) && int.TryParse(coStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var co))
-            component.ChannelOffset = co;
-
-        // Source info
-        Track("SOURCEDESIGNATOR", "SOURCELIBREFRENCE", "SOURCECOMPONENTLIBRARY",
-              "SOURCEDESCRIPTION", "SOURCEFOOTPRINTLIBRARY", "SOURCEUNIQUEID",
-              "SOURCEHIERARCHICALPATH", "SOURCECOMPDESIGNITEMID",
-              "FOOTPRINTDESCRIPTION");
-        if (parameters.TryGetValue("FOOTPRINTDESCRIPTION", out var fpDesc))
-            component.FootprintDescription = fpDesc;
-        if (parameters.TryGetValue("SOURCEDESIGNATOR", out var srcDesg))
-            component.SourceDesignator = srcDesg;
-        if (parameters.TryGetValue("SOURCELIBREFRENCE", out var srcLibRef))
-            component.SourceLibReference = srcLibRef;
-        if (parameters.TryGetValue("SOURCECOMPONENTLIBRARY", out var srcCompLib))
-            component.SourceComponentLibrary = srcCompLib;
-        if (parameters.TryGetValue("SOURCEDESCRIPTION", out var srcDesc))
-            component.SourceDescription = srcDesc;
-        if (parameters.TryGetValue("SOURCEFOOTPRINTLIBRARY", out var srcFpLib))
-            component.SourceFootprintLibrary = srcFpLib;
-        if (parameters.TryGetValue("SOURCEUNIQUEID", out var srcUid))
-            component.SourceUniqueId = srcUid;
-        if (parameters.TryGetValue("SOURCEHIERARCHICALPATH", out var srcHierPath))
-            component.SourceHierarchicalPath = srcHierPath;
-        if (parameters.TryGetValue("SOURCECOMPDESIGNITEMID", out var srcCompId))
-            component.SourceCompDesignItemID = srcCompId;
-
-        // Vault/GUID
-        Track("ITEMGUID", "REVISIONGUID", "VAULTGUID", "UNIQUEID");
-        if (parameters.TryGetValue("ITEMGUID", out var itemGuid))
-            component.ItemGUID = itemGuid;
-        if (parameters.TryGetValue("REVISIONGUID", out var revGuid))
-            component.ItemRevisionGUID = revGuid;
-        if (parameters.TryGetValue("VAULTGUID", out var vaultGuid))
-            component.VaultGUID = vaultGuid;
-        if (parameters.TryGetValue("UNIQUEID", out var uniqueId))
-            component.UniqueId = uniqueId;
-
-        // Hash/model
-        Track("MODELHASH", "PACKAGESPECIFICHASH", "DEFAULTPCB3DMODEL");
-        if (parameters.TryGetValue("MODELHASH", out var modelHash))
-            component.ModelHash = modelHash;
-        if (parameters.TryGetValue("PACKAGESPECIFICHASH", out var pkgHash))
-            component.PackageSpecificHash = pkgHash;
-        if (parameters.TryGetValue("DEFAULTPCB3DMODEL", out var def3d))
-            component.DefaultPCB3DModel = def3d;
-
-        // Capture unknown parameters for round-trip fidelity
-        var additional = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var kvp in parameters)
+        // Preserve any keys the typed model doesn't cover (forward-compat; empty for the corpus).
+        foreach (var kvp in p)
         {
-            if (!knownKeys.Contains(kvp.Key))
-                additional[kvp.Key] = kvp.Value;
+            if (!ComponentKnownKeys.Contains(kvp.Key))
+                (c.AdditionalParameters ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))[kvp.Key] = kvp.Value;
         }
-        if (additional.Count > 0)
-            component.AdditionalParameters = additional;
     }
+
+    private static readonly HashSet<string> ComponentKnownKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SELECTION", "LAYER", "LOCKED", "POLYGONOUTLINE", "USERROUTED", "KEEPOUT", "PRIMITIVELOCK",
+        "X", "Y", "PATTERN", "DESCRIPTION", "NAMEON", "COMMENTON", "COMMENT", "LOCKSTRINGS",
+        "GROUPNUM", "COUNT", "ROTATION", "HEIGHT", "NAMEAUTOPOSITION", "COMMENTAUTOPOSITION",
+        "UNIONINDEX", "ENABLED", "FLIPPEDONLAYER", "ISBGA", "COMPONENTKIND", "COMPONENTKINDVERSION2",
+        "CHANNELOFFSET", "SOURCEDESIGNATOR", "SOURCEUNIQUEID", "SOURCEHIERARCHICALPATH",
+        "SOURCEFOOTPRINTLIBRARY", "SOURCECOMPONENTLIBRARY", "SOURCELIBREFERENCE", "SOURCEDESCRIPTION",
+        "FOOTPRINTDESCRIPTION", "SOURCECOMPDESIGNITEMID", "SOURCECOMPLIBIDENTIFIERKIND",
+        "SOURCECOMPLIBRARYIDENTIFIER", "VAULTGUID", "ITEMGUID", "ITEMREVISIONGUID", "MODELHASH",
+        "PACKAGESPECIFICHASH", "DEFAULTPCB3DMODEL", "UNIQUEID", "JUMPERSVISIBLE", "AREA",
+    };
 
     /// <summary>
     /// Reads a primitive storage section. Each storage has a Header stream (record count)

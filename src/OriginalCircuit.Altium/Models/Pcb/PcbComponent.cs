@@ -36,14 +36,37 @@ public sealed class PcbComponent : IPcbComponent
     public bool CommentOn { get; set; }
 
     /// <summary>
-    /// Comment auto-position mode.
+    /// Comment auto-position mode (the optional <c>COMMENTAUTOPOSITION</c> key); null when absent.
     /// </summary>
-    public int CommentAutoPosition { get; set; }
+    public int? CommentAutoPosition { get; set; }
 
     /// <summary>
-    /// Component kind.
+    /// Component kind (the optional <c>COMPONENTKIND</c> key); null when absent (presence is not
+    /// inferable from the value — 0 occurs both present and absent).
     /// </summary>
-    public int ComponentKind { get; set; }
+    public int? ComponentKind { get; set; }
+
+    /// <summary>Second component-kind enum (the optional <c>COMPONENTKINDVERSION2</c> key); null when absent.</summary>
+    public int? ComponentKindVersion2 { get; set; }
+
+    /// <summary>Selection flag (transient; FALSE on disk).</summary>
+    public bool Selection { get; set; }
+
+    /// <summary>Whether the component is locked (the <c>LOCKED</c> key).</summary>
+    public bool Locked { get; set; }
+
+    /// <summary>Channel-array count (the always-present <c>COUNT</c> key).</summary>
+    public int Count { get; set; }
+
+    /// <summary>Source component-library identifier kind (optional <c>SOURCECOMPLIBIDENTIFIERKIND</c>); null when absent.</summary>
+    public int? SourceCompLibIdentifierKind { get; set; }
+
+    /// <summary>Source component-library identifier (optional <c>SOURCECOMPLIBRARYIDENTIFIER</c>); null when absent.</summary>
+    public string? SourceCompLibraryIdentifier { get; set; }
+
+    /// <summary>Component area cache in internal units squared (the trailing optional <c>AREA</c> key);
+    /// null when absent. Stored as decimal so the high-precision value round-trips exactly.</summary>
+    public decimal? Area { get; set; }
 
     /// <summary>
     /// Whether the component is enabled.
@@ -183,7 +206,7 @@ public sealed class PcbComponent : IPcbComponent
     /// <summary>
     /// Name auto-position mode.
     /// </summary>
-    public int NameAutoPosition { get; set; }
+    public int? NameAutoPosition { get; set; }
 
     /// <summary>
     /// Whether the name is displayed.
@@ -338,7 +361,7 @@ public sealed class PcbComponent : IPcbComponent
     /// <summary>
     /// Channel offset.
     /// </summary>
-    public int ChannelOffset { get; set; }
+    public int? ChannelOffset { get; set; }
 
     /// <summary>
     /// Whether this component allows global editing.

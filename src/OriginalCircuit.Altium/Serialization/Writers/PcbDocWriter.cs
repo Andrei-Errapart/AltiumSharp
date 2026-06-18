@@ -956,106 +956,79 @@ public sealed class PcbDocWriter
         dataStream.SetData(ms.ToArray());
     }
 
-    private static void WriteComponentParameters(BinaryFormatWriter writer, PcbComponent comp)
+    // Serializes a PcbComponent to its Components6 parameter block in Altium's canonical key order,
+    // emitting optional keys only when present (nullable fields / non-default), so a fully typed
+    // component round-trips byte-for-byte without replaying the captured block.
+    private static void WriteComponentParameters(BinaryFormatWriter writer, PcbComponent c)
     {
-        // Round-trip: re-emit the original component parameter block verbatim (preserves key
-        // order, mil formatting and all attributes). New components fall back to typed fields.
-        if (comp.RawParametersOrdered is { Count: > 0 } ordered)
+        // UNICODE=EXISTS-wrapped records replay verbatim until that mechanism is modeled.
+        if (c.RawParametersOrdered is { Count: > 0 } ordered)
         {
-            var sb = new System.Text.StringBuilder();
+            var ub = new System.Text.StringBuilder();
             foreach (var kvp in ordered)
-                sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
-            writer.WriteCStringParameterBlockRaw(sb.ToString());
+                ub.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+            writer.WriteCStringParameterBlockRaw(ub.ToString());
             return;
         }
 
-        var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var sb = new System.Text.StringBuilder();
+        void Add(string k, string v) => sb.Append('|').Append(k).Append('=').Append(v);
+        string B(bool x) => x ? "TRUE" : "FALSE";
+        string I(int x) => x.ToString(CultureInfo.InvariantCulture);
+        string M(Coord co) => FormatMilUnits(co.ToRaw());
 
-        // Merge AdditionalParameters first (typed properties override)
-        if (comp.AdditionalParameters != null)
-        {
-            foreach (var kvp in comp.AdditionalParameters)
-                parameters[kvp.Key] = kvp.Value;
-        }
-
-        // Basic identity
-        parameters["PATTERN"] = comp.Name;
-        if (!string.IsNullOrEmpty(comp.Description))
-            parameters["DESCRIPTION"] = comp.Description;
-        if (comp.Height.ToRaw() != 0)
-            parameters["HEIGHT"] = comp.Height.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (!string.IsNullOrEmpty(comp.Comment))
-            parameters["COMMENT"] = comp.Comment;
-        if (comp.X.ToRaw() != 0)
-            parameters["X"] = comp.X.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (comp.Y.ToRaw() != 0)
-            parameters["Y"] = comp.Y.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (comp.Rotation != 0)
-            parameters["ROTATION"] = comp.Rotation.ToString(CultureInfo.InvariantCulture);
-        if (comp.Layer != 0)
-            parameters["LAYER"] = comp.Layer.ToString(CultureInfo.InvariantCulture);
-
-        // Display
-        if (comp.CommentOn)
-            parameters["COMMENTON"] = "TRUE";
-        if (comp.CommentAutoPosition != 0)
-            parameters["COMMENTAUTOPOSITION"] = comp.CommentAutoPosition.ToString(CultureInfo.InvariantCulture);
-        if (comp.NameOn)
-            parameters["NAMEON"] = "TRUE";
-        if (comp.NameAutoPosition != 0)
-            parameters["NAMEAUTOPOSITION"] = comp.NameAutoPosition.ToString(CultureInfo.InvariantCulture);
-        if (comp.LockStrings)
-            parameters["LOCKSTRINGS"] = "TRUE";
-
-        // Component state
-        if (comp.ComponentKind != 0)
-            parameters["COMPONENTKIND"] = comp.ComponentKind.ToString(CultureInfo.InvariantCulture);
-        if (!comp.Enabled)
-            parameters["ENABLED"] = "FALSE";
-        if (comp.FlippedOnLayer)
-            parameters["FLIPPEDONLAYER"] = "TRUE";
-        if (comp.GroupNum != 0)
-            parameters["GROUPNUM"] = comp.GroupNum.ToString(CultureInfo.InvariantCulture);
-        if (comp.IsBGA)
-            parameters["ISBGA"] = "TRUE";
-
-        // Source info
-        if (!string.IsNullOrEmpty(comp.SourceDesignator))
-            parameters["SOURCEDESIGNATOR"] = comp.SourceDesignator;
-        if (!string.IsNullOrEmpty(comp.SourceLibReference))
-            parameters["SOURCELIBREFRENCE"] = comp.SourceLibReference;
-        if (!string.IsNullOrEmpty(comp.SourceComponentLibrary))
-            parameters["SOURCECOMPONENTLIBRARY"] = comp.SourceComponentLibrary;
-        if (!string.IsNullOrEmpty(comp.SourceDescription))
-            parameters["SOURCEDESCRIPTION"] = comp.SourceDescription;
-        if (!string.IsNullOrEmpty(comp.SourceFootprintLibrary))
-            parameters["SOURCEFOOTPRINTLIBRARY"] = comp.SourceFootprintLibrary;
-        if (!string.IsNullOrEmpty(comp.SourceUniqueId))
-            parameters["SOURCEUNIQUEID"] = comp.SourceUniqueId;
-        if (!string.IsNullOrEmpty(comp.SourceHierarchicalPath))
-            parameters["SOURCEHIERARCHICALPATH"] = comp.SourceHierarchicalPath;
-        if (!string.IsNullOrEmpty(comp.SourceCompDesignItemID))
-            parameters["SOURCECOMPDESIGNITEMID"] = comp.SourceCompDesignItemID;
-
-        // Vault/GUID
-        if (!string.IsNullOrEmpty(comp.ItemGUID))
-            parameters["ITEMGUID"] = comp.ItemGUID;
-        if (!string.IsNullOrEmpty(comp.ItemRevisionGUID))
-            parameters["REVISIONGUID"] = comp.ItemRevisionGUID;
-        if (!string.IsNullOrEmpty(comp.VaultGUID))
-            parameters["VAULTGUID"] = comp.VaultGUID;
-        if (!string.IsNullOrEmpty(comp.UniqueId))
-            parameters["UNIQUEID"] = comp.UniqueId;
-
-        // Hash/model
-        if (!string.IsNullOrEmpty(comp.ModelHash))
-            parameters["MODELHASH"] = comp.ModelHash;
-        if (!string.IsNullOrEmpty(comp.PackageSpecificHash))
-            parameters["PACKAGESPECIFICHASH"] = comp.PackageSpecificHash;
-        if (!string.IsNullOrEmpty(comp.DefaultPCB3DModel))
-            parameters["DEFAULTPCB3DMODEL"] = comp.DefaultPCB3DModel;
-
-        writer.WriteCStringParameterBlock(parameters);
+        Add("SELECTION", B(c.Selection));
+        Add("LAYER", LayerByteToName(c.Layer));
+        Add("LOCKED", B(c.Locked));
+        Add("POLYGONOUTLINE", B(c.PolygonOutline));
+        Add("USERROUTED", B(c.UserRouted));
+        Add("KEEPOUT", B(c.IsKeepout));
+        Add("PRIMITIVELOCK", B(c.PrimitiveLock));
+        Add("X", M(c.X));
+        Add("Y", M(c.Y));
+        Add("PATTERN", c.Name);
+        if (c.Description != null) Add("DESCRIPTION", c.Description);
+        Add("NAMEON", B(c.NameOn));
+        Add("COMMENTON", B(c.CommentOn));
+        if (c.Comment != null) Add("COMMENT", c.Comment);
+        if (c.LockStrings) Add("LOCKSTRINGS", "TRUE");
+        Add("GROUPNUM", I(c.GroupNum));
+        Add("COUNT", I(c.Count));
+        Add("ROTATION", DelphiExp(c.Rotation));
+        if (c.Height.ToRaw() != 0) Add("HEIGHT", M(c.Height));
+        if (c.NameAutoPosition is { } nap) Add("NAMEAUTOPOSITION", I(nap));
+        if (c.CommentAutoPosition is { } cap) Add("COMMENTAUTOPOSITION", I(cap));
+        Add("UNIONINDEX", I(c.UnionIndex));
+        if (!c.Enabled) Add("ENABLED", "FALSE");
+        if (c.FlippedOnLayer) Add("FLIPPEDONLAYER", "TRUE");
+        if (c.IsBGA) Add("ISBGA", "TRUE");
+        if (c.ComponentKind is { } ck) Add("COMPONENTKIND", I(ck));
+        if (c.ComponentKindVersion2 is { } ckv) Add("COMPONENTKINDVERSION2", I(ckv));
+        if (c.ChannelOffset is { } cho) Add("CHANNELOFFSET", I(cho));
+        if (c.SourceDesignator != null) Add("SOURCEDESIGNATOR", c.SourceDesignator);
+        if (c.SourceUniqueId != null) Add("SOURCEUNIQUEID", c.SourceUniqueId);
+        if (c.SourceHierarchicalPath != null) Add("SOURCEHIERARCHICALPATH", c.SourceHierarchicalPath);
+        if (c.SourceFootprintLibrary != null) Add("SOURCEFOOTPRINTLIBRARY", c.SourceFootprintLibrary);
+        if (c.SourceComponentLibrary != null) Add("SOURCECOMPONENTLIBRARY", c.SourceComponentLibrary);
+        if (c.SourceLibReference != null) Add("SOURCELIBREFERENCE", c.SourceLibReference);
+        if (c.SourceDescription != null) Add("SOURCEDESCRIPTION", c.SourceDescription);
+        if (c.FootprintDescription != null) Add("FOOTPRINTDESCRIPTION", c.FootprintDescription);
+        if (c.SourceCompDesignItemID != null) Add("SOURCECOMPDESIGNITEMID", c.SourceCompDesignItemID);
+        if (c.SourceCompLibIdentifierKind is { } sclik) Add("SOURCECOMPLIBIDENTIFIERKIND", I(sclik));
+        if (c.SourceCompLibraryIdentifier != null) Add("SOURCECOMPLIBRARYIDENTIFIER", c.SourceCompLibraryIdentifier);
+        if (c.VaultGUID != null) Add("VAULTGUID", c.VaultGUID);
+        if (c.ItemGUID != null) Add("ITEMGUID", c.ItemGUID);
+        if (c.ItemRevisionGUID != null) Add("ITEMREVISIONGUID", c.ItemRevisionGUID);
+        if (c.ModelHash != null) Add("MODELHASH", c.ModelHash);
+        if (c.PackageSpecificHash != null) Add("PACKAGESPECIFICHASH", c.PackageSpecificHash);
+        if (c.DefaultPCB3DModel != null) Add("DEFAULTPCB3DMODEL", c.DefaultPCB3DModel);
+        if (c.UniqueId != null) Add("UNIQUEID", c.UniqueId);
+        Add("JUMPERSVISIBLE", B(c.JumpersVisible));
+        if (c.Area is { } area) Add("AREA", area.ToString("F6", CultureInfo.InvariantCulture));
+        if (c.AdditionalParameters != null)
+            foreach (var kvp in c.AdditionalParameters)
+                Add(kvp.Key, kvp.Value);
+        writer.WriteCStringParameterBlockRaw(sb.ToString());
     }
 
     private static void WriteEmbeddedBoards(CompoundFileAccessor cf, PcbDocument document)
