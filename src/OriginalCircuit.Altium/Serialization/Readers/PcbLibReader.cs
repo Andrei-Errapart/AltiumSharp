@@ -1598,9 +1598,8 @@ public sealed class PcbLibReader
         var holeCount = reader.ReadUInt16();
         reader.Skip(2);
 
-        // Read nested C-string parameter block (capture ordered form for faithful round-trip)
-        var parameters = ReadParameterBlock(reader, out var rawRegionParams);
-        var orderedRegionParams = ParseParametersOrdered(rawRegionParams);
+        // Read nested C-string parameter block, parsed into the region's typed fields.
+        var parameters = ReadParameterBlock(reader, out _);
 
         // Read outline vertices (stored as 16-byte x,y doubles in Altium format). The exact doubles are
         // preserved alongside the integer Outline so the fractional sub-coord precision round-trips.
@@ -1652,7 +1651,6 @@ public sealed class PcbLibReader
             reader.Skip((int)remaining);
 
         var result = region.Build();
-        result.RawParametersOrdered = orderedRegionParams;
         result.OutlineExact = outlineExact;
         result.HolesExact = holesExact;
         result.RawFlags = flags;
@@ -1668,17 +1666,57 @@ public sealed class PcbLibReader
         result.IsTentingBottom = isTentingBottom;
         result.IsKeepout = isKeepout;
 
-        // Extract typed properties from parameter block
+        // Extract typed properties from the nested parameter block.
+        bool ParamBool(string k) => parameters.TryGetValue(k, out var v) && v.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
+        if (parameters.TryGetValue("V7_LAYER", out var v7layer))
+            result.V7LayerName = v7layer;
+        if (parameters.TryGetValue("NAME", out var name))
+            result.Name = name;
+        if (parameters.TryGetValue("LAYER", out var blayer))
+            result.BoardRegionLayer = blayer;
+        if (parameters.ContainsKey("KEEPOUT"))
+            result.BoardRegionKeepout = ParamBool("KEEPOUT");
+        if (parameters.ContainsKey("ISBOARDCUTOUT"))
+            result.IsBoardCutout = ParamBool("ISBOARDCUTOUT");
+        if (parameters.TryGetValue("SUBPOLYINDEX", out var spi)
+            && int.TryParse(spi, NumberStyles.Integer, CultureInfo.InvariantCulture, out var spiVal))
+            result.SubPolyIndex = spiVal;
+        if (parameters.TryGetValue("UNIONINDEX", out var uix)
+            && int.TryParse(uix, NumberStyles.Integer, CultureInfo.InvariantCulture, out var uixVal))
+            result.UnionIndex = uixVal;
+        if (parameters.TryGetValue("ARCRESOLUTION", out var arc) && TryParseCoord(arc, out var arcCoord))
+            result.ArcApproximation = arcCoord;
+        if (parameters.TryGetValue("ISSHAPEBASED", out var isb))
+            result.IsShapeBased = isb.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
+        if (parameters.TryGetValue("CAVITYHEIGHT", out var cav) && TryParseCoord(cav, out var cavCoord))
+            result.CavityHeight = cavCoord;
+        if (parameters.TryGetValue("KEEPOUTRESTRICTIONS", out var kor)
+            && int.TryParse(kor, NumberStyles.Integer, CultureInfo.InvariantCulture, out var korVal))
+            result.KeepoutRestrictions = korVal;
+        if (parameters.TryGetValue("PADINDEX", out var pix)
+            && int.TryParse(pix, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pixVal))
+            result.PadIndex = pixVal;
+        if (parameters.TryGetValue("OBJECTKIND", out var objk))
+            result.ObjectKind = objk;
+        if (parameters.TryGetValue("BENDINGLINECOUNT", out var blc)
+            && int.TryParse(blc, NumberStyles.Integer, CultureInfo.InvariantCulture, out var blcVal))
+            result.BendingLineCount = blcVal;
+        if (parameters.ContainsKey("LOCKED3D"))
+            result.Locked3D = ParamBool("LOCKED3D");
+        if (parameters.TryGetValue("LAYERSTACKID", out var lsid))
+            result.LayerStackId = lsid;
+        // NET/UNIQUEID are not part of the corpus region block; populate the convenience fields if
+        // present and let the catch-all round-trip them.
         if (parameters.TryGetValue("NET", out var net))
             result.Net = net;
         if (parameters.TryGetValue("UNIQUEID", out var uid))
             result.UniqueId = uid;
-        if (parameters.TryGetValue("NAME", out var name))
-            result.Name = name;
 
-        // Preserve any additional parameters not modeled as typed properties
+        // Preserve any additional parameters not modeled as typed properties (kept for forward-compat).
         result.AdditionalParameters = ExtractAdditionalParameters(parameters,
-            ["KIND", "NET", "UNIQUEID", "NAME"]);
+            ["V7_LAYER", "NAME", "LAYER", "KEEPOUT", "ISBOARDCUTOUT", "KIND", "SUBPOLYINDEX",
+             "UNIONINDEX", "ARCRESOLUTION", "ISSHAPEBASED", "CAVITYHEIGHT", "KEEPOUTRESTRICTIONS",
+             "PADINDEX", "OBJECTKIND", "BENDINGLINECOUNT", "LOCKED3D", "LAYERSTACKID"]);
 
         return result;
     }

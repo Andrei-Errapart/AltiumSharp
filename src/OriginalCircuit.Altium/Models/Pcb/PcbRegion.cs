@@ -248,17 +248,50 @@ public sealed class PcbRegion : IPcbRegion
     }
 
     /// <summary>
+    /// The layer name as stored in the nested parameter block's <c>V7_LAYER</c> key (verbatim token,
+    /// e.g. <c>TOP</c>, <c>KEEPOUT</c>). Null for regions built from scratch, in which case the writer
+    /// derives the token from <see cref="Layer"/>.
+    /// </summary>
+    public string? V7LayerName { get; set; }
+
+    /// <summary>Board-region layer token (the optional <c>LAYER</c> key on layer-stack regions, e.g. <c>KEEPOUT</c>); null when absent.</summary>
+    public string? BoardRegionLayer { get; set; }
+
+    /// <summary>The optional <c>KEEPOUT</c> param flag on layer-stack regions; null when absent.</summary>
+    public bool? BoardRegionKeepout { get; set; }
+
+    /// <summary>Whether this is a board cutout (the optional <c>ISBOARDCUTOUT</c> key); null when absent.</summary>
+    public bool? IsBoardCutout { get; set; }
+
+    /// <summary>Sub-polygon index (the <c>SUBPOLYINDEX</c> key); -1 when the region is not a polygon sub-shape.</summary>
+    public int SubPolyIndex { get; set; } = -1;
+
+    /// <summary>Whether the region is shape-based (the <c>ISSHAPEBASED</c> key).</summary>
+    public bool IsShapeBased { get; set; }
+
+    /// <summary>Keepout restriction flags (the optional <c>KEEPOUTRESTRICTIONS</c> key); null when absent.</summary>
+    public int? KeepoutRestrictions { get; set; }
+
+    /// <summary>Owning pad index (the optional <c>PADINDEX</c> key); null when absent.</summary>
+    public int? PadIndex { get; set; }
+
+    /// <summary>Object kind token on layer-stack regions (the optional <c>OBJECTKIND</c> key, e.g. <c>BoardRegion</c>); null when absent.</summary>
+    public string? ObjectKind { get; set; }
+
+    /// <summary>Bending-line count for rigid-flex layer-stack regions (the optional <c>BENDINGLINECOUNT</c> key); null when absent.</summary>
+    public int? BendingLineCount { get; set; }
+
+    /// <summary>The optional 3D-lock flag on layer-stack regions (the <c>LOCKED3D</c> key); null when absent.</summary>
+    public bool? Locked3D { get; set; }
+
+    /// <summary>Layer-stack id GUID for layer-stack regions (the optional <c>LAYERSTACKID</c> key); null when absent.</summary>
+    public string? LayerStackId { get; set; }
+
+    /// <summary>
     /// Additional parameters from the nested C-string block that are not modeled as typed properties.
     /// Preserved for round-trip fidelity.
     /// </summary>
     public Dictionary<string, string>? AdditionalParameters { get; set; }
-
-    /// <summary>
-    /// The nested parameter block as an ordered key/value list, preserving key order, duplicate
-    /// keys and Altium's mil value formatting. Serialized verbatim for a byte-faithful round-trip;
-    /// regions built from scratch fall back to the typed properties.
-    /// </summary>
-    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
 
     /// <summary>
     /// Exact outline vertices as the IEEE doubles Altium stores (sub-coordinate precision the integer

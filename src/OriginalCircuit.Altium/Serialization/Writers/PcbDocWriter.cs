@@ -1113,7 +1113,7 @@ public sealed class PcbDocWriter
         return (v < 0 ? "-" : " ") + mantissa;
     }
 
-    private static string LayerByteToName(int layer)
+    internal static string LayerByteToName(int layer)
     {
         return layer switch
         {

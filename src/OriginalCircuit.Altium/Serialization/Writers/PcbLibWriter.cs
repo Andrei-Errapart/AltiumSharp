@@ -382,6 +382,45 @@ public sealed class PcbLibWriter
     private static string FormatMilCoord(Coord coord)
         => coord.ToMils().ToString("0.######", System.Globalization.CultureInfo.InvariantCulture) + "mil";
 
+    // Reassembles a region's nested parameter block in Altium's canonical key order (no leading '|'),
+    // from the region's typed fields. Optional keys (KEEPOUTRESTRICTIONS, PADINDEX) are emitted only
+    // when present; any forward-compat AdditionalParameters follow.
+    private static string BuildRegionParamText(PcbRegion region)
+    {
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        var pairs = new List<KeyValuePair<string, string>>();
+        void Add(string k, string v) => pairs.Add(new KeyValuePair<string, string>(k, v));
+
+        string B(bool x) => x ? "TRUE" : "FALSE";
+        Add("V7_LAYER", region.V7LayerName ?? PcbDocWriter.LayerByteToName(region.Layer));
+        Add("NAME", region.Name ?? string.Empty);
+        if (region.BoardRegionLayer is { } brl) Add("LAYER", brl);
+        if (region.BoardRegionKeepout is { } brk) Add("KEEPOUT", B(brk));
+        if (region.IsBoardCutout is { } ibc) Add("ISBOARDCUTOUT", B(ibc));
+        Add("KIND", region.Kind.ToString(ci));
+        Add("SUBPOLYINDEX", region.SubPolyIndex.ToString(ci));
+        Add("UNIONINDEX", region.UnionIndex.ToString(ci));
+        Add("ARCRESOLUTION", FormatMilCoord(region.ArcApproximation));
+        Add("ISSHAPEBASED", region.IsShapeBased ? "TRUE" : "FALSE");
+        Add("CAVITYHEIGHT", FormatMilCoord(region.CavityHeight));
+        if (region.KeepoutRestrictions is { } kor) Add("KEEPOUTRESTRICTIONS", kor.ToString(ci));
+        if (region.PadIndex is { } pix) Add("PADINDEX", pix.ToString(ci));
+        if (region.ObjectKind is { } ok) Add("OBJECTKIND", ok);
+        if (region.BendingLineCount is { } blc) Add("BENDINGLINECOUNT", blc.ToString(ci));
+        if (region.Locked3D is { } l3d) Add("LOCKED3D", B(l3d));
+        if (region.LayerStackId is { } lsid) Add("LAYERSTACKID", lsid);
+        if (region.AdditionalParameters != null)
+            foreach (var kvp in region.AdditionalParameters) Add(kvp.Key, kvp.Value);
+
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < pairs.Count; i++)
+        {
+            if (i > 0) sb.Append('|');
+            sb.Append(pairs[i].Key).Append('=').Append(pairs[i].Value);
+        }
+        return sb.ToString();
+    }
+
     private static void WriteWideStrings(CompoundStorage storage, PcbComponent component)
     {
         var wideStringsStream = storage.AddStream("WideStrings");
@@ -979,35 +1018,9 @@ public sealed class PcbLibWriter
             w.Write((byte)0);
             w.Write((byte)0);
 
-            // Nested parameter block: ordered verbatim for round-trip; typed fields for new regions.
-            if (region.RawParametersOrdered is { Count: > 0 } orderedRegionParams)
-            {
-                var psb = new System.Text.StringBuilder();
-                for (var i = 0; i < orderedRegionParams.Count; i++)
-                {
-                    if (i > 0) psb.Append('|');
-                    psb.Append(orderedRegionParams[i].Key).Append('=').Append(orderedRegionParams[i].Value);
-                }
-                w.WriteCStringParameterBlockRaw(psb.ToString());
-            }
-            else
-            {
-                var regionParams = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                if (region.AdditionalParameters != null)
-                {
-                    foreach (var kvp in region.AdditionalParameters)
-                        regionParams[kvp.Key] = kvp.Value;
-                }
-                if (region.Kind != 0)
-                    regionParams["KIND"] = region.Kind.ToString();
-                if (!string.IsNullOrEmpty(region.Net))
-                    regionParams["NET"] = region.Net;
-                if (!string.IsNullOrEmpty(region.UniqueId))
-                    regionParams["UNIQUEID"] = region.UniqueId;
-                if (!string.IsNullOrEmpty(region.Name))
-                    regionParams["NAME"] = region.Name;
-                w.WriteCStringParameterBlock(regionParams);
-            }
+            // Nested parameter block, regenerated in Altium's canonical key order from typed fields
+            // (no leading '|'); the byte-exact mil/bool formatting is reproduced exactly.
+            w.WriteCStringParameterBlockRaw(BuildRegionParamText(region));
 
             // Geometry section, fully modeled (no raw replay). Loaded regions carry exact IEEE-double
             // vertices (sub-coord precision); from-scratch regions encode the integer vertices as doubles.
