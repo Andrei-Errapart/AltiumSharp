@@ -338,8 +338,9 @@ public sealed class PcbLibReader
         library.LayerKindMapping = ParseLayerKindMapping(data);
     }
 
-    // LayerKindMapping/Data = [u32 text-byte-count][UTF-16LE FormatVersion + NUL][variable-length tail]
-    // (8 reserved bytes in PcbLib; a longer layer-id→kind mapping table in PcbDoc).
+    // LayerKindMapping/Data = [u32 text-byte-count][UTF-16LE FormatVersion + NUL]
+    //                         [u32 signature][u32 count][count × (u32 layerId, u32 kind)].
+    // In PcbLib the tail is signature=0,count=0 (the 8 zero bytes); PcbDoc carries a real table.
     internal static PcbLayerKindMapping ParseLayerKindMapping(byte[] data)
     {
         var lkm = new PcbLayerKindMapping();
@@ -347,8 +348,16 @@ public sealed class PcbLibReader
         var textLen = BitConverter.ToInt32(data, 0);
         if (textLen < 0 || 4 + textLen > data.Length) return lkm;
         lkm.FormatVersion = System.Text.Encoding.Unicode.GetString(data, 4, textLen).TrimEnd('\0');
-        var tailStart = 4 + textLen;
-        lkm.ReservedTail = data.AsSpan(tailStart).ToArray();   // capture the full tail (any length)
+        var pos = 4 + textLen;
+        if (pos + 8 <= data.Length)
+        {
+            lkm.Signature = BitConverter.ToUInt32(data, pos);
+            var count = BitConverter.ToUInt32(data, pos + 4);
+            pos += 8;
+            for (var i = 0; i < count && pos + 8 <= data.Length; i++, pos += 8)
+                lkm.Entries.Add(new PcbLayerKindEntry(
+                    BitConverter.ToUInt32(data, pos), BitConverter.ToUInt32(data, pos + 4)));
+        }
         return lkm;
     }
 

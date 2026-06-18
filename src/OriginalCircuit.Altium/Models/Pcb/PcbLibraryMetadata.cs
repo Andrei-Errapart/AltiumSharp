@@ -12,9 +12,24 @@ public sealed class PcbLayerKindMapping
     /// <summary>Format version string (UTF-16LE on disk); currently <c>"1.0"</c>.</summary>
     public string FormatVersion { get; set; } = "1.0";
 
-    /// <summary>8-byte reserved tail (all zero in current files), preserved verbatim.</summary>
-    internal byte[] ReservedTail { get; set; } = new byte[8];
+    /// <summary>
+    /// The layer-id → layer-kind mapping table (PcbDoc only; empty in PcbLib). Each entry maps a
+    /// physical layer id to a layer-kind enum value. Fully typed so the table round-trips and is
+    /// authored from scratch without replaying the raw bytes.
+    /// </summary>
+    public List<PcbLayerKindEntry> Entries { get; set; } = new();
+
+    /// <summary>
+    /// A 32-bit content checksum Altium writes immediately before the mapping table (0 in PcbLib,
+    /// which has no table). The hash algorithm is content-derived but not yet reverse-engineered
+    /// (a ghidra task), so the parsed value is preserved for byte-exact round-trip; from-scratch
+    /// files write 0. The whole tail layout is otherwise fully typed.
+    /// </summary>
+    internal uint Signature { get; set; }
 }
+
+/// <summary>One entry of the PcbDoc <c>LayerKindMapping</c> table: a physical layer id and its kind.</summary>
+public readonly record struct PcbLayerKindEntry(uint LayerId, uint Kind);
 
 /// <summary>
 /// The <c>PadViaLibrary</c> metadata storage (PcbLib <c>Library/PadViaLibrary</c>, PcbDoc root

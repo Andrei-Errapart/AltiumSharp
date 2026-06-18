@@ -177,7 +177,15 @@ public sealed class PcbLibWriter
         var textBytes = System.Text.Encoding.Unicode.GetBytes((lkm.FormatVersion ?? "1.0") + '\0');
         ms.Write(BitConverter.GetBytes(textBytes.Length));
         ms.Write(textBytes);
-        ms.Write(lkm.ReservedTail.Length > 0 ? lkm.ReservedTail : new byte[8]);
+        // [u32 signature][u32 count][count × (u32 layerId, u32 kind)]. PcbLib emits 0/0 (the 8 zero
+        // bytes); PcbDoc emits the typed mapping table.
+        ms.Write(BitConverter.GetBytes(lkm.Signature));
+        ms.Write(BitConverter.GetBytes(lkm.Entries.Count));
+        foreach (var e in lkm.Entries)
+        {
+            ms.Write(BitConverter.GetBytes(e.LayerId));
+            ms.Write(BitConverter.GetBytes(e.Kind));
+        }
         storage.AddStream("Data").SetData(ms.ToArray());
     }
 
