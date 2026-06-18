@@ -284,7 +284,7 @@ static void CreateTestFiles(string dir)
     pcbDoc.AddTrack(new PcbTrack { Start = new CoordPoint(Coord.FromMm(0), Coord.FromMm(0)), End = new CoordPoint(Coord.FromMm(2.54), Coord.FromMm(0)), Width = Coord.FromMm(0.254), Layer = 1 });
     pcbDoc.AddPad(new PcbPad { Location = new CoordPoint(Coord.FromMm(0), Coord.FromMm(0)), SizeTop = new CoordPoint(Coord.FromMm(1.27), Coord.FromMm(1.27)), HoleSize = Coord.FromMm(0.64), Layer = 74, Designator = "1" });
     pcbDoc.AddVia(new PcbVia { Location = new CoordPoint(Coord.FromMm(2.54), Coord.FromMm(0)), Diameter = Coord.FromMm(1.0), HoleSize = Coord.FromMm(0.5) });
-    var poly = new PcbPolygon { Layer = 1, Net = "GND", Name = "Pour", PolygonType = 1 };
+    var poly = new PcbPolygon { Layer = 1, Net = "GND", Name = "Pour", PolygonType = "Polygon" };
     poly.AddVertex(new CoordPoint(Coord.FromMm(-5.08), Coord.FromMm(-5.08)));
     poly.AddVertex(new CoordPoint(Coord.FromMm(7.62), Coord.FromMm(-5.08)));
     poly.AddVertex(new CoordPoint(Coord.FromMm(7.62), Coord.FromMm(5.08)));

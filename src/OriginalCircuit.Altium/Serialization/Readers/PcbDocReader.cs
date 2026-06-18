@@ -999,9 +999,8 @@ public sealed class PcbDocReader
             if (parameters.Count == 0)
                 continue;
 
-            var polygon = new PcbPolygon { RawParametersOrdered = PcbLibReader.ParseParametersOrdered(rawPolygon) };
-            ApplyPolygonParameters(polygon, parameters);
-            document.AddPolygon(polygon);
+            DecodeUnicodeParameters(parameters);
+            document.AddPolygon(ParsePolygon(parameters));
         }
     }
 
@@ -1059,170 +1058,109 @@ public sealed class PcbDocReader
         return false;
     }
 
-    private static void ApplyPolygonParameters(PcbPolygon polygon, Dictionary<string, string> parameters)
+    private static readonly HashSet<string> PolygonKnownKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        // Track known keys for AdditionalParameters capture
-        var knownKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        void Track(params string[] keys) { foreach (var k in keys) knownKeys.Add(k); }
+        "SELECTION", "LAYER", "LOCKED", "POLYGONOUTLINE", "USERROUTED", "KEEPOUT", "UNIONINDEX",
+        "PRIMITIVELOCK", "POLYGONTYPE", "POUROVER", "REMOVEDEAD", "GRIDSIZE", "TRACKWIDTH", "HATCHSTYLE",
+        "USEOCTAGONS", "MINPRIMLENGTH", "SHELVED", "RESTORELAYER", "RESTORENET", "REMOVEISLANDSBYAREA",
+        "REMOVENECKS", "AREATHRESHOLD", "ARCRESOLUTION", "NECKWIDTHTHRESHOLD", "NECKWIDTHFROMRULE",
+        "POUROVERSTYLE", "NAME", "POURINDEX", "IGNOREVIOLATIONS", "COPPERINVALIDATE", "AUTONAME",
+        "OPTIMALVOIDROTATION", "OBEYPOLYGONCUTOUT", "NET",
+    };
 
-        // Basic identity
-        Track("LAYER", "NET", "NAME", "UNIQUEID", "POLYGONTYPE");
-        if (parameters.TryGetValue("LAYER", out var layerStr))
-            polygon.Layer = ParseLayerValue(layerStr);
-        if (parameters.TryGetValue("NET", out var net))
-            polygon.Net = net;
-        if (parameters.TryGetValue("NAME", out var name))
-            polygon.Name = name;
-        if (parameters.TryGetValue("UNIQUEID", out var uid))
-            polygon.UniqueId = uid;
-        if (parameters.TryGetValue("POLYGONTYPE", out var pt) && int.TryParse(pt, NumberStyles.Integer, CultureInfo.InvariantCulture, out var polygonType))
-            polygon.PolygonType = polygonType;
+    // Parses a Polygons6 record into a fully typed PcbPolygon (no ordered-param replay). The per-vertex
+    // KIND/VX/VY/CX/CY/SA/EA/R keys are index-contiguous (0..N); NAME is a comma-separated ASCII-code list.
+    private static PcbPolygon ParsePolygon(Dictionary<string, string> p)
+    {
+        bool B(string k) => p.TryGetValue(k, out var v) && v.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
+        int I(string k) => p.TryGetValue(k, out var v) && int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : 0;
 
-        // Hatch/pour settings - read both old and DTO keys
-        Track("HATCHSTYLE", "POLYHATCHSTYLE", "POURMODE", "POUROVER");
-        if (TryGetIntAny(parameters, out var hatchStyle, "HATCHSTYLE", "POLYHATCHSTYLE"))
-            polygon.PolyHatchStyle = hatchStyle;
-        if (TryGetIntAny(parameters, out var pourOver, "POURMODE", "POUROVER"))
-            polygon.PourOver = pourOver;
-
-        // Boolean flags - read both old and DTO keys
-        Track("REMOVEISLANDSBYAREA", "ISLANDAREATHRESHOLD", "REMOVEDEAD",
-              "REMOVENARROWNECKS", "REMOVENECKS", "USEOCTAGONS",
-              "AVOIDOBST", "AVOIDOBSTICLES");
-        if (TryGetBool(parameters, "REMOVEISLANDSBYAREA", out var ria))
-            polygon.RemoveIslandsByArea = ria;
-        if (parameters.TryGetValue("ISLANDAREATHRESHOLD", out var iat) && int.TryParse(iat, NumberStyles.Integer, CultureInfo.InvariantCulture, out var islandAreaThreshold))
-            polygon.IslandAreaThreshold = islandAreaThreshold;
-        if (TryGetBool(parameters, "REMOVEDEAD", out var rd))
-            polygon.RemoveDead = rd;
-        if (TryGetBoolAny(parameters, out var rnn, "REMOVENECKS", "REMOVENARROWNECKS"))
-            polygon.RemoveNarrowNecks = rnn;
-        if (TryGetBool(parameters, "USEOCTAGONS", out var uo))
-            polygon.UseOctagons = uo;
-        if (TryGetBoolAny(parameters, out var ao, "AVOIDOBST", "AVOIDOBSTICLES"))
+        var poly = new PcbPolygon
         {
-            polygon.AvoidObstacles = ao;
-            polygon.AvoidObsticles = ao;
-        }
+            Selection = B("SELECTION"),
+            Layer = ParseLayerValue(p.GetValueOrDefault("LAYER", "0")),
+            Locked = B("LOCKED"),
+            PolygonOutline = B("POLYGONOUTLINE"),
+            UserRouted = B("USERROUTED"),
+            IsKeepout = B("KEEPOUT"),
+            UnionIndex = I("UNIONINDEX"),
+            PrimitiveLock = B("PRIMITIVELOCK"),
+            PolygonType = p.TryGetValue("POLYGONTYPE", out var pty) ? pty : "Polygon",
+            PourOver = B("POUROVER"),
+            RemoveDead = B("REMOVEDEAD"),
+            Grid = ParamMilCoord(p.GetValueOrDefault("GRIDSIZE", "0")),
+            TrackSize = ParamMilCoord(p.GetValueOrDefault("TRACKWIDTH", "0")),
+            HatchStyle = p.TryGetValue("HATCHSTYLE", out var hs) ? hs : "Solid",
+            UseOctagons = B("USEOCTAGONS"),
+            MinTrack = ParamMilCoord(p.GetValueOrDefault("MINPRIMLENGTH", "0")),
+            IsHidden = B("SHELVED"),
+            RestoreLayer = p.TryGetValue("RESTORELAYER", out var rl) ? rl : "UNKNOWN",
+            RestoreNet = p.TryGetValue("RESTORENET", out var rn) ? rn : string.Empty,
+            RemoveIslandsByArea = B("REMOVEISLANDSBYAREA"),
+            RemoveNarrowNecks = B("REMOVENECKS"),
+            ArcApproximation = ParamMilCoord(p.GetValueOrDefault("ARCRESOLUTION", "0")),
+            NeckWidthThreshold = ParamMilCoord(p.GetValueOrDefault("NECKWIDTHTHRESHOLD", "0")),
+            PourOverStyle = I("POUROVERSTYLE"),
+            PourIndex = I("POURINDEX"),
+            IgnoreViolations = B("IGNOREVIOLATIONS"),
+            OptimalVoidRotation = B("OPTIMALVOIDROTATION"),
+            ObeyPolygonCutout = B("OBEYPOLYGONCUTOUT"),
+            Net = p.GetValueOrDefault("NET", string.Empty),
+            UniqueId = p.GetValueOrDefault("UNIQUEID"),
+        };
+        if (p.TryGetValue("AREATHRESHOLD", out var at) && decimal.TryParse(at, NumberStyles.Float, CultureInfo.InvariantCulture, out var area))
+            poly.AreaThreshold = area;
+        if (p.ContainsKey("NECKWIDTHFROMRULE"))
+            poly.NeckWidthFromRule = B("NECKWIDTHFROMRULE");
+        if (p.ContainsKey("COPPERINVALIDATE"))
+            poly.CopperInvalidate = B("COPPERINVALIDATE");
+        if (p.ContainsKey("AUTONAME"))
+            poly.AutoGenerateName = B("AUTONAME");
+        if (p.TryGetValue("NAME", out var nm))
+            poly.Name = DecodeAsciiCodes(nm);
 
-        // Coord properties
-        Track("GRIDSIZE", "TRACKWIDTH", "MINPRIMLENGTH", "NECKWIDTH", "ARCAPPROXIMATION",
-              "BORDERWIDTH", "SOLDERMASKEXPANSION", "PASTEMASKEXPANSION",
-              "RELIEFAIRGAP", "RELIEFCONDUCTORWIDTH", "POWERPLANECLEARANCE",
-              "POWERPLANERELIEFEXPANSION");
-        if (TryGetCoordAny(parameters, out var grid, "GRIDSIZE"))
-            polygon.Grid = grid;
-        if (TryGetCoordAny(parameters, out var trackWidth, "TRACKWIDTH"))
-            polygon.TrackSize = trackWidth;
-        if (TryGetCoordAny(parameters, out var minTrack, "MINPRIMLENGTH"))
-            polygon.MinTrack = minTrack;
-        if (TryGetCoordAny(parameters, out var neckWidth, "NECKWIDTH"))
-            polygon.NeckWidthThreshold = neckWidth;
-        if (TryGetCoordAny(parameters, out var arcApprox, "ARCAPPROXIMATION"))
-            polygon.ArcApproximation = arcApprox;
-        if (TryGetCoordAny(parameters, out var borderWidth, "BORDERWIDTH"))
-            polygon.BorderWidth = borderWidth;
-        if (TryGetCoordAny(parameters, out var smExp, "SOLDERMASKEXPANSION"))
-            polygon.SolderMaskExpansion = smExp;
-        if (TryGetCoordAny(parameters, out var pmExp, "PASTEMASKEXPANSION"))
-            polygon.PasteMaskExpansion = pmExp;
-        if (TryGetCoordAny(parameters, out var reliefGap, "RELIEFAIRGAP"))
-            polygon.ReliefAirGap = reliefGap;
-        if (TryGetCoordAny(parameters, out var reliefWidth, "RELIEFCONDUCTORWIDTH"))
-            polygon.ReliefConductorWidth = reliefWidth;
-        if (TryGetCoordAny(parameters, out var ppClear, "POWERPLANECLEARANCE"))
-            polygon.PowerPlaneClearance = ppClear;
-        if (TryGetCoordAny(parameters, out var ppRelief, "POWERPLANERELIEFEXPANSION"))
-            polygon.PowerPlaneReliefExpansion = ppRelief;
-
-        // Integer properties
-        Track("POURORDER", "RELIEFENTRIES", "POWERPLANECONNECTSTYLE", "FLAGS");
-        if (parameters.TryGetValue("POURORDER", out var pourOrderStr) && int.TryParse(pourOrderStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pourOrder))
-            polygon.PourIndex = pourOrder;
-        if (parameters.TryGetValue("RELIEFENTRIES", out var reliefEntriesStr) && int.TryParse(reliefEntriesStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var reliefEntries))
-            polygon.ReliefEntries = reliefEntries;
-        if (parameters.TryGetValue("POWERPLANECONNECTSTYLE", out var ppcsStr) && int.TryParse(ppcsStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ppcs))
-            polygon.PowerPlaneConnectStyle = ppcs;
-
-        // Long properties
-        Track("REPOURAREA");
-        if (parameters.TryGetValue("REPOURAREA", out var areaStr) && long.TryParse(areaStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var areaSize))
-            polygon.AreaSize = areaSize;
-
-        // More boolean flags
-        Track("LOCKED", "PRIMITIVELOCK", "SHELVED", "POUROVERSAMENETPOLYGONS",
-              "ENABLED", "KEEPOUT", "POLYGONOUTLINE", "POURED",
-              "AUTOGENERATENAME", "CLIPACUTECORNERS", "DRAWDEADCOPPER",
-              "DRAWREMOVEDISLANDS", "DRAWREMOVEDNECKS", "EXPANDOUTLINE",
-              "IGNOREVIOLATIONS", "MITRECORNERS", "OBEYPOLYGONCUTOUT",
-              "OPTIMALVOIDROTATION", "ALLOWGLOBALEDIT", "MOVEABLE", "ARCPOURMODE");
-        if (TryGetBoolAny(parameters, out var primLock, "PRIMITIVELOCK", "LOCKED"))
-            polygon.PrimitiveLock = primLock;
-        if (TryGetBool(parameters, "SHELVED", out var shelved))
-            polygon.IsHidden = shelved;
-        if (TryGetBool(parameters, "POUROVERSAMENETPOLYGONS", out var posnp))
-            polygon.PourOverSameNetPolygons = posnp;
-        if (TryGetBool(parameters, "ENABLED", out var enabled))
-            polygon.Enabled = enabled;
-        if (TryGetBool(parameters, "KEEPOUT", out var keepout))
-            polygon.IsKeepout = keepout;
-        if (TryGetBool(parameters, "POLYGONOUTLINE", out var pgOutline))
-            polygon.PolygonOutline = pgOutline;
-        if (TryGetBool(parameters, "POURED", out var poured))
-            polygon.Poured = poured;
-        if (TryGetBool(parameters, "AUTOGENERATENAME", out var autoName))
-            polygon.AutoGenerateName = autoName;
-        if (TryGetBool(parameters, "CLIPACUTECORNERS", out var clipCorners))
-            polygon.ClipAcuteCorners = clipCorners;
-        if (TryGetBool(parameters, "DRAWDEADCOPPER", out var drawDead))
-            polygon.DrawDeadCopper = drawDead;
-        if (TryGetBool(parameters, "DRAWREMOVEDISLANDS", out var drawIslands))
-            polygon.DrawRemovedIslands = drawIslands;
-        if (TryGetBool(parameters, "DRAWREMOVEDNECKS", out var drawNecks))
-            polygon.DrawRemovedNecks = drawNecks;
-        if (TryGetBool(parameters, "EXPANDOUTLINE", out var expandOutline))
-            polygon.ExpandOutline = expandOutline;
-        if (TryGetBool(parameters, "IGNOREVIOLATIONS", out var ignoreViol))
-            polygon.IgnoreViolations = ignoreViol;
-        if (TryGetBool(parameters, "MITRECORNERS", out var mitre))
-            polygon.MitreCorners = mitre;
-        if (TryGetBool(parameters, "OBEYPOLYGONCUTOUT", out var obeyCutout))
-            polygon.ObeyPolygonCutout = obeyCutout;
-        if (TryGetBool(parameters, "OPTIMALVOIDROTATION", out var optVoid))
-            polygon.OptimalVoidRotation = optVoid;
-        if (TryGetBool(parameters, "ALLOWGLOBALEDIT", out var allowGlobal))
-            polygon.AllowGlobalEdit = allowGlobal;
-        if (TryGetBool(parameters, "MOVEABLE", out var moveable))
-            polygon.Moveable = moveable;
-        if (TryGetBool(parameters, "ARCPOURMODE", out var arcPour))
-            polygon.ArcPourMode = arcPour;
-
-        // Read vertices
-        Track("POINTCOUNT");
-        if (parameters.TryGetValue("POINTCOUNT", out var pcStr) && int.TryParse(pcStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pointCount))
+        for (var i = 0; p.ContainsKey($"VX{i}"); i++)
         {
-            for (var i = 0; i < pointCount; i++)
+            var v = new PcbPolygonVertex
             {
-                var prefix = $"SA{i}";
-                Track($"{prefix}.X", $"{prefix}.Y");
-                Coord x = default, y = default;
-                if (parameters.TryGetValue($"{prefix}.X", out var xStr) && int.TryParse(xStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var xVal))
-                    x = Coord.FromRaw(xVal);
-                if (parameters.TryGetValue($"{prefix}.Y", out var yStr) && int.TryParse(yStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var yVal))
-                    y = Coord.FromRaw(yVal);
-                polygon.AddVertex(new CoordPoint(x, y));
-            }
+                Kind = I($"KIND{i}"),
+                X = ParamMilCoord(p.GetValueOrDefault($"VX{i}", "0")),
+                Y = ParamMilCoord(p.GetValueOrDefault($"VY{i}", "0")),
+                CenterX = ParamMilCoord(p.GetValueOrDefault($"CX{i}", "0")),
+                CenterY = ParamMilCoord(p.GetValueOrDefault($"CY{i}", "0")),
+                StartAngle = ParamDouble(p.GetValueOrDefault($"SA{i}", "0")),
+                EndAngle = ParamDouble(p.GetValueOrDefault($"EA{i}", "0")),
+                Radius = ParamMilCoord(p.GetValueOrDefault($"R{i}", "0")),
+            };
+            poly.OutlineVertices.Add(v);
+            poly.AddVertex(new CoordPoint(v.X, v.Y));
         }
 
-        // Capture unknown parameters for round-trip fidelity
-        var additional = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var kvp in parameters)
+        foreach (var kvp in p)
         {
-            if (!knownKeys.Contains(kvp.Key))
-                additional[kvp.Key] = kvp.Value;
+            if (PolygonKnownKeys.Contains(kvp.Key) || IsPolygonVertexKey(kvp.Key))
+                continue;
+            (poly.AdditionalParameters ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))[kvp.Key] = kvp.Value;
         }
-        if (additional.Count > 0)
-            polygon.AdditionalParameters = additional;
+        return poly;
+    }
+
+    private static bool IsPolygonVertexKey(string key)
+    {
+        // KIND{n}/VX{n}/VY{n}/CX{n}/CY{n}/SA{n}/EA{n}/R{n}
+        int i = 0;
+        foreach (var pfx in new[] { "KIND", "VX", "VY", "CX", "CY", "SA", "EA", "R" })
+            if (key.StartsWith(pfx, StringComparison.OrdinalIgnoreCase) && key.Length > pfx.Length && char.IsDigit(key[pfx.Length])) { i = 1; break; }
+        return i == 1;
+    }
+
+    private static string DecodeAsciiCodes(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return string.Empty;
+        var sb = new System.Text.StringBuilder();
+        foreach (var part in s.Split(','))
+            if (int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out var code)) sb.Append((char)code);
+        return sb.ToString();
     }
 
     private static void ReadEmbeddedBoards(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)

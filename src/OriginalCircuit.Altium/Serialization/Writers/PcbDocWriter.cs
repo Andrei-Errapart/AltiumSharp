@@ -811,138 +811,83 @@ public sealed class PcbDocWriter
 
     private static void WritePolygonParameters(BinaryFormatWriter writer, PcbPolygon polygon)
     {
-        // Round-trip: re-emit the original polygon parameter block verbatim (preserves the
-        // outline/arc vertex keys, key order and formatting). New polygons use typed fields.
-        if (polygon.RawParametersOrdered is { Count: > 0 } ordered)
+        var pairs = new List<KeyValuePair<string, string>>();
+        void Add(string k, string v) => pairs.Add(new KeyValuePair<string, string>(k, v));
+        string B(bool x) => x ? "TRUE" : "FALSE";
+        string M(Coord c) => FormatMilUnits(c.ToRaw());
+
+        Add("SELECTION", B(polygon.Selection));
+        Add("LAYER", LayerByteToName(polygon.Layer));
+        Add("LOCKED", B(polygon.Locked));
+        Add("POLYGONOUTLINE", B(polygon.PolygonOutline));
+        Add("USERROUTED", B(polygon.UserRouted));
+        Add("KEEPOUT", B(polygon.IsKeepout));
+        Add("UNIONINDEX", polygon.UnionIndex.ToString(CultureInfo.InvariantCulture));
+        Add("PRIMITIVELOCK", B(polygon.PrimitiveLock));
+        Add("POLYGONTYPE", polygon.PolygonType);
+        Add("POUROVER", B(polygon.PourOver));
+        Add("REMOVEDEAD", B(polygon.RemoveDead));
+        Add("GRIDSIZE", M(polygon.Grid));
+        Add("TRACKWIDTH", M(polygon.TrackSize));
+        Add("HATCHSTYLE", polygon.HatchStyle);
+        Add("USEOCTAGONS", B(polygon.UseOctagons));
+        Add("MINPRIMLENGTH", M(polygon.MinTrack));
+
+        // Per-vertex block: use the full typed vertices when present, else synthesize line vertices
+        // from the simple CoordPoint outline (from-scratch polygons).
+        List<PcbPolygonVertex> verts;
+        if (polygon.OutlineVertices.Count > 0)
+            verts = polygon.OutlineVertices;
+        else
         {
-            var sb = new System.Text.StringBuilder();
-            foreach (var kvp in ordered)
-                sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
-            writer.WriteCStringParameterBlockRaw(sb.ToString());
-            return;
+            verts = new List<PcbPolygonVertex>();
+            foreach (var pt in polygon.Vertices) verts.Add(new PcbPolygonVertex { X = pt.X, Y = pt.Y });
+        }
+        for (var i = 0; i < verts.Count; i++)
+        {
+            var v = verts[i];
+            Add($"KIND{i}", v.Kind.ToString(CultureInfo.InvariantCulture));
+            Add($"VX{i}", M(v.X)); Add($"VY{i}", M(v.Y));
+            Add($"CX{i}", M(v.CenterX)); Add($"CY{i}", M(v.CenterY));
+            Add($"SA{i}", DelphiExp(v.StartAngle)); Add($"EA{i}", DelphiExp(v.EndAngle));
+            Add($"R{i}", M(v.Radius));
         }
 
-        var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        // Merge AdditionalParameters first (typed properties override)
+        Add("SHELVED", B(polygon.IsHidden));
+        Add("RESTORELAYER", polygon.RestoreLayer);
+        Add("RESTORENET", polygon.RestoreNet);
+        Add("REMOVEISLANDSBYAREA", B(polygon.RemoveIslandsByArea));
+        Add("REMOVENECKS", B(polygon.RemoveNarrowNecks));
+        Add("AREATHRESHOLD", polygon.AreaThreshold.ToString("F6", CultureInfo.InvariantCulture));
+        Add("ARCRESOLUTION", M(polygon.ArcApproximation));
+        Add("NECKWIDTHTHRESHOLD", M(polygon.NeckWidthThreshold));
+        if (polygon.NeckWidthFromRule is { } nwfr) Add("NECKWIDTHFROMRULE", B(nwfr));
+        Add("POUROVERSTYLE", polygon.PourOverStyle.ToString(CultureInfo.InvariantCulture));
+        Add("NAME", EncodeAsciiCodes(polygon.Name));
+        Add("POURINDEX", polygon.PourIndex.ToString(CultureInfo.InvariantCulture));
+        Add("IGNOREVIOLATIONS", B(polygon.IgnoreViolations));
+        if (polygon.CopperInvalidate is { } copperInval) Add("COPPERINVALIDATE", B(copperInval));
+        if (polygon.AutoGenerateName is { } autoName) Add("AUTONAME", B(autoName));
+        Add("OPTIMALVOIDROTATION", B(polygon.OptimalVoidRotation));
+        Add("OBEYPOLYGONCUTOUT", B(polygon.ObeyPolygonCutout));
+        Add("NET", polygon.Net ?? string.Empty);
         if (polygon.AdditionalParameters != null)
+            foreach (var kvp in polygon.AdditionalParameters) Add(kvp.Key, kvp.Value);
+
+        writer.WriteCStringParameterBlockRaw(BuildUnicodeAwareParamString(pairs));
+    }
+
+    // Encodes a polygon NAME as the comma-separated ASCII/Unicode code-point list Altium stores.
+    private static string EncodeAsciiCodes(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return string.Empty;
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < s.Length; i++)
         {
-            foreach (var kvp in polygon.AdditionalParameters)
-                parameters[kvp.Key] = kvp.Value;
+            if (i > 0) sb.Append(',');
+            sb.Append(((int)s[i]).ToString(CultureInfo.InvariantCulture));
         }
-
-        // Basic identity
-        parameters["LAYER"] = polygon.Layer.ToString(CultureInfo.InvariantCulture);
-        parameters["NET"] = polygon.Net ?? string.Empty;
-        parameters["POLYGONTYPE"] = polygon.PolygonType.ToString(CultureInfo.InvariantCulture);
-
-        if (!string.IsNullOrEmpty(polygon.Name))
-            parameters["NAME"] = polygon.Name;
-        if (!string.IsNullOrEmpty(polygon.UniqueId))
-            parameters["UNIQUEID"] = polygon.UniqueId;
-
-        // Hatch/pour settings - use DTO keys
-        parameters["HATCHSTYLE"] = polygon.PolyHatchStyle.ToString(CultureInfo.InvariantCulture);
-        parameters["POURMODE"] = polygon.PourOver.ToString(CultureInfo.InvariantCulture);
-
-        // Boolean flags - use DTO keys
-        parameters["REMOVEISLANDSBYAREA"] = polygon.RemoveIslandsByArea ? "TRUE" : "FALSE";
-        parameters["ISLANDAREATHRESHOLD"] = polygon.IslandAreaThreshold.ToString(CultureInfo.InvariantCulture);
-        parameters["REMOVEDEAD"] = polygon.RemoveDead ? "TRUE" : "FALSE";
-        parameters["REMOVENECKS"] = polygon.RemoveNarrowNecks ? "TRUE" : "FALSE";
-        parameters["USEOCTAGONS"] = polygon.UseOctagons ? "TRUE" : "FALSE";
-        parameters["AVOIDOBST"] = polygon.AvoidObstacles ? "TRUE" : "FALSE";
-
-        // Coord properties
-        if (polygon.Grid.ToRaw() != 0)
-            parameters["GRIDSIZE"] = polygon.Grid.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (polygon.TrackSize.ToRaw() != 0)
-            parameters["TRACKWIDTH"] = polygon.TrackSize.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (polygon.MinTrack.ToRaw() != 0)
-            parameters["MINPRIMLENGTH"] = polygon.MinTrack.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (polygon.NeckWidthThreshold.ToRaw() != 0)
-            parameters["NECKWIDTH"] = polygon.NeckWidthThreshold.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (polygon.ArcApproximation.ToRaw() != 0)
-            parameters["ARCAPPROXIMATION"] = polygon.ArcApproximation.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (polygon.BorderWidth.ToRaw() != 0)
-            parameters["BORDERWIDTH"] = polygon.BorderWidth.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (polygon.SolderMaskExpansion.ToRaw() != 0)
-            parameters["SOLDERMASKEXPANSION"] = polygon.SolderMaskExpansion.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (polygon.PasteMaskExpansion.ToRaw() != 0)
-            parameters["PASTEMASKEXPANSION"] = polygon.PasteMaskExpansion.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (polygon.ReliefAirGap.ToRaw() != 0)
-            parameters["RELIEFAIRGAP"] = polygon.ReliefAirGap.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (polygon.ReliefConductorWidth.ToRaw() != 0)
-            parameters["RELIEFCONDUCTORWIDTH"] = polygon.ReliefConductorWidth.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (polygon.PowerPlaneClearance.ToRaw() != 0)
-            parameters["POWERPLANECLEARANCE"] = polygon.PowerPlaneClearance.ToRaw().ToString(CultureInfo.InvariantCulture);
-        if (polygon.PowerPlaneReliefExpansion.ToRaw() != 0)
-            parameters["POWERPLANERELIEFEXPANSION"] = polygon.PowerPlaneReliefExpansion.ToRaw().ToString(CultureInfo.InvariantCulture);
-
-        // Integer properties
-        if (polygon.PourIndex != 0)
-            parameters["POURORDER"] = polygon.PourIndex.ToString(CultureInfo.InvariantCulture);
-        if (polygon.ReliefEntries != 0)
-            parameters["RELIEFENTRIES"] = polygon.ReliefEntries.ToString(CultureInfo.InvariantCulture);
-        if (polygon.PowerPlaneConnectStyle != 0)
-            parameters["POWERPLANECONNECTSTYLE"] = polygon.PowerPlaneConnectStyle.ToString(CultureInfo.InvariantCulture);
-
-        // Long properties
-        if (polygon.AreaSize != 0)
-            parameters["REPOURAREA"] = polygon.AreaSize.ToString(CultureInfo.InvariantCulture);
-
-        // More boolean flags
-        if (polygon.PrimitiveLock)
-            parameters["PRIMITIVELOCK"] = "TRUE";
-        if (polygon.IsHidden)
-            parameters["SHELVED"] = "TRUE";
-        if (polygon.PourOverSameNetPolygons)
-            parameters["POUROVERSAMENETPOLYGONS"] = "TRUE";
-        if (!polygon.Enabled)
-            parameters["ENABLED"] = "FALSE";
-        if (polygon.IsKeepout)
-            parameters["KEEPOUT"] = "TRUE";
-        if (polygon.PolygonOutline)
-            parameters["POLYGONOUTLINE"] = "TRUE";
-        if (polygon.Poured)
-            parameters["POURED"] = "TRUE";
-        if (polygon.AutoGenerateName)
-            parameters["AUTOGENERATENAME"] = "TRUE";
-        if (polygon.ClipAcuteCorners)
-            parameters["CLIPACUTECORNERS"] = "TRUE";
-        if (polygon.DrawDeadCopper)
-            parameters["DRAWDEADCOPPER"] = "TRUE";
-        if (polygon.DrawRemovedIslands)
-            parameters["DRAWREMOVEDISLANDS"] = "TRUE";
-        if (polygon.DrawRemovedNecks)
-            parameters["DRAWREMOVEDNECKS"] = "TRUE";
-        if (polygon.ExpandOutline)
-            parameters["EXPANDOUTLINE"] = "TRUE";
-        if (polygon.IgnoreViolations)
-            parameters["IGNOREVIOLATIONS"] = "TRUE";
-        if (polygon.MitreCorners)
-            parameters["MITRECORNERS"] = "TRUE";
-        if (polygon.ObeyPolygonCutout)
-            parameters["OBEYPOLYGONCUTOUT"] = "TRUE";
-        if (polygon.OptimalVoidRotation)
-            parameters["OPTIMALVOIDROTATION"] = "TRUE";
-        if (polygon.AllowGlobalEdit)
-            parameters["ALLOWGLOBALEDIT"] = "TRUE";
-        if (polygon.Moveable)
-            parameters["MOVEABLE"] = "TRUE";
-        if (polygon.ArcPourMode)
-            parameters["ARCPOURMODE"] = "TRUE";
-
-        // Vertices
-        parameters["POINTCOUNT"] = polygon.Vertices.Count.ToString(CultureInfo.InvariantCulture);
-        for (var i = 0; i < polygon.Vertices.Count; i++)
-        {
-            var prefix = $"SA{i}";
-            parameters[$"{prefix}.X"] = polygon.Vertices[i].X.ToRaw().ToString(CultureInfo.InvariantCulture);
-            parameters[$"{prefix}.Y"] = polygon.Vertices[i].Y.ToRaw().ToString(CultureInfo.InvariantCulture);
-        }
-
-        writer.WriteCStringParameterBlock(parameters);
+        return sb.ToString();
     }
 
     private static void WriteComponents(CompoundFileAccessor cf, PcbDocument document)
@@ -1163,7 +1108,7 @@ public sealed class PcbDocWriter
             56 => "KEEPOUT",
             73 => "DRILLDRAWING",
             74 => "MULTILAYER",
-            _ when layer >= 2 && layer <= 31 => $"MIDLAYER{layer - 1}",
+            _ when layer >= 2 && layer <= 31 => $"MID{layer - 1}",
             _ when layer >= 39 && layer <= 54 => $"INTERNALPLANE{layer - 38}",
             _ when layer >= 57 && layer <= 72 => $"MECHANICAL{layer - 56}",
             _ => layer.ToString(CultureInfo.InvariantCulture)

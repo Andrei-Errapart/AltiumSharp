@@ -3,6 +3,22 @@ using OriginalCircuit.Eda.Primitives;
 namespace OriginalCircuit.Altium.Models.Pcb;
 
 /// <summary>
+/// One vertex of a <see cref="PcbPolygon"/> outline (the <c>KIND/VX/VY/CX/CY/SA/EA/R</c> per-vertex
+/// keys). <see cref="Kind"/> 0 = line vertex, 1 = arc; the C/SA/EA/R fields apply to arcs.
+/// </summary>
+public sealed class PcbPolygonVertex
+{
+    public int Kind { get; set; }
+    public Coord X { get; set; }
+    public Coord Y { get; set; }
+    public Coord CenterX { get; set; }
+    public Coord CenterY { get; set; }
+    public double StartAngle { get; set; }
+    public double EndAngle { get; set; }
+    public Coord Radius { get; set; }
+}
+
+/// <summary>
 /// Represents a PCB polygon copper pour.
 /// </summary>
 public sealed class PcbPolygon
@@ -10,9 +26,12 @@ public sealed class PcbPolygon
     private readonly List<CoordPoint> _vertices = new();
 
     /// <summary>
-    /// Polygon outline vertices.
+    /// Polygon outline vertices (line points; projection of <see cref="OutlineVertices"/> X/Y).
     /// </summary>
     public IReadOnlyList<CoordPoint> Vertices => _vertices;
+
+    /// <summary>Full per-vertex outline (line/arc with centers and angles), in source order.</summary>
+    public List<PcbPolygonVertex> OutlineVertices { get; } = new();
 
     /// <summary>
     /// X location of the polygon.
@@ -165,19 +184,35 @@ public sealed class PcbPolygon
     public bool PrimitiveLock { get; set; }
 
     /// <summary>
-    /// Polygon type (0=solid, 1=hatched, etc.).
+    /// Polygon type token as stored (e.g. <c>Polygon</c>).
     /// </summary>
-    public int PolygonType { get; set; }
+    public string PolygonType { get; set; } = "Polygon";
 
     /// <summary>
-    /// Polygon hatch style.
+    /// Polygon hatch style token as stored (e.g. <c>Solid</c>).
     /// </summary>
-    public int PolyHatchStyle { get; set; }
+    public string HatchStyle { get; set; } = "Solid";
 
     /// <summary>
-    /// Pour over mode.
+    /// Whether the polygon pours over same-net objects (the <c>POUROVER</c> flag).
     /// </summary>
-    public int PourOver { get; set; }
+    public bool PourOver { get; set; }
+
+    // Common primitive prefix + extra typed fields recovered for byte-exact Polygons6 round-trip.
+    /// <summary>Selection flag (transient; FALSE on disk).</summary>
+    public bool Selection { get; set; }
+    /// <summary>Whether the polygon is locked (the <c>LOCKED</c> flag).</summary>
+    public bool Locked { get; set; }
+    /// <summary>Pour-over style code (the <c>POUROVERSTYLE</c> key).</summary>
+    public int PourOverStyle { get; set; }
+    /// <summary>Restore layer token (the <c>RESTORELAYER</c> key); typically <c>UNKNOWN</c>.</summary>
+    public string RestoreLayer { get; set; } = "UNKNOWN";
+    /// <summary>Restore net token (the <c>RESTORENET</c> key); typically empty.</summary>
+    public string RestoreNet { get; set; } = string.Empty;
+    /// <summary>Island-removal area threshold (the <c>AREATHRESHOLD</c> key); decimal for precision.</summary>
+    public decimal AreaThreshold { get; set; }
+    /// <summary>Whether neck width comes from a rule (optional <c>NECKWIDTHFROMRULE</c> key); null when absent.</summary>
+    public bool? NeckWidthFromRule { get; set; }
 
     /// <summary>
     /// Border width.
@@ -215,9 +250,16 @@ public sealed class PcbPolygon
     public bool ArcPourMode { get; set; }
 
     /// <summary>
-    /// Whether to auto-generate the name.
+    /// Whether the copper-fill cache is marked invalid (the optional <c>COPPERINVALIDATE</c> key,
+    /// emitted between <c>IGNOREVIOLATIONS</c> and <c>AUTONAME</c>); null when the key is absent.
     /// </summary>
-    public bool AutoGenerateName { get; set; }
+    public bool? CopperInvalidate { get; set; }
+
+    /// <summary>
+    /// Whether to auto-generate the name (the optional <c>AUTONAME</c> key); null when the key is
+    /// absent (older polygons omit it). Presence is not inferable from the value, so it is nullable.
+    /// </summary>
+    public bool? AutoGenerateName { get; set; }
 
     /// <summary>
     /// Whether to clip acute corners.
@@ -349,13 +391,6 @@ public sealed class PcbPolygon
     /// Preserved for round-trip fidelity.
     /// </summary>
     public Dictionary<string, string>? AdditionalParameters { get; set; }
-
-    /// <summary>
-    /// The polygon's parameter block as an ordered key/value list (including the outline/arc
-    /// vertex keys). Serialized verbatim for a byte-faithful round-trip; polygons built from
-    /// scratch fall back to the typed properties.
-    /// </summary>
-    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
 
     /// <summary>
     /// Adds a vertex to the polygon outline.

@@ -512,7 +512,8 @@ var polygon = new PcbPolygon
     Layer = 1,                           // Top copper
     Net = "GND",                         // Connected to GND net
     Name = "GND_Pour",
-    PolygonType = 1                      // Solid fill
+    PolygonType = "Polygon",             // Polygon pour
+    HatchStyle = "Solid"                 // Solid fill
 };
 polygon.AddVertex(new CoordPoint(Coord.FromMm(22.86), Coord.FromMm(22.86)));
 polygon.AddVertex(new CoordPoint(Coord.FromMm(33.02), Coord.FromMm(22.86)));

@@ -29,53 +29,34 @@ public sealed class PcbDocPropertyCoverageTests
             Layer = 1,
             Net = "GND",
             Name = "TestPoly",
-            UniqueId = "POLY001",
-            PolygonType = 1,
-            PolyHatchStyle = 2,
-            PourOver = 1,
-            RemoveIslandsByArea = true,
-            IslandAreaThreshold = 1000,
+            PolygonType = "Polygon",
+            HatchStyle = "Solid",
+            PourOver = true,
+            PolygonOutline = true,
+            UserRouted = true,
+            IsKeepout = true,
+            UnionIndex = 0,
+            PrimitiveLock = true,
             RemoveDead = true,
+            RemoveIslandsByArea = true,
             RemoveNarrowNecks = true,
             UseOctagons = true,
-            AvoidObstacles = true,
-            AvoidObsticles = true,
             Grid = Coord.FromMils(10),
             TrackSize = Coord.FromMils(8),
             MinTrack = Coord.FromMils(5),
             NeckWidthThreshold = Coord.FromMils(3),
             ArcApproximation = Coord.FromMils(1),
-            BorderWidth = Coord.FromMils(2),
-            SolderMaskExpansion = Coord.FromMils(4),
-            PasteMaskExpansion = Coord.FromMils(3),
-            ReliefAirGap = Coord.FromMils(10),
-            ReliefConductorWidth = Coord.FromMils(8),
-            ReliefEntries = 4,
-            PowerPlaneClearance = Coord.FromMils(20),
-            PowerPlaneConnectStyle = 1,
-            PowerPlaneReliefExpansion = Coord.FromMils(15),
+            AreaThreshold = 250000000000.0m,
+            PourOverStyle = 1,
+            RestoreLayer = "UNKNOWN",
+            RestoreNet = "",
+            NeckWidthFromRule = true,
             PourIndex = 2,
-            AreaSize = 123456789,
-            PrimitiveLock = true,
             IsHidden = true,
-            PourOverSameNetPolygons = true,
-            Enabled = false,
-            IsKeepout = true,
-            PolygonOutline = true,
-            Poured = true,
-            AutoGenerateName = true,
-            ClipAcuteCorners = true,
-            DrawDeadCopper = true,
-            DrawRemovedIslands = true,
-            DrawRemovedNecks = true,
-            ExpandOutline = true,
             IgnoreViolations = true,
-            MitreCorners = true,
-            ObeyPolygonCutout = true,
+            AutoGenerateName = true,
             OptimalVoidRotation = true,
-            AllowGlobalEdit = true,
-            Moveable = true,
-            ArcPourMode = true
+            ObeyPolygonCutout = true,
         };
         polygon.AddVertex(new CoordPoint(Coord.FromMils(0), Coord.FromMils(0)));
         polygon.AddVertex(new CoordPoint(Coord.FromMils(1000), Coord.FromMils(0)));
@@ -91,20 +72,17 @@ public sealed class PcbDocPropertyCoverageTests
         Assert.Equal(1, p.Layer);
         Assert.Equal("GND", p.Net);
         Assert.Equal("TestPoly", p.Name);
-        Assert.Equal("POLY001", p.UniqueId);
-        Assert.Equal(1, p.PolygonType);
+        Assert.Equal("Polygon", p.PolygonType);
 
-        // Hatch/pour settings (written with DTO keys)
-        Assert.Equal(2, p.PolyHatchStyle);
-        Assert.Equal(1, p.PourOver);
+        // Hatch/pour settings (verbatim tokens / bool flag)
+        Assert.Equal("Solid", p.HatchStyle);
+        Assert.True(p.PourOver);
 
         // Boolean flags
         Assert.True(p.RemoveIslandsByArea);
-        Assert.Equal(1000, p.IslandAreaThreshold);
         Assert.True(p.RemoveDead);
         Assert.True(p.RemoveNarrowNecks);
         Assert.True(p.UseOctagons);
-        Assert.True(p.AvoidObstacles);
 
         // Coord properties
         Assert.Equal(10, p.Grid.ToMils(), 0.1);
@@ -112,41 +90,27 @@ public sealed class PcbDocPropertyCoverageTests
         Assert.Equal(5, p.MinTrack.ToMils(), 0.1);
         Assert.Equal(3, p.NeckWidthThreshold.ToMils(), 0.1);
         Assert.Equal(1, p.ArcApproximation.ToMils(), 0.1);
-        Assert.Equal(2, p.BorderWidth.ToMils(), 0.1);
-        Assert.Equal(4, p.SolderMaskExpansion.ToMils(), 0.1);
-        Assert.Equal(3, p.PasteMaskExpansion.ToMils(), 0.1);
-        Assert.Equal(10, p.ReliefAirGap.ToMils(), 0.1);
-        Assert.Equal(8, p.ReliefConductorWidth.ToMils(), 0.1);
-        Assert.Equal(20, p.PowerPlaneClearance.ToMils(), 0.1);
-        Assert.Equal(15, p.PowerPlaneReliefExpansion.ToMils(), 0.1);
 
-        // Integer properties
-        Assert.Equal(4, p.ReliefEntries);
-        Assert.Equal(1, p.PowerPlaneConnectStyle);
+        // Numeric properties
+        Assert.Equal(250000000000.0m, p.AreaThreshold);
+        Assert.Equal(1, p.PourOverStyle);
         Assert.Equal(2, p.PourIndex);
-        Assert.Equal(123456789, p.AreaSize);
+
+        // Restore tokens
+        Assert.Equal("UNKNOWN", p.RestoreLayer);
+        Assert.Equal("", p.RestoreNet);
+        Assert.Equal(true, p.NeckWidthFromRule);
 
         // More boolean flags
         Assert.True(p.PrimitiveLock);
         Assert.True(p.IsHidden);
-        Assert.True(p.PourOverSameNetPolygons);
-        Assert.False(p.Enabled);
         Assert.True(p.IsKeepout);
         Assert.True(p.PolygonOutline);
-        Assert.True(p.Poured);
-        Assert.True(p.AutoGenerateName);
-        Assert.True(p.ClipAcuteCorners);
-        Assert.True(p.DrawDeadCopper);
-        Assert.True(p.DrawRemovedIslands);
-        Assert.True(p.DrawRemovedNecks);
-        Assert.True(p.ExpandOutline);
+        Assert.True(p.UserRouted);
+        Assert.Equal(true, p.AutoGenerateName);
         Assert.True(p.IgnoreViolations);
-        Assert.True(p.MitreCorners);
         Assert.True(p.ObeyPolygonCutout);
         Assert.True(p.OptimalVoidRotation);
-        Assert.True(p.AllowGlobalEdit);
-        Assert.True(p.Moveable);
-        Assert.True(p.ArcPourMode);
 
         // Vertices
         Assert.Equal(4, p.Vertices.Count);

@@ -507,7 +507,7 @@ public sealed class FromScratchCreationTests
             Layer = 1,
             Net = "GND",
             Name = "CopperPour1",
-            PolygonType = 1
+            PolygonType = "Polygon"
         };
         polygon.AddVertex(new CoordPoint(Coord.FromMils(0), Coord.FromMils(0)));
         polygon.AddVertex(new CoordPoint(Coord.FromMils(1000), Coord.FromMils(0)));
