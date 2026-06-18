@@ -85,6 +85,7 @@ public sealed class PcbDocWriter
         WriteBoardRegions(cf, document);
         WriteShapeBased(cf, document, "ShapeBasedRegions6", document.ShapeBasedRegions);
         WriteShapeBased(cf, document, "ShapeBasedComponentBodies6", document.ShapeBasedComponentBodies);
+        WritePrimitiveParameters(cf, document);
         WriteComponentBodies(cf, document);
         cancellationToken.ThrowIfCancellationRequested();
         WritePolygons(cf, document);
@@ -518,6 +519,24 @@ public sealed class PcbDocWriter
         var storage = cf.RootStorage.AddStorage("UniqueIDPrimitiveInformation");
         PcbLibWriter.WriteStorageHeader(storage, document.PrimitiveUniqueIds.Count);
         storage.AddStream("Data").SetData(PcbLibWriter.BuildPrimitiveUniqueIdData(document.PrimitiveUniqueIds));
+    }
+
+    private static void WritePrimitiveParameters(CompoundFileAccessor cf, PcbDocument document)
+    {
+        if (document.PrimitiveParameters.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "PrimitiveParameters");
+            return;
+        }
+        // The Header is the captured group-count metric (component count × 3), not the record count.
+        var storage = cf.RootStorage.AddStorage("PrimitiveParameters");
+        PcbLibWriter.WriteStorageHeader(storage, document.PrimitiveParametersHeader);
+        using var ms = new MemoryStream();
+        using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
+        foreach (var rec in document.PrimitiveParameters)
+            writer.WriteCStringParameterBlockRaw(BuildParamText(rec.RawParametersOrdered, rec.Parameters));
+        writer.Flush();
+        storage.AddStream("Data").SetData(ms.ToArray());
     }
 
     private static void WriteShapeBased(CompoundFileAccessor cf, PcbDocument document, string storageName, List<PcbShapeBasedRegion> items)

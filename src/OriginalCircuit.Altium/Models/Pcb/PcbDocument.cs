@@ -117,6 +117,11 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>Shape-based component bodies (ShapeBasedComponentBodies6) — same extended-vertex format.</summary>
     public List<PcbShapeBasedRegion> ShapeBasedComponentBodies { get; } = new();
 
+    /// <summary>Per-component user parameter groups (PrimitiveParameters), as typed param records.</summary>
+    public List<PcbParameterRecord> PrimitiveParameters { get; } = new();
+    /// <summary>Captured PrimitiveParameters header value (= component count × 3); preserved for round-trip.</summary>
+    internal int PrimitiveParametersHeader { get; set; }
+
     /// <summary>The document-level <c>UniqueIDPrimitiveInformation</c> short-id tokens (typed records).</summary>
     public List<PcbPrimitiveUniqueId> PrimitiveUniqueIds { get; } = new();
 

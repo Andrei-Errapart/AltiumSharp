@@ -69,7 +69,7 @@ public sealed class PcbDocReader
         "Dimensions6", "Coordinates6", "FromTos6", "Embeddeds6", "PrimitiveGuids",
         "UniqueIDPrimitiveInformation", "FileVersionInfo",
         "LayerKindMapping", "PadViaLibrary", "PadViaLibraryLinks", "Textures", "ModelsNoEmbed",
-        "ShapeBasedRegions6", "ShapeBasedComponentBodies6"
+        "ShapeBasedRegions6", "ShapeBasedComponentBodies6", "PrimitiveParameters"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
@@ -101,6 +101,7 @@ public sealed class PcbDocReader
         ReadBoardRegions(accessor, document, cancellationToken);
         ReadShapeBased(accessor, "ShapeBasedRegions6", 0x0B, document.ShapeBasedRegions);
         ReadShapeBased(accessor, "ShapeBasedComponentBodies6", 0x0C, document.ShapeBasedComponentBodies);
+        ReadPrimitiveParameters(accessor, document);
         ReadDocumentPrimitiveGuids(accessor, document);
         ReadDocumentPrimitiveUniqueIds(accessor, document);
         var fviStorage = accessor.TryGetStorage("FileVersionInfo");
@@ -638,6 +639,19 @@ public sealed class PcbDocReader
             if (region != null)
                 document.AddBoardRegion(region);
         }, cancellationToken);
+    }
+
+    private void ReadPrimitiveParameters(CompoundFileAccessor accessor, PcbDocument document)
+    {
+        var storage = accessor.TryGetStorage("PrimitiveParameters");
+        if (storage == null) return;
+        if (PcbLibReader.GetChildStream(storage, "Header") is { } hdr)
+        {
+            var hb = hdr.GetData();
+            if (hb.Length >= 4) document.PrimitiveParametersHeader = BitConverter.ToInt32(hb, 0);
+        }
+        ReadParameterBlockStorage(accessor, "PrimitiveParameters", (parameters, ordered) =>
+            document.PrimitiveParameters.Add(new PcbParameterRecord { Parameters = parameters, RawParametersOrdered = ordered }));
     }
 
     private void ReadShapeBased(CompoundFileAccessor accessor, string storageName, byte typeByte, List<PcbShapeBasedRegion> target)
