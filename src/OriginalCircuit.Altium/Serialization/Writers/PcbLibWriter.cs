@@ -1166,15 +1166,22 @@ public sealed class PcbLibWriter
     }
 
     private static void WriteLibraryModels(CompoundStorage libraryStorage, PcbLibrary library)
-    {
-        var modelsStorage = libraryStorage.AddStorage("Models");
-        var modelCount = library.Models.Count;
+        => WriteModelsStorage(libraryStorage, library.Models);
 
-        WriteStorageHeader(modelsStorage, modelCount);
+    /// <summary>
+    /// Writes a <c>Models</c> child storage (Header + metadata Data + numbered zlib STEP streams) under
+    /// <paramref name="parentStorage"/>. Shared by the PcbLib library writer (<c>Library/Models</c>) and
+    /// the PcbDoc writer (root <c>Models</c>). The metadata Data is reconstructed byte-exactly from the
+    /// typed fields; the numbered STEP payloads are re-compressed (zlib bytes may differ, content preserved).
+    /// </summary>
+    internal static void WriteModelsStorage(CompoundStorage parentStorage, IReadOnlyList<PcbModel> models)
+    {
+        var modelsStorage = parentStorage.AddStorage("Models");
+        WriteStorageHeader(modelsStorage, models.Count);
 
         // Write Data stream: model metadata as length-prefixed C-string parameter blocks
         using var dataMs = new MemoryStream();
-        foreach (var model in library.Models)
+        foreach (var model in models)
         {
             var paramStr = string.Join("|",
                 $"EMBED={( model.IsEmbedded ? "TRUE" : "FALSE" )}",
@@ -1195,9 +1202,9 @@ public sealed class PcbLibWriter
         dataStream.SetData(dataMs.ToArray());
 
         // Write numbered model streams: zlib-compressed STEP text
-        for (var i = 0; i < library.Models.Count; i++)
+        for (var i = 0; i < models.Count; i++)
         {
-            var model = library.Models[i];
+            var model = models[i];
             byte[] compressedData;
             if (!string.IsNullOrEmpty(model.StepData))
             {

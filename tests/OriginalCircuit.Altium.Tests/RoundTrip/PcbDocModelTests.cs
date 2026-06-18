@@ -1,5 +1,3 @@
-using System.IO.Compression;
-using System.Text;
 using OriginalCircuit.Altium.Models.Pcb;
 using OriginalCircuit.Altium.Serialization.Readers;
 using OriginalCircuit.Altium.Serialization.Writers;
@@ -10,48 +8,52 @@ namespace OriginalCircuit.Altium.Tests.RoundTrip;
 public sealed class PcbDocModelTests
 {
     /// <summary>
-    /// The PcbDoc <c>Models</c> storage is preserved verbatim in AdditionalStreams; PcbDocument.Models
-    /// decodes that captured data (Models/Data metadata + zlib-compressed Models/&lt;n&gt; payloads) on
-    /// demand. Verified hermetically with synthetic streams (no test-data file required).
+    /// The PcbDoc <c>Models</c> storage is a first-class typed model: a 3D model added to
+    /// <see cref="PcbDocument.Models"/> is serialized (metadata + zlib STEP payload) and decoded again on
+    /// read. Verified from scratch with no test-data file. The metadata round-trips exactly; the STEP
+    /// payload round-trips its decoded text (the zlib bytes themselves are the accepted exception).
     /// </summary>
     [Fact]
-    public void Models_DecodesEmbeddedStepFromAdditionalStreams()
+    public void Models_RoundTripFromScratch_PreservesMetadataAndStep()
     {
         const string stepText = "ISO-10303-21;\nHEADER;\nENDSEC;\nEND-ISO-10303-21;";
 
-        var doc = new PcbDocument
+        var doc = new PcbDocument();
+        doc.Models.Add(new PcbModel
         {
-            AdditionalStreams = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["Models/Data"] = BuildModelsData("|ID={GUID-1}|NAME=widget.step|EMBED=TRUE|MODELSOURCE=Undefined|CHECKSUM=42|ROTX=0|ROTY=0|ROTZ=90|DZ=0"),
-                ["Models/0"] = ZlibCompress(stepText),
-            }
-        };
+            Id = "{GUID-1}",
+            Name = "widget.step",
+            IsEmbedded = true,
+            ModelSource = "Undefined",
+            Checksum = 42,
+            RotationZ = 90,
+            StepData = stepText,
+        });
 
-        var models = doc.Models;
-        Assert.Single(models);
-        var m = models[0];
+        using var ms = new MemoryStream();
+        new PcbDocWriter().Write(doc, ms);
+        ms.Position = 0;
+        var rt = new PcbDocReader().Read(ms);
+
+        var m = Assert.Single(rt.Models);
         Assert.Equal("{GUID-1}", m.Id);
         Assert.Equal("widget.step", m.Name);
         Assert.True(m.IsEmbedded);
         Assert.Equal(42, m.Checksum);
         Assert.Equal(90, m.RotationZ);
         Assert.Equal(stepText, m.StepData);
-
-        // Cached: repeat access returns the same instance.
-        Assert.Same(models, doc.Models);
     }
 
     [Fact]
     public void Models_EmptyWhenNoModelStorage()
     {
         Assert.Empty(new PcbDocument().Models);
-        Assert.Empty(new PcbDocument { AdditionalStreams = new() }.Models);
     }
 
     /// <summary>
-    /// Integration check against a real board with embedded 3D models: PcbDocument.Models decodes
-    /// them, and the captured Models/ModelsNoEmbed streams round-trip byte-for-byte.
+    /// Integration check against a real board with embedded 3D models: PcbDocument.Models decodes them,
+    /// and a save→reload preserves every model's metadata and decoded STEP content (the zlib payload
+    /// bytes may differ, the accepted library-wide limitation).
     /// </summary>
     [SkippableFact]
     public void Models_RealFile_DecodeAndRoundTrip()
@@ -66,43 +68,18 @@ public sealed class PcbDocModelTests
         Assert.NotEmpty(doc.Models);
         Assert.All(doc.Models, m => Assert.StartsWith("ISO-10303-21;", m.StepData));
 
-        // The verbatim model streams must survive a save unchanged.
-        var addl = doc.AdditionalStreams!;
-        var modelKeys = addl.Keys.Where(k => k.StartsWith("Models/") || k.StartsWith("ModelsNoEmbed/")).ToList();
-        Assert.NotEmpty(modelKeys);
-
         using var ms = new MemoryStream();
         new PcbDocWriter().Write(doc, ms);
         ms.Position = 0;
         var rt = new PcbDocReader().Read(ms);
-        var rtAddl = rt.AdditionalStreams!;
 
-        foreach (var k in modelKeys)
+        Assert.Equal(doc.Models.Count, rt.Models.Count);
+        for (var i = 0; i < doc.Models.Count; i++)
         {
-            Assert.True(rtAddl.ContainsKey(k), $"missing stream {k} after round-trip");
-            Assert.True(rtAddl[k].AsSpan().SequenceEqual(addl[k]), $"stream {k} changed on round-trip");
+            Assert.Equal(doc.Models[i].Id, rt.Models[i].Id);
+            Assert.Equal(doc.Models[i].Name, rt.Models[i].Name);
+            Assert.Equal(doc.Models[i].Checksum, rt.Models[i].Checksum);
+            Assert.Equal(doc.Models[i].StepData, rt.Models[i].StepData);
         }
-    }
-
-    private static byte[] BuildModelsData(string paramString)
-    {
-        var payload = Encoding.ASCII.GetBytes(paramString);
-        using var ms = new MemoryStream();
-        using var bw = new BinaryWriter(ms, Encoding.ASCII);
-        bw.Write(payload.Length);
-        bw.Write(payload);
-        bw.Flush();
-        return ms.ToArray();
-    }
-
-    private static byte[] ZlibCompress(string text)
-    {
-        using var outMs = new MemoryStream();
-        using (var zs = new ZLibStream(outMs, CompressionMode.Compress, leaveOpen: true))
-        {
-            var bytes = Encoding.UTF8.GetBytes(text);
-            zs.Write(bytes, 0, bytes.Length);
-        }
-        return outMs.ToArray();
     }
 }

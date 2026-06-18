@@ -70,7 +70,7 @@ public sealed class PcbDocReader
         "UniqueIDPrimitiveInformation", "FileVersionInfo",
         "LayerKindMapping", "PadViaLibrary", "PadViaLibraryLinks", "Textures", "ModelsNoEmbed",
         "ShapeBasedRegions6", "ShapeBasedComponentBodies6", "PrimitiveParameters", "PadViaLibraryCache",
-        "ExtendedPrimitiveInformation",
+        "ExtendedPrimitiveInformation", "Models",
         "Design Rule Checker Options6", "Advanced Placer Options6", "Pin Swap Options6",
         "SimbeorCacheSection", "TMatchedNetLengthsViolation", "CustomShapes",
         "WaivedViolations", "PinPairsSection"
@@ -119,6 +119,7 @@ public sealed class PcbDocReader
         ReadPrimitiveParameters(accessor, document);
         ReadExtendedPrimitiveInformation(accessor, document);
         ReadNamedParameterStorages(accessor, document);
+        ReadEmbeddedModels(accessor, document);
         ReadDocumentPrimitiveGuids(accessor, document);
         ReadDocumentPrimitiveUniqueIds(accessor, document);
         var fviStorage = accessor.TryGetStorage("FileVersionInfo");
@@ -686,6 +687,20 @@ public sealed class PcbDocReader
             if (parameters.TryGetValue("PASTEMASKEXPANSION_MANUAL", out var pmm)) info.PasteMaskExpansionManual = pmm;
             document.ExtendedPrimitiveInfo.Add(info);
         });
+    }
+
+    private static void ReadEmbeddedModels(CompoundFileAccessor accessor, PcbDocument document)
+    {
+        // Root Models storage: Data = per-model metadata (length-prefixed |KEY=VALUE| blocks),
+        // numbered Models/<n> streams = zlib STEP payloads. Shared parse with the PcbLib Library/Models.
+        var storage = accessor.TryGetStorage("Models");
+        if (storage == null) return;
+        document.ModelsStoragePresent = true;
+
+        var dataBytes = PcbLibReader.GetChildStream(storage, "Data")?.GetData();
+        var models = PcbModel.ParseModels(dataBytes,
+            i => PcbLibReader.GetChildStream(storage, i.ToString(CultureInfo.InvariantCulture))?.GetData());
+        document.Models.AddRange(models);
     }
 
     private void ReadNamedParameterStorages(CompoundFileAccessor accessor, PcbDocument document)

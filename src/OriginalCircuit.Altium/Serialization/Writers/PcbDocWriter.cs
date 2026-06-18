@@ -88,6 +88,7 @@ public sealed class PcbDocWriter
         WritePrimitiveParameters(cf, document);
         WriteExtendedPrimitiveInformation(cf, document);
         WriteNamedParameterStorages(cf, document);
+        WriteEmbeddedModels(cf, document);
         WriteComponentBodies(cf, document);
         cancellationToken.ThrowIfCancellationRequested();
         WritePolygons(cf, document);
@@ -558,6 +559,14 @@ public sealed class PcbDocWriter
             writer.WriteCStringParameterBlockRaw(BuildParamText(info.RawParametersOrdered, info.ToParameters()));
         writer.Flush();
         storage.AddStream("Data").SetData(ms.ToArray());
+    }
+
+    private static void WriteEmbeddedModels(CompoundFileAccessor cf, PcbDocument document)
+    {
+        // Reproduce the Models storage when the source had it (even empty) or the document carries models.
+        if (document.Models.Count == 0 && !document.ModelsStoragePresent)
+            return;
+        PcbLibWriter.WriteModelsStorage(cf.RootStorage, document.Models);
     }
 
     private static void WriteNamedParameterStorages(CompoundFileAccessor cf, PcbDocument document)
