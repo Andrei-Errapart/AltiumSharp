@@ -117,6 +117,12 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>The root <c>FileVersionInfo</c> version-message cache, modeled as a typed record.</summary>
     public PcbFileVersionInfo FileVersionInfo { get; set; } = new();
 
+    /// <summary>The root <c>LayerKindMapping</c> (typed; null when the source had none).</summary>
+    public PcbLayerKindMapping? LayerKindMapping { get; set; }
+
+    /// <summary>The root <c>PadViaLibrary</c> identity (typed; null when absent).</summary>
+    public PcbPadViaLibrary? PadViaLibrary { get; set; }
+
     /// <summary>
     /// All differential pairs in this document.
     /// </summary>

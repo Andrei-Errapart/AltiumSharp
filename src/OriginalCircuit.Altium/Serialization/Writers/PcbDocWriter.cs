@@ -105,6 +105,9 @@ public sealed class PcbDocWriter
         WriteDocumentPrimitiveGuids(cf, document);
         WriteDocumentPrimitiveUniqueIds(cf, document);
         PcbLibWriter.WriteFileVersionInfo(cf.RootStorage, document.FileVersionInfo);
+        if (document.LayerKindMapping is { } lkm) PcbLibWriter.WriteLayerKindMapping(cf.RootStorage, lkm);
+        if (document.PadViaLibrary is { } pvl) PcbLibWriter.WritePadViaLibrary(cf.RootStorage, pvl, "PadViaLibrary");
+        WriteEmptyStorageIfPresent(cf, document, "PadViaLibraryLinks");
         WriteAdditionalStreams(cf, document);
 
         cf.Save(stream);

@@ -321,22 +321,38 @@ public sealed class PcbLibReader
         if (data.Length < 4) return;
         var textLen = BitConverter.ToInt32(data, 0);
         if (textLen < 0 || 4 + textLen > data.Length) return;
-        var text = System.Text.Encoding.Unicode.GetString(data, 4, textLen).TrimEnd('\0');
-        library.LayerKindMapping = new PcbLayerKindMapping { FormatVersion = text };
+        library.LayerKindMapping = ParseLayerKindMapping(data);
+    }
+
+    // LayerKindMapping/Data = [u32 text-byte-count][UTF-16LE FormatVersion + NUL][variable-length tail]
+    // (8 reserved bytes in PcbLib; a longer layer-id→kind mapping table in PcbDoc).
+    internal static PcbLayerKindMapping ParseLayerKindMapping(byte[] data)
+    {
+        var lkm = new PcbLayerKindMapping();
+        if (data.Length < 4) return lkm;
+        var textLen = BitConverter.ToInt32(data, 0);
+        if (textLen < 0 || 4 + textLen > data.Length) return lkm;
+        lkm.FormatVersion = System.Text.Encoding.Unicode.GetString(data, 4, textLen).TrimEnd('\0');
         var tailStart = 4 + textLen;
-        if (data.Length >= tailStart + 8)
-            library.LayerKindMapping.ReservedTail = data.AsSpan(tailStart, 8).ToArray();
+        lkm.ReservedTail = data.AsSpan(tailStart).ToArray();   // capture the full tail (any length)
+        return lkm;
     }
 
     private static void ReadPadViaLibrary(CompoundStorage libraryStorage, PcbLibrary library)
     {
-        // Library/PadViaLibrary/Data = [u32 byte-count][CP1252 |KEY=VALUE| block + NUL].
-        if (!libraryStorage.TryGetStorage("PadViaLibrary", out var storage)) return;
-        if (!storage.TryGetStream("Data", out var stream)) return;
+        var pvl = ParsePadViaLibrary(libraryStorage, "PadViaLibrary");
+        if (pvl != null) library.PadViaLibrary = pvl;
+    }
+
+    // PadViaLibrary[Cache]/Data = [u32 byte-count][CP1252 |KEY=VALUE| block + NUL].
+    internal static PcbPadViaLibrary? ParsePadViaLibrary(CompoundStorage parentStorage, string storageName)
+    {
+        if (!parentStorage.TryGetStorage(storageName, out var storage)) return null;
+        if (!storage.TryGetStream("Data", out var stream)) return null;
         var data = stream.GetData();
-        if (data.Length < 4) return;
+        if (data.Length < 4) return null;
         var len = BitConverter.ToInt32(data, 0);
-        if (len <= 0 || 4 + len > data.Length) return;
+        if (len <= 0 || 4 + len > data.Length) return null;
         var text = AltiumEncoding.Windows1252.GetString(data, 4, len).TrimEnd('\0');
         var ordered = ParseParametersOrdered(text);
         var pvl = new PcbPadViaLibrary { RawParametersOrdered = ordered };
@@ -348,7 +364,7 @@ public sealed class PcbLibReader
             else if (kvp.Key.Equals("PADVIALIBRARY.DISPLAYUNITS", StringComparison.OrdinalIgnoreCase)
                 && int.TryParse(kvp.Value, out var u)) pvl.DisplayUnits = u;
         }
-        library.PadViaLibrary = pvl;
+        return pvl;
     }
 
     internal static void ReadPrimitiveGuids(CompoundStorage parentStorage, PcbComponent component)

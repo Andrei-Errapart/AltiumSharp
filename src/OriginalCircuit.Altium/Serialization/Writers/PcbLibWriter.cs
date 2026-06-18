@@ -158,15 +158,17 @@ public sealed class PcbLibWriter
     }
 
     private static void WriteLayerKindMapping(CompoundStorage libraryStorage, PcbLibrary library)
+        => WriteLayerKindMapping(libraryStorage, library.LayerKindMapping);
+
+    internal static void WriteLayerKindMapping(CompoundStorage parentStorage, PcbLayerKindMapping lkm)
     {
-        var lkm = library.LayerKindMapping;
-        var storage = libraryStorage.AddStorage("LayerKindMapping");
+        var storage = parentStorage.AddStorage("LayerKindMapping");
         WriteStorageHeader(storage, 1);
         using var ms = new MemoryStream();
         var textBytes = System.Text.Encoding.Unicode.GetBytes((lkm.FormatVersion ?? "1.0") + '\0');
         ms.Write(BitConverter.GetBytes(textBytes.Length));
         ms.Write(textBytes);
-        ms.Write(lkm.ReservedTail.Length == 8 ? lkm.ReservedTail : new byte[8]);
+        ms.Write(lkm.ReservedTail.Length > 0 ? lkm.ReservedTail : new byte[8]);
         storage.AddStream("Data").SetData(ms.ToArray());
     }
 
@@ -204,9 +206,11 @@ public sealed class PcbLibWriter
     }
 
     private static void WritePadViaLibrary(CompoundStorage libraryStorage, PcbLibrary library)
+        => WritePadViaLibrary(libraryStorage, library.PadViaLibrary, "PadViaLibrary");
+
+    internal static void WritePadViaLibrary(CompoundStorage parentStorage, PcbPadViaLibrary pvl, string storageName)
     {
-        var pvl = library.PadViaLibrary;
-        var storage = libraryStorage.AddStorage("PadViaLibrary");
+        var storage = parentStorage.AddStorage(storageName);
         WriteStorageHeader(storage, 0);   // PadViaLibrary header count is 0 even with one record
 
         string text;

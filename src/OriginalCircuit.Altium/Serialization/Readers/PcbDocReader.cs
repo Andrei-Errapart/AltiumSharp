@@ -67,7 +67,8 @@ public sealed class PcbDocReader
         "Rules6", "Classes6", "DifferentialPairs6", "Rooms6", "SignalClasses",
         "SmartUnions", "UnionNames", "BoardRegions",
         "Dimensions6", "Coordinates6", "FromTos6", "Embeddeds6", "PrimitiveGuids",
-        "UniqueIDPrimitiveInformation", "FileVersionInfo"
+        "UniqueIDPrimitiveInformation", "FileVersionInfo",
+        "LayerKindMapping", "PadViaLibrary", "PadViaLibraryLinks"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
@@ -102,6 +103,12 @@ public sealed class PcbDocReader
         var fviStorage = accessor.TryGetStorage("FileVersionInfo");
         if (fviStorage != null && fviStorage.TryGetStream("Data", out var fviData))
             document.FileVersionInfo = PcbLibReader.ParseFileVersionInfo(fviData.GetData());
+        var lkmStorage = accessor.TryGetStorage("LayerKindMapping");
+        if (lkmStorage != null && lkmStorage.TryGetStream("Data", out var lkmData))
+            document.LayerKindMapping = PcbLibReader.ParseLayerKindMapping(lkmData.GetData());
+        document.PadViaLibrary = PcbLibReader.ParsePadViaLibrary(accessor.RootStorage, "PadViaLibrary");
+        // PadViaLibraryCache carries a large binary template cache in some files; left in the
+        // AdditionalStreams catch-all (round-trips verbatim) until that cache is reverse-engineered.
         ReadComponentBodies(accessor, document, cancellationToken);
         ReadPolygons(accessor, document, cancellationToken);
         ReadComponents(accessor, document, cancellationToken);
