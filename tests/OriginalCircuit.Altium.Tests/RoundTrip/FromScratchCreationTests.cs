@@ -1428,15 +1428,6 @@ public sealed class FromScratchCreationTests
             PositiveNetName = "USB_D+",
             NegativeNetName = "USB_D-",
             UniqueId = "IJKL9012",
-            Enabled = true,
-            Parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["NAME"] = "USB_DP",
-                ["POSITIVENETNAME"] = "USB_D+",
-                ["NEGATIVENETNAME"] = "USB_D-",
-                ["UNIQUEID"] = "IJKL9012",
-                ["ENABLED"] = "TRUE"
-            }
         };
         document.AddDifferentialPair(pair);
 
@@ -1459,11 +1450,6 @@ public sealed class FromScratchCreationTests
         {
             Name = "PowerSection",
             UniqueId = "MNOP3456",
-            Parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["NAME"] = "PowerSection",
-                ["UNIQUEID"] = "MNOP3456"
-            }
         };
         document.AddRoom(room);
 
