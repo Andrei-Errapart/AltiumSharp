@@ -102,6 +102,12 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>Adds a union name.</summary>
     public void AddUnionName(PcbUnionName name) => _unionNames.Add(name);
 
+    private readonly List<PcbRegion> _boardRegions = new();
+    /// <summary>Board-shape regions (BoardRegions storage) — same record format as ordinary regions.</summary>
+    public IReadOnlyList<PcbRegion> BoardRegions => _boardRegions;
+    /// <summary>Adds a board region.</summary>
+    public void AddBoardRegion(PcbRegion region) => _boardRegions.Add(region);
+
     /// <summary>
     /// All differential pairs in this document.
     /// </summary>

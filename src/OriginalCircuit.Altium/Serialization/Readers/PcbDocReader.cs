@@ -65,7 +65,7 @@ public sealed class PcbDocReader
         "Texts6", "Fills6", "Regions6", "ComponentBodies6", "Polygons6",
         "Components6", "WideStrings6", "EmbeddedBoards6",
         "Rules6", "Classes6", "DifferentialPairs6", "Rooms6", "SignalClasses",
-        "SmartUnions", "UnionNames"
+        "SmartUnions", "UnionNames", "BoardRegions"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
@@ -94,6 +94,7 @@ public sealed class PcbDocReader
         ReadTexts(accessor, document, wideStrings, cancellationToken);
         ReadFills(accessor, document, cancellationToken);
         ReadRegions(accessor, document, cancellationToken);
+        ReadBoardRegions(accessor, document, cancellationToken);
         ReadComponentBodies(accessor, document, cancellationToken);
         ReadPolygons(accessor, document, cancellationToken);
         ReadComponents(accessor, document, cancellationToken);
@@ -581,6 +582,17 @@ public sealed class PcbDocReader
             var region = PcbLibReader.ReadRegion(reader);
             if (region != null)
                 document.AddRegion(region);
+        }, cancellationToken);
+    }
+
+    private void ReadBoardRegions(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
+    {
+        // BoardRegions records use the same [u8 0x0B][region body] framing as Regions6.
+        ReadPrimitiveStorage(accessor, "BoardRegions", reader =>
+        {
+            var region = PcbLibReader.ReadRegion(reader);
+            if (region != null)
+                document.AddBoardRegion(region);
         }, cancellationToken);
     }
 

@@ -82,6 +82,7 @@ public sealed class PcbDocWriter
         WriteTexts(cf, document);
         WriteFills(cf, document);
         WriteRegions(cf, document);
+        WriteBoardRegions(cf, document);
         WriteComponentBodies(cf, document);
         cancellationToken.ThrowIfCancellationRequested();
         WritePolygons(cf, document);
@@ -469,6 +470,20 @@ public sealed class PcbDocWriter
         {
             writer.Write((byte)11);
             PcbLibWriter.WriteRegion(writer, (PcbRegion)region);
+        });
+    }
+
+    private static void WriteBoardRegions(CompoundFileAccessor cf, PcbDocument document)
+    {
+        if (document.BoardRegions.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "BoardRegions");
+            return;
+        }
+        WritePrimitiveStorage(cf, "BoardRegions", document.BoardRegions, (writer, region) =>
+        {
+            writer.Write((byte)11);
+            PcbLibWriter.WriteRegion(writer, region);
         });
     }
 
