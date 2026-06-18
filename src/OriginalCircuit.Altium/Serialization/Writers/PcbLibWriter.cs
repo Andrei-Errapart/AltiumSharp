@@ -421,6 +421,78 @@ public sealed class PcbLibWriter
         return sb.ToString();
     }
 
+    // Reassembles a component-body nested parameter block in Altium's canonical key order (no leading
+    // '|'), from typed fields. Reproduces the duplicate ARCRESOLUTION key, the MODEL.* placement block,
+    // and the model-type-dependent tail (MODELSOURCE for linked models, EXTRUDED.MIN/MAXZ for extruded).
+    private static string BuildComponentBodyParamText(PcbComponentBody body)
+    {
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        var pairs = new List<KeyValuePair<string, string>>();
+        void Add(string k, string v) => pairs.Add(new KeyValuePair<string, string>(k, v));
+        string B(bool x) => x ? "TRUE" : "FALSE";
+        string F3(double v) => v.ToString("0.000", ci);
+
+        Add("V7_LAYER", body.LayerName ?? "MECHANICAL1");
+        Add("NAME", body.Name ?? string.Empty);
+        Add("KIND", body.Kind.ToString(ci));
+        Add("SUBPOLYINDEX", body.SubPolyIndex.ToString(ci));
+        Add("UNIONINDEX", body.UnionIndex.ToString(ci));
+        Add("ARCRESOLUTION", FormatMilCoord(body.ArcResolutionPrefix));
+        Add("ISSHAPEBASED", B(body.IsShapeBased));
+        Add("CAVITYHEIGHT", FormatMilCoord(body.CavityHeight));
+        Add("STANDOFFHEIGHT", FormatMilCoord(body.StandoffHeight));
+        Add("OVERALLHEIGHT", FormatMilCoord(body.OverallHeight));
+        Add("BODYPROJECTION", body.BodyProjection.ToString(ci));
+        Add("ARCRESOLUTION", FormatMilCoord(body.ArcResolutionBody));
+        Add("BODYCOLOR3D", body.BodyColor3D.ToString(ci));
+        Add("BODYOPACITY3D", F3(body.BodyOpacity3D));
+        Add("IDENTIFIER", EncodeBodyAsciiCodes(body.Identifier));
+        Add("TEXTURE", body.Texture ?? string.Empty);
+        Add("TEXTURECENTERX", FormatMilCoord(body.TextureCenterX));
+        Add("TEXTURECENTERY", FormatMilCoord(body.TextureCenterY));
+        Add("TEXTURESIZEX", FormatMilCoord(body.TextureSizeX));
+        Add("TEXTURESIZEY", FormatMilCoord(body.TextureSizeY));
+        Add("TEXTUREROTATION", PcbDocWriter.DelphiExp(body.TextureRotation));
+        Add("MODELID", body.ModelId ?? string.Empty);
+        Add("MODEL.CHECKSUM", body.ModelChecksum.ToString(ci));
+        Add("MODEL.EMBED", B(body.ModelEmbed));
+        Add("MODEL.NAME", body.ModelName ?? string.Empty);
+        Add("MODEL.2D.X", FormatMilCoord(body.Model2DLocation.X));
+        Add("MODEL.2D.Y", FormatMilCoord(body.Model2DLocation.Y));
+        Add("MODEL.2D.ROTATION", F3(body.Model2DRotation));
+        Add("MODEL.3D.ROTX", F3(body.Model3DRotX));
+        Add("MODEL.3D.ROTY", F3(body.Model3DRotY));
+        Add("MODEL.3D.ROTZ", F3(body.Model3DRotZ));
+        Add("MODEL.3D.DZ", FormatMilCoord(body.Model3DDz));
+        Add("MODEL.MODELTYPE", body.ModelType.ToString(ci));
+        if (body.ModelSource is { } ms) Add("MODEL.MODELSOURCE", ms);
+        if (body.ModelExtrudedMinZ is { } minZ) Add("MODEL.EXTRUDED.MINZ", FormatMilCoord(minZ));
+        if (body.ModelExtrudedMaxZ is { } maxZ) Add("MODEL.EXTRUDED.MAXZ", FormatMilCoord(maxZ));
+        if (body.AdditionalParameters != null)
+            foreach (var kvp in body.AdditionalParameters) Add(kvp.Key, kvp.Value);
+
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < pairs.Count; i++)
+        {
+            if (i > 0) sb.Append('|');
+            sb.Append(pairs[i].Key).Append('=').Append(pairs[i].Value);
+        }
+        return sb.ToString();
+    }
+
+    // Encodes a string as the comma-separated codepoint list Altium stores for IDENTIFIER (empty -> "").
+    private static string EncodeBodyAsciiCodes(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return string.Empty;
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < s.Length; i++)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append(((int)s[i]).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+        return sb.ToString();
+    }
+
     private static void WriteWideStrings(CompoundStorage storage, PcbComponent component)
     {
         var wideStringsStream = storage.AddStream("WideStrings");
@@ -1072,66 +1144,9 @@ public sealed class PcbLibWriter
             w.Write((uint)0); // reserved prefix 1
             w.Write((byte)0); // reserved prefix 2
 
-            // Round-trip: serialize the captured ordered parameter list verbatim. It preserves
-            // key order, duplicate keys (e.g. ARCRESOLUTION) and Altium's mil formatting that a
-            // flattened typed view cannot reproduce. New bodies fall back to the typed fields below.
-            if (body.RawParametersOrdered is { Count: > 0 } orderedBodyParams)
-            {
-                var psb = new System.Text.StringBuilder();
-                for (var i = 0; i < orderedBodyParams.Count; i++)
-                {
-                    if (i > 0) psb.Append('|');
-                    psb.Append(orderedBodyParams[i].Key).Append('=').Append(orderedBodyParams[i].Value);
-                }
-                w.WriteCStringParameterBlockRaw(psb.ToString());
-                w.Write((uint)body.Outline.Count);
-                foreach (var point in body.Outline)
-                {
-                    w.Write((double)point.X.ToRaw());
-                    w.Write((double)point.Y.ToRaw());
-                }
-                return;
-            }
-
-            // Generate ALL parameters from typed properties
-            var bodyParams = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            // Merge any additional parameters first (typed properties override)
-            if (body.AdditionalParameters != null)
-            {
-                foreach (var kvp in body.AdditionalParameters)
-                    bodyParams[kvp.Key] = kvp.Value;
-            }
-            bodyParams["V7_LAYER"] = body.LayerName ?? "MECHANICAL1";
-            bodyParams["NAME"] = body.Name ?? string.Empty;
-            bodyParams["KIND"] = body.Kind.ToString();
-            bodyParams["SUBPOLYINDEX"] = body.SubPolyIndex.ToString();
-            bodyParams["UNIONINDEX"] = body.UnionIndex.ToString();
-            bodyParams["ARCRESOLUTION"] = body.ArcResolution.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            bodyParams["ISSHAPEBASED"] = body.IsShapeBased ? "TRUE" : "FALSE";
-            bodyParams["CAVITYHEIGHT"] = body.CavityHeight.ToRaw().ToString();
-            bodyParams["STANDOFFHEIGHT"] = body.StandoffHeight.ToRaw().ToString();
-            bodyParams["OVERALLHEIGHT"] = body.OverallHeight.ToRaw().ToString();
-            bodyParams["BODYCOLOR3D"] = body.BodyColor3D.ToString();
-            bodyParams["BODYOPACITY3D"] = body.BodyOpacity3D.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            bodyParams["BODYPROJECTION"] = body.BodyProjection.ToString();
-            bodyParams["MODELID"] = body.ModelId ?? string.Empty;
-            bodyParams["MODEL.EMBED"] = body.ModelEmbed ? "TRUE" : "FALSE";
-            bodyParams["MODEL.2D.X"] = body.Model2DLocation.X.ToRaw().ToString();
-            bodyParams["MODEL.2D.Y"] = body.Model2DLocation.Y.ToRaw().ToString();
-            bodyParams["MODEL.2D.ROTATION"] = body.Model2DRotation.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            bodyParams["MODEL.3D.ROTX"] = body.Model3DRotX.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            bodyParams["MODEL.3D.ROTY"] = body.Model3DRotY.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            bodyParams["MODEL.3D.ROTZ"] = body.Model3DRotZ.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            bodyParams["MODEL.3D.DZ"] = body.Model3DDz.ToRaw().ToString();
-            bodyParams["MODEL.CHECKSUM"] = body.ModelChecksum.ToString();
-            bodyParams["MODEL.NAME"] = body.ModelName ?? string.Empty;
-            bodyParams["MODEL.MODELTYPE"] = body.ModelType.ToString();
-            bodyParams["MODEL.MODELSOURCE"] = body.ModelSource ?? string.Empty;
-            if (!string.IsNullOrEmpty(body.Identifier))
-                bodyParams["IDENTIFIER"] = body.Identifier;
-            if (!string.IsNullOrEmpty(body.Texture))
-                bodyParams["TEXTURE"] = body.Texture;
-            w.WriteCStringParameterBlock(bodyParams);
+            // Nested parameter block, regenerated in Altium's canonical key order from typed fields
+            // (no leading '|'), reproducing the duplicate ARCRESOLUTION and exact mil/F3/Delphi formats.
+            w.WriteCStringParameterBlockRaw(BuildComponentBodyParamText(body));
 
             // Write outline vertices as doubles (Altium PCB format)
             w.Write((uint)body.Outline.Count);

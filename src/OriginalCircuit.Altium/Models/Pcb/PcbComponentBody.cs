@@ -284,24 +284,24 @@ public sealed class PcbComponentBody : IPcbComponentBody
     public int BodyProjection { get; set; }
 
     /// <summary>
-    /// Texture name/path.
+    /// Texture name/path (the <c>TEXTURE</c> key; always emitted, empty when none).
     /// </summary>
-    public string? Texture { get; set; }
+    public string Texture { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Texture center alignment.
-    /// </summary>
-    public int TextureCenter { get; set; }
+    /// <summary>Texture center X (the <c>TEXTURECENTERX</c> key).</summary>
+    public Coord TextureCenterX { get; set; }
 
-    /// <summary>
-    /// Texture rotation.
-    /// </summary>
-    public int TextureRotation { get; set; }
+    /// <summary>Texture center Y (the <c>TEXTURECENTERY</c> key).</summary>
+    public Coord TextureCenterY { get; set; }
 
-    /// <summary>
-    /// Texture size.
-    /// </summary>
-    public Coord TextureSize { get; set; }
+    /// <summary>Texture size X (the <c>TEXTURESIZEX</c> key).</summary>
+    public Coord TextureSizeX { get; set; }
+
+    /// <summary>Texture size Y (the <c>TEXTURESIZEY</c> key).</summary>
+    public Coord TextureSizeY { get; set; }
+
+    /// <summary>Texture rotation in degrees (the <c>TEXTUREROTATION</c> key; Delphi-exponential on disk).</summary>
+    public double TextureRotation { get; set; }
 
     /// <summary>
     /// Number of holes in this body.
@@ -319,43 +319,42 @@ public sealed class PcbComponentBody : IPcbComponentBody
     public long Area { get; set; }
 
     /// <summary>
-    /// Sub-polygon index.
+    /// Sub-polygon index (the <c>SUBPOLYINDEX</c> key); -1 when not a polygon sub-shape.
     /// </summary>
-    public int SubPolyIndex { get; set; }
+    public int SubPolyIndex { get; set; } = -1;
+
+    /// <summary>Arc resolution from the region-level prefix (the first <c>ARCRESOLUTION</c> key).</summary>
+    public Coord ArcResolutionPrefix { get; set; }
+
+    /// <summary>Arc resolution for the 3D body (the second, duplicate <c>ARCRESOLUTION</c> key).</summary>
+    public Coord ArcResolutionBody { get; set; }
 
     /// <summary>
-    /// Arc resolution for 3D model rendering.
-    /// </summary>
-    public double ArcResolution { get; set; }
-
-    /// <summary>
-    /// Identifier string for this body.
+    /// Identifier string for this body (the <c>IDENTIFIER</c> key; stored as comma-separated codepoints).
     /// </summary>
     public string? Identifier { get; set; }
 
     /// <summary>
-    /// Checksum of the linked 3D model (stored in MODEL.CHECKSUM).
+    /// Checksum of the linked 3D model (the <c>MODEL.CHECKSUM</c> key; a 32-bit unsigned value).
     /// </summary>
-    public int ModelChecksum { get; set; }
+    public long ModelChecksum { get; set; }
 
     /// <summary>
-    /// Source of the linked model (stored in MODEL.MODELSOURCE).
+    /// Source of the linked model (the <c>MODEL.MODELSOURCE</c> key); null when absent (e.g. extruded bodies).
     /// </summary>
     public string? ModelSource { get; set; }
 
-    /// <summary>
-    /// Additional parameters from the nested C-string block that are not modeled as typed properties.
-    /// Preserved for round-trip fidelity.
-    /// </summary>
-    public Dictionary<string, string>? AdditionalParameters { get; set; }
+    /// <summary>Extruded-body minimum Z (the optional <c>MODEL.EXTRUDED.MINZ</c> key); null when absent.</summary>
+    public Coord? ModelExtrudedMinZ { get; set; }
+
+    /// <summary>Extruded-body maximum Z (the optional <c>MODEL.EXTRUDED.MAXZ</c> key); null when absent.</summary>
+    public Coord? ModelExtrudedMaxZ { get; set; }
 
     /// <summary>
-    /// The nested parameter block as an ordered key/value list, preserving original key order
-    /// and duplicate keys (the block contains a duplicate ARCRESOLUTION and mil-formatted heights
-    /// that a flattened map cannot reproduce). When present, this is serialized verbatim for a
-    /// byte-faithful round-trip; new bodies built from scratch fall back to the typed properties.
+    /// Additional parameters from the nested C-string block that are not modeled as typed properties
+    /// (e.g. the trailing indexed <c>FPARTDRCDISABLED.N.n</c> keys). Preserved for round-trip fidelity.
     /// </summary>
-    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+    public Dictionary<string, string>? AdditionalParameters { get; set; }
 
     /// <inheritdoc />
     public CoordRect Bounds

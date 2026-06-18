@@ -1737,8 +1737,8 @@ public sealed class PcbLibReader
         reader.Skip(4); // reserved uint32 prefix
         reader.Skip(1); // reserved byte prefix
 
-        // Read nested C-string parameter block (contains 3D model references etc.). Capture the
-        // ordered form for faithful round-trip (the block has duplicate keys and mil-formatted values).
+        // Read nested C-string parameter block (3D model references etc.). It has a duplicate
+        // ARCRESOLUTION key (region-prefix + body), so we keep the ordered form to recover both.
         var parameters = ReadParameterBlock(reader, out var rawBodyParams);
         var orderedBodyParams = ParseParametersOrdered(rawBodyParams);
 
@@ -1760,7 +1760,6 @@ public sealed class PcbLibReader
             reader.Skip((int)remaining);
 
         var result = body.Build();
-        result.RawParametersOrdered = orderedBodyParams;
         result.ComponentIndex = componentIndex;
         result.NetIndex = netIndex;
 
@@ -1771,76 +1770,95 @@ public sealed class PcbLibReader
         result.IsTentingBottom = isTentingBottom;
         result.IsKeepout = isKeepout;
 
-        // Extract typed properties from parameter block
-        if (parameters.TryGetValue("V7_LAYER", out var v7Layer))
-            result.LayerName = v7Layer;
-        if (parameters.TryGetValue("NAME", out var name))
-            result.Name = name;
-        if (parameters.TryGetValue("KIND", out var kindStr) && int.TryParse(kindStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var kind))
-            result.Kind = kind;
-        if (parameters.TryGetValue("SUBPOLYINDEX", out var subPoly) && int.TryParse(subPoly, NumberStyles.Integer, CultureInfo.InvariantCulture, out var subPolyVal))
-            result.SubPolyIndex = subPolyVal;
-        if (parameters.TryGetValue("UNIONINDEX", out var unionIdx) && int.TryParse(unionIdx, NumberStyles.Integer, CultureInfo.InvariantCulture, out var unionIdxVal))
-            result.UnionIndex = unionIdxVal;
-        if (parameters.TryGetValue("ARCRESOLUTION", out var arcRes) && double.TryParse(arcRes, System.Globalization.CultureInfo.InvariantCulture, out var arcResVal))
-            result.ArcResolution = arcResVal;
-        if (parameters.TryGetValue("ISSHAPEBASED", out var isShapeBased))
-            result.IsShapeBased = string.Equals(isShapeBased, "TRUE", StringComparison.OrdinalIgnoreCase);
-        if (parameters.TryGetValue("CAVITYHEIGHT", out var cavHeight) && int.TryParse(cavHeight, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cavHeightVal))
-            result.CavityHeight = Coord.FromRaw(cavHeightVal);
-        if (parameters.TryGetValue("STANDOFFHEIGHT", out var standoff) && int.TryParse(standoff, NumberStyles.Integer, CultureInfo.InvariantCulture, out var standoffVal))
-            result.StandoffHeight = Coord.FromRaw(standoffVal);
-        if (parameters.TryGetValue("OVERALLHEIGHT", out var overall) && int.TryParse(overall, NumberStyles.Integer, CultureInfo.InvariantCulture, out var overallVal))
-            result.OverallHeight = Coord.FromRaw(overallVal);
-        if (parameters.TryGetValue("BODYCOLOR3D", out var bodyColor) && int.TryParse(bodyColor, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bodyColorVal))
-            result.BodyColor3D = bodyColorVal;
-        if (parameters.TryGetValue("BODYOPACITY3D", out var opacity) && double.TryParse(opacity, System.Globalization.CultureInfo.InvariantCulture, out var opacityVal))
-            result.BodyOpacity3D = opacityVal;
-        if (parameters.TryGetValue("MODELID", out var modelId))
-            result.ModelId = modelId;
-        if (parameters.TryGetValue("MODEL.EMBED", out var modelEmbed))
-            result.ModelEmbed = string.Equals(modelEmbed, "TRUE", StringComparison.OrdinalIgnoreCase);
-        if (parameters.TryGetValue("MODEL.2D.X", out var m2dx) && int.TryParse(m2dx, NumberStyles.Integer, CultureInfo.InvariantCulture, out var m2dxVal))
-            result.Model2DLocation = new CoordPoint(Coord.FromRaw(m2dxVal),
-                parameters.TryGetValue("MODEL.2D.Y", out var m2dy) && int.TryParse(m2dy, NumberStyles.Integer, CultureInfo.InvariantCulture, out var m2dyVal)
-                    ? Coord.FromRaw(m2dyVal) : Coord.FromRaw(0));
-        if (parameters.TryGetValue("MODEL.2D.ROTATION", out var m2dRot) && double.TryParse(m2dRot, System.Globalization.CultureInfo.InvariantCulture, out var m2dRotVal))
-            result.Model2DRotation = m2dRotVal;
-        if (parameters.TryGetValue("MODEL.3D.ROTX", out var m3dRotX) && double.TryParse(m3dRotX, System.Globalization.CultureInfo.InvariantCulture, out var m3dRotXVal))
-            result.Model3DRotX = m3dRotXVal;
-        if (parameters.TryGetValue("MODEL.3D.ROTY", out var m3dRotY) && double.TryParse(m3dRotY, System.Globalization.CultureInfo.InvariantCulture, out var m3dRotYVal))
-            result.Model3DRotY = m3dRotYVal;
-        if (parameters.TryGetValue("MODEL.3D.ROTZ", out var m3dRotZ) && double.TryParse(m3dRotZ, System.Globalization.CultureInfo.InvariantCulture, out var m3dRotZVal))
-            result.Model3DRotZ = m3dRotZVal;
-        if (parameters.TryGetValue("MODEL.3D.DZ", out var m3dDz) && int.TryParse(m3dDz, NumberStyles.Integer, CultureInfo.InvariantCulture, out var m3dDzVal))
-            result.Model3DDz = Coord.FromRaw(m3dDzVal);
-        if (parameters.TryGetValue("MODEL.CHECKSUM", out var modelCs) && int.TryParse(modelCs, NumberStyles.Integer, CultureInfo.InvariantCulture, out var modelCsVal))
-            result.ModelChecksum = modelCsVal;
-        if (parameters.TryGetValue("MODEL.NAME", out var modelName))
-            result.ModelName = modelName;
-        if (parameters.TryGetValue("MODEL.MODELTYPE", out var modelType) && int.TryParse(modelType, NumberStyles.Integer, CultureInfo.InvariantCulture, out var modelTypeVal))
-            result.ModelType = modelTypeVal;
-        if (parameters.TryGetValue("MODEL.MODELSOURCE", out var modelSource))
-            result.ModelSource = modelSource;
-        if (parameters.TryGetValue("BODYPROJECTION", out var bodyProj) && int.TryParse(bodyProj, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bodyProjVal))
-            result.BodyProjection = bodyProjVal;
-        if (parameters.TryGetValue("IDENTIFIER", out var identifier))
-            result.Identifier = identifier;
-        if (parameters.TryGetValue("TEXTURE", out var texture))
-            result.Texture = texture;
+        // Extract typed properties from the nested parameter block (byte-exact formats). Mil values
+        // are rounded (not truncated like Coord.FromMils) so fractional mils round-trip exactly.
+        Coord Mil(string k)
+        {
+            if (!parameters.TryGetValue(k, out var v) || string.IsNullOrEmpty(v)) return default;
+            var span = v.AsSpan();
+            if (span.EndsWith("mil", StringComparison.OrdinalIgnoreCase)
+                && double.TryParse(span[..^3], NumberStyles.Float, CultureInfo.InvariantCulture, out var mils))
+                return Coord.FromRaw((int)Math.Round(mils * 10000.0, MidpointRounding.AwayFromZero));
+            if (int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var raw))
+                return Coord.FromRaw(raw);
+            return default;
+        }
+        double Dbl(string k) => parameters.TryGetValue(k, out var v) && double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : 0;
+        int Int(string k) => parameters.TryGetValue(k, out var v) && int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : 0;
+        bool Bool(string k) => parameters.TryGetValue(k, out var v) && v.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
 
-        // Preserve any additional parameters not modeled as typed properties
+        if (parameters.TryGetValue("V7_LAYER", out var v7Layer)) result.LayerName = v7Layer;
+        if (parameters.TryGetValue("NAME", out var name)) result.Name = name;
+        result.Kind = Int("KIND");
+        if (parameters.ContainsKey("SUBPOLYINDEX")) result.SubPolyIndex = Int("SUBPOLYINDEX");
+        result.UnionIndex = Int("UNIONINDEX");
+
+        // The two duplicate ARCRESOLUTION keys (region-prefix, then body) from the ordered list.
+        var arcOccurrences = orderedBodyParams.Where(kv => kv.Key.Equals("ARCRESOLUTION", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (arcOccurrences.Count > 0 && TryParseCoord(arcOccurrences[0].Value, out var arc0)) result.ArcResolutionPrefix = arc0;
+        if (arcOccurrences.Count > 1 && TryParseCoord(arcOccurrences[1].Value, out var arc1)) result.ArcResolutionBody = arc1;
+        else result.ArcResolutionBody = result.ArcResolutionPrefix;
+
+        result.IsShapeBased = Bool("ISSHAPEBASED");
+        result.CavityHeight = Mil("CAVITYHEIGHT");
+        result.StandoffHeight = Mil("STANDOFFHEIGHT");
+        result.OverallHeight = Mil("OVERALLHEIGHT");
+        result.BodyProjection = Int("BODYPROJECTION");
+        result.BodyColor3D = Int("BODYCOLOR3D");
+        result.BodyOpacity3D = Dbl("BODYOPACITY3D");
+        if (parameters.TryGetValue("IDENTIFIER", out var identifier)) result.Identifier = DecodeBodyAsciiCodes(identifier);
+        if (parameters.TryGetValue("TEXTURE", out var texture)) result.Texture = texture;
+        result.TextureCenterX = Mil("TEXTURECENTERX");
+        result.TextureCenterY = Mil("TEXTURECENTERY");
+        result.TextureSizeX = Mil("TEXTURESIZEX");
+        result.TextureSizeY = Mil("TEXTURESIZEY");
+        result.TextureRotation = Dbl("TEXTUREROTATION");
+        if (parameters.TryGetValue("MODELID", out var modelId)) result.ModelId = modelId;
+        if (parameters.TryGetValue("MODEL.CHECKSUM", out var modelCs)
+            && long.TryParse(modelCs, NumberStyles.Integer, CultureInfo.InvariantCulture, out var modelCsVal))
+            result.ModelChecksum = modelCsVal;
+        result.ModelEmbed = Bool("MODEL.EMBED");
+        if (parameters.TryGetValue("MODEL.NAME", out var modelName)) result.ModelName = modelName;
+        result.Model2DLocation = new CoordPoint(Mil("MODEL.2D.X"), Mil("MODEL.2D.Y"));
+        result.Model2DRotation = Dbl("MODEL.2D.ROTATION");
+        result.Model3DRotX = Dbl("MODEL.3D.ROTX");
+        result.Model3DRotY = Dbl("MODEL.3D.ROTY");
+        result.Model3DRotZ = Dbl("MODEL.3D.ROTZ");
+        result.Model3DDz = Mil("MODEL.3D.DZ");
+        result.ModelType = Int("MODEL.MODELTYPE");
+        if (parameters.TryGetValue("MODEL.MODELSOURCE", out var modelSource)) result.ModelSource = modelSource;
+        if (parameters.ContainsKey("MODEL.EXTRUDED.MINZ")) result.ModelExtrudedMinZ = Mil("MODEL.EXTRUDED.MINZ");
+        if (parameters.ContainsKey("MODEL.EXTRUDED.MAXZ")) result.ModelExtrudedMaxZ = Mil("MODEL.EXTRUDED.MAXZ");
+
+        // Preserve any additional parameters not modeled as typed properties (trailing indexed keys).
         result.AdditionalParameters = ExtractAdditionalParameters(parameters,
         [
             "V7_LAYER", "NAME", "KIND", "SUBPOLYINDEX", "UNIONINDEX", "ARCRESOLUTION",
             "ISSHAPEBASED", "CAVITYHEIGHT", "STANDOFFHEIGHT", "OVERALLHEIGHT",
-            "BODYCOLOR3D", "BODYOPACITY3D", "BODYPROJECTION",
-            "MODELID", "MODEL.EMBED", "MODEL.2D.X", "MODEL.2D.Y", "MODEL.2D.ROTATION",
+            "BODYPROJECTION", "BODYCOLOR3D", "BODYOPACITY3D", "IDENTIFIER", "TEXTURE",
+            "TEXTURECENTERX", "TEXTURECENTERY", "TEXTURESIZEX", "TEXTURESIZEY", "TEXTUREROTATION",
+            "MODELID", "MODEL.CHECKSUM", "MODEL.EMBED", "MODEL.NAME",
+            "MODEL.2D.X", "MODEL.2D.Y", "MODEL.2D.ROTATION",
             "MODEL.3D.ROTX", "MODEL.3D.ROTY", "MODEL.3D.ROTZ", "MODEL.3D.DZ",
-            "MODEL.CHECKSUM", "MODEL.NAME", "MODEL.MODELTYPE", "MODEL.MODELSOURCE",
-            "IDENTIFIER", "TEXTURE"
+            "MODEL.MODELTYPE", "MODEL.MODELSOURCE", "MODEL.EXTRUDED.MINZ", "MODEL.EXTRUDED.MAXZ"
         ]);
 
         return result;
+    }
+
+    // Decodes a comma-separated codepoint list (e.g. "48,54,48,51") to its string; passes through
+    // values that aren't a codepoint list unchanged (older files store IDENTIFIER as plain text).
+    private static string DecodeBodyAsciiCodes(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return string.Empty;
+        var parts = s.Split(',');
+        var sb = new System.Text.StringBuilder(parts.Length);
+        foreach (var part in parts)
+        {
+            if (!int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out var code))
+                return s; // not an ascii-code list
+            sb.Append((char)code);
+        }
+        return sb.ToString();
     }
 }

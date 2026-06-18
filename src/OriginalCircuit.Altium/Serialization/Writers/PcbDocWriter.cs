@@ -1107,7 +1107,7 @@ public sealed class PcbDocWriter
 
     // Delphi FloatToStrF exponential form: 15 sig digits, 4-digit signed exponent, leading space for
     // non-negative values (the sign column), e.g. 0 -> " 0.00000000000000E+0000", 90 -> " 9.0...E+0001".
-    private static string DelphiExp(double v)
+    internal static string DelphiExp(double v)
     {
         var mantissa = Math.Abs(v).ToString("0.00000000000000E+0000", CultureInfo.InvariantCulture);
         return (v < 0 ? "-" : " ") + mantissa;
