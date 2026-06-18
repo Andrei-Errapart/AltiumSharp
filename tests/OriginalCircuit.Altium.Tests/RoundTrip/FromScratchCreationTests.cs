@@ -1396,20 +1396,8 @@ public sealed class FromScratchCreationTests
         {
             Name = "PowerNets",
             Kind = "Net",
-            SuperClass = "",
-            Enabled = true,
+            SuperClass = false,
             UniqueId = "EFGH5678",
-            Parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["NAME"] = "PowerNets",
-                ["KIND"] = "Net",
-                ["SUPERCLASS"] = "",
-                ["ENABLED"] = "TRUE",
-                ["UNIQUEID"] = "EFGH5678",
-                ["MEMBER0"] = "VCC",
-                ["MEMBER1"] = "GND",
-                ["MEMBER2"] = "VDD"
-            }
         };
         objectClass.Members.Add("VCC");
         objectClass.Members.Add("GND");
