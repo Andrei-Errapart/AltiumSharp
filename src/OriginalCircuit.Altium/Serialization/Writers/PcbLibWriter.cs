@@ -153,6 +153,15 @@ public sealed class PcbLibWriter
         WritePadViaLibrary(libraryStorage, library);
         WriteComponentParamsToc(libraryStorage, library);
 
+        // Reproduce the always-empty library sub-storages (Textures, ModelsNoEmbed) explicitly rather
+        // than replaying them from AdditionalLibraryStreams, so from-scratch libraries carry them.
+        foreach (var name in library.EmptyLibrarySubStorages)
+        {
+            var emptyStorage = libraryStorage.AddStorage(name);
+            WriteStorageHeader(emptyStorage, 0);
+            emptyStorage.AddStream("Data").SetData([]);
+        }
+
         // Write additional library-level streams (ComponentParamsTOC, EmbeddedFonts, etc.)
         WriteAdditionalLibraryStreams(libraryStorage, library);
     }

@@ -68,6 +68,15 @@ public sealed class PcbLibrary : IPcbLibrary
     public Dictionary<string, byte[]>? AdditionalRootStreams { get; set; }
 
     /// <summary>
+    /// Library sub-storages that Altium always writes as empty (Header count 0 + empty Data): by default
+    /// <c>Textures</c> and <c>ModelsNoEmbed</c>. Emitted explicitly (rather than replayed from
+    /// <see cref="AdditionalLibraryStreams"/>) so from-scratch libraries carry them too. The reader drops
+    /// a name from this set and falls back to verbatim capture if a source file ever has non-empty content.
+    /// </summary>
+    public HashSet<string> EmptyLibrarySubStorages { get; } =
+        new(StringComparer.OrdinalIgnoreCase) { "Textures", "ModelsNoEmbed" };
+
+    /// <summary>
     /// The root <c>FileVersionInfo</c> version-message cache, modeled as a typed record.
     /// </summary>
     public PcbFileVersionInfo FileVersionInfo { get; set; } = new();

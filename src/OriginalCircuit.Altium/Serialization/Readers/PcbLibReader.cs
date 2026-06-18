@@ -270,6 +270,17 @@ public sealed class PcbLibReader
         {
             if (knownLibraryChildren.Contains(entry.Name))
                 continue;
+
+            // Textures / ModelsNoEmbed are reproduced as explicit empty storages (see
+            // PcbLibrary.EmptyLibrarySubStorages). Skip capturing them while empty; if a file ever has
+            // non-empty content, drop the name so it falls back to verbatim catch-all capture below.
+            if (library.EmptyLibrarySubStorages.Contains(entry.Name))
+            {
+                if (entry.IsStorage && IsEmptyLibrarySubStorage(entry.AsStorage()))
+                    continue;
+                library.EmptyLibrarySubStorages.Remove(entry.Name);
+            }
+
             if (entry.IsStream)
             {
                 library.AdditionalLibraryStreams[entry.Name] = entry.AsStream().GetData();
@@ -294,6 +305,9 @@ public sealed class PcbLibReader
             ReadModels(modelsStorage, library);
         }
     }
+
+    private static bool IsEmptyLibrarySubStorage(CompoundStorage storage)
+        => storage.TryGetStream("Data") is not { } data || data.GetData().Length == 0;
 
     private static void ReadModels(CompoundStorage modelsStorage, PcbLibrary library)
     {
