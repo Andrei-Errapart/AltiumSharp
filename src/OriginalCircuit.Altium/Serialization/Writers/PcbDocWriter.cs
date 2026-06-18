@@ -83,6 +83,7 @@ public sealed class PcbDocWriter
         WriteFills(cf, document);
         WriteRegions(cf, document);
         WriteBoardRegions(cf, document);
+        WriteShapeBasedRegions(cf, document);
         WriteComponentBodies(cf, document);
         cancellationToken.ThrowIfCancellationRequested();
         WritePolygons(cf, document);
@@ -516,6 +517,50 @@ public sealed class PcbDocWriter
         var storage = cf.RootStorage.AddStorage("UniqueIDPrimitiveInformation");
         PcbLibWriter.WriteStorageHeader(storage, document.PrimitiveUniqueIds.Count);
         storage.AddStream("Data").SetData(PcbLibWriter.BuildPrimitiveUniqueIdData(document.PrimitiveUniqueIds));
+    }
+
+    private static void WriteShapeBasedRegions(CompoundFileAccessor cf, PcbDocument document)
+    {
+        if (document.ShapeBasedRegions.Count == 0)
+        {
+            WriteEmptyStorageIfPresent(cf, document, "ShapeBasedRegions6");
+            return;
+        }
+        var storage = cf.RootStorage.AddStorage("ShapeBasedRegions6");
+        PcbLibWriter.WriteStorageHeader(storage, document.ShapeBasedRegions.Count);
+        using var ms = new MemoryStream();
+        foreach (var r in document.ShapeBasedRegions)
+        {
+            ms.WriteByte(0x0B);
+            ms.Write(r.Sr1LengthBytes.Length == 4 ? r.Sr1LengthBytes : new byte[4]);
+            ms.WriteByte(r.Layer);
+            ms.WriteByte(r.Flags1);
+            ms.WriteByte(r.Flags2);
+            ms.Write(BitConverter.GetBytes(r.NetIndex));
+            ms.Write(BitConverter.GetBytes(r.PolygonIndex));
+            ms.Write(BitConverter.GetBytes(r.ComponentIndex));
+            ms.Write(r.HeaderSkip5.Length == 5 ? r.HeaderSkip5 : new byte[5]);
+            ms.Write(BitConverter.GetBytes((ushort)r.Holes.Count));
+            ms.Write(r.HeaderSkip2.Length == 2 ? r.HeaderSkip2 : new byte[2]);
+            ms.Write(BitConverter.GetBytes(r.RawPropertyBytes.Length));
+            ms.Write(r.RawPropertyBytes);
+            if (r.PropsHasTrailingNull) ms.WriteByte(0);
+            ms.Write(BitConverter.GetBytes((uint)Math.Max(0, r.Outline.Count - 1)));   // disk count = N-1
+            foreach (var v in r.Outline)
+            {
+                ms.WriteByte(v.IsRoundRaw);
+                ms.Write(BitConverter.GetBytes(v.X)); ms.Write(BitConverter.GetBytes(v.Y));
+                ms.Write(BitConverter.GetBytes(v.CenterX)); ms.Write(BitConverter.GetBytes(v.CenterY));
+                ms.Write(BitConverter.GetBytes(v.Radius));
+                ms.Write(BitConverter.GetBytes(v.StartAngle)); ms.Write(BitConverter.GetBytes(v.EndAngle));
+            }
+            foreach (var hole in r.Holes)
+            {
+                ms.Write(BitConverter.GetBytes((uint)hole.Count));
+                foreach (var (x, y) in hole) { ms.Write(BitConverter.GetBytes(x)); ms.Write(BitConverter.GetBytes(y)); }
+            }
+        }
+        storage.AddStream("Data").SetData(ms.ToArray());
     }
 
     private static void WriteBoardRegions(CompoundFileAccessor cf, PcbDocument document)

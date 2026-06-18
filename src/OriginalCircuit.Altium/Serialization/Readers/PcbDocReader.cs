@@ -68,7 +68,8 @@ public sealed class PcbDocReader
         "SmartUnions", "UnionNames", "BoardRegions",
         "Dimensions6", "Coordinates6", "FromTos6", "Embeddeds6", "PrimitiveGuids",
         "UniqueIDPrimitiveInformation", "FileVersionInfo",
-        "LayerKindMapping", "PadViaLibrary", "PadViaLibraryLinks", "Textures", "ModelsNoEmbed"
+        "LayerKindMapping", "PadViaLibrary", "PadViaLibraryLinks", "Textures", "ModelsNoEmbed",
+        "ShapeBasedRegions6"
     };
 
     private PcbDocument Read(CompoundFileAccessor accessor, CancellationToken cancellationToken = default)
@@ -98,6 +99,7 @@ public sealed class PcbDocReader
         ReadFills(accessor, document, cancellationToken);
         ReadRegions(accessor, document, cancellationToken);
         ReadBoardRegions(accessor, document, cancellationToken);
+        ReadShapeBasedRegions(accessor, document);
         ReadDocumentPrimitiveGuids(accessor, document);
         ReadDocumentPrimitiveUniqueIds(accessor, document);
         var fviStorage = accessor.TryGetStorage("FileVersionInfo");
@@ -635,6 +637,78 @@ public sealed class PcbDocReader
             if (region != null)
                 document.AddBoardRegion(region);
         }, cancellationToken);
+    }
+
+    private void ReadShapeBasedRegions(CompoundFileAccessor accessor, PcbDocument document)
+    {
+        // ShapeBasedRegions6 records are [u8 0x0B][u32 sr1_len][header][props][outline of extended
+        // 37-byte vertices][holes]. The standard region reader can't parse the extended vertices, so
+        // we parse the Data buffer directly. See docs/decompile/feature-shapebased-regions.md.
+        var storage = accessor.TryGetStorage("ShapeBasedRegions6");
+        if (storage == null) return;
+        var dataStream = PcbLibReader.GetChildStream(storage, "Data");
+        if (dataStream == null) return;
+        var data = dataStream.GetData();
+        var pos = 0;
+        try
+        {
+            while (pos < data.Length && data[pos] == 0x0B)
+            {
+                var region = ParseShapeBasedRegion(data, ref pos);
+                document.ShapeBasedRegions.Add(region);
+            }
+        }
+        catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentOutOfRangeException)
+        {
+            _diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                $"Failed to fully parse ShapeBasedRegions6: {ex.Message}", "ShapeBasedRegions6"));
+        }
+    }
+
+    private static PcbShapeBasedRegion ParseShapeBasedRegion(byte[] data, ref int pos)
+    {
+        pos += 1;                                                       // 0x0B type byte
+        var r = new PcbShapeBasedRegion();
+        r.Sr1LengthBytes = data.AsSpan(pos, 4).ToArray(); pos += 4;
+        r.Layer = data[pos]; pos += 1;
+        r.Flags1 = data[pos]; pos += 1;
+        r.Flags2 = data[pos]; pos += 1;
+        r.NetIndex = BitConverter.ToUInt16(data, pos); pos += 2;
+        r.PolygonIndex = BitConverter.ToUInt16(data, pos); pos += 2;
+        r.ComponentIndex = BitConverter.ToUInt16(data, pos); pos += 2;
+        r.HeaderSkip5 = data.AsSpan(pos, 5).ToArray(); pos += 5;
+        var holeCount = BitConverter.ToUInt16(data, pos); pos += 2;
+        r.HeaderSkip2 = data.AsSpan(pos, 2).ToArray(); pos += 2;
+        var propsLen = BitConverter.ToInt32(data, pos); pos += 4;
+        r.RawPropertyBytes = data.AsSpan(pos, propsLen).ToArray(); pos += propsLen;
+        var propsText = System.Text.Encoding.UTF8.GetString(r.RawPropertyBytes).TrimEnd('\0');
+        foreach (var pair in propsText.Split('|'))
+        {
+            var eq = pair.IndexOf('=');
+            if (eq > 0) r.Parameters[pair[..eq]] = pair[(eq + 1)..];
+        }
+        if (pos < data.Length && data[pos] == 0) { r.PropsHasTrailingNull = true; pos += 1; }
+        var outlineCount = BitConverter.ToUInt32(data, pos); pos += 4;
+        for (var i = 0; i <= outlineCount; i++)   // disk count is N, but N+1 vertices are stored
+        {
+            var v = new PcbExtendedVertex
+            {
+                IsRoundRaw = data[pos], X = BitConverter.ToInt32(data, pos + 1), Y = BitConverter.ToInt32(data, pos + 5),
+                CenterX = BitConverter.ToInt32(data, pos + 9), CenterY = BitConverter.ToInt32(data, pos + 13),
+                Radius = BitConverter.ToInt32(data, pos + 17), StartAngle = BitConverter.ToDouble(data, pos + 21),
+                EndAngle = BitConverter.ToDouble(data, pos + 29),
+            };
+            pos += 37;
+            r.Outline.Add(v);
+        }
+        for (var h = 0; h < holeCount; h++)
+        {
+            var hv = BitConverter.ToUInt32(data, pos); pos += 4;
+            var hole = new List<(double, double)>((int)hv);
+            for (var i = 0; i < hv; i++) { hole.Add((BitConverter.ToDouble(data, pos), BitConverter.ToDouble(data, pos + 8))); pos += 16; }
+            r.Holes.Add(hole);
+        }
+        return r;
     }
 
     private void ReadComponentBodies(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)

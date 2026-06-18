@@ -111,6 +111,9 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>The document-level <c>PrimitiveGuids</c> object-GUID cache (typed records).</summary>
     public List<PcbPrimitiveGuid> PrimitiveGuids { get; } = new();
 
+    /// <summary>Shape-based regions (ShapeBasedRegions6) — regions with arc-capable extended vertices.</summary>
+    public List<PcbShapeBasedRegion> ShapeBasedRegions { get; } = new();
+
     /// <summary>The document-level <c>UniqueIDPrimitiveInformation</c> short-id tokens (typed records).</summary>
     public List<PcbPrimitiveUniqueId> PrimitiveUniqueIds { get; } = new();
 
