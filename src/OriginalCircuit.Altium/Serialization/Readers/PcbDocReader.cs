@@ -483,32 +483,55 @@ public sealed class PcbDocReader
             pos += length;
 
             var parameters = PcbLibReader.ParseParameters(text);
-            var rule = new PcbRule
-            {
-                Parameters = parameters,
-                RawLeader = leader,
-                RawParametersOrdered = PcbLibReader.ParseParametersOrdered(text),
-            };
-            if (parameters.TryGetValue("NAME", out var name))
-                rule.Name = name;
-            if (parameters.TryGetValue("RULEKIND", out var ruleKind))
-                rule.RuleKind = ruleKind;
-            if (parameters.TryGetValue("COMMENT", out var comment))
-                rule.Comment = comment;
-            if (parameters.TryGetValue("UNIQUEID", out var uniqueId))
-                rule.UniqueId = uniqueId;
-            if (parameters.TryGetValue("ENABLED", out var enabled))
-                rule.Enabled = enabled.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
-            if (parameters.TryGetValue("PRIORITY", out var priority) && int.TryParse(priority, NumberStyles.Integer, CultureInfo.InvariantCulture, out var p))
-                rule.Priority = p;
-            if (parameters.TryGetValue("SCOPE1EXPRESSION", out var scope1))
-                rule.Scope1Expression = scope1;
-            if (parameters.TryGetValue("SCOPE2EXPRESSION", out var scope2))
-                rule.Scope2Expression = scope2;
-
+            DecodeUnicodeParameters(parameters);
+            var ruleKind = parameters.TryGetValue("RULEKIND", out var rk) ? rk : string.Empty;
+            var rule = CreateRuleForKind(ruleKind);
+            rule.RawLeader = leader;
+            rule.Parameters = parameters;
+            rule.ReadCommonHeader(parameters);
+            if (rule.IsModeled)
+                rule.ReadBody(parameters);
+            else
+                rule.RawParametersOrdered = PcbLibReader.ParseParametersOrdered(text); // kind not yet typed
             document.AddRule(rule);
         }
     }
+
+    // Maps a RULEKIND to its typed rule class. Kinds with dynamic per-layer key blocks (Width,
+    // DiffPairsRouting, RoutingLayers) and any unknown kind fall back to the base PcbRule (replay).
+    private static PcbRule CreateRuleForKind(string kind) => kind switch
+    {
+        "Clearance" or "BoardOutlineClearance" => new PcbClearanceRule(),
+        "ComponentClearance" => new PcbComponentClearanceRule(),
+        "AssemblyTestpoint" => new PcbAssemblyTestpointRule(),
+        "FabricationTestpoint" => new PcbFabricationTestpointRule(),
+        "AssemblyTestPointUsage" or "SilkToBoardRegionClearance" or "UnpouredPolygon" or "UnRoutedNet" => new PcbHeaderOnlyRule(),
+        "FabricationTestPointUsage" => new PcbFabricationTestPointUsageRule(),
+        "FanoutControl" => new PcbFanoutControlRule(),
+        "Height" => new PcbHeightRule(),
+        "HoleSize" => new PcbHoleSizeRule(),
+        "HoleToHoleClearance" => new PcbHoleToHoleClearanceRule(),
+        "LayerPairs" => new PcbLayerPairsRule(),
+        "Length" => new PcbLengthRule(),
+        "MatchedLengths" => new PcbMatchedLengthsRule(),
+        "MinimumSolderMaskSliver" => new PcbMinimumSolderMaskSliverRule(),
+        "NetAntennae" => new PcbNetAntennaeRule(),
+        "PasteMaskExpansion" => new PcbPasteMaskExpansionRule(),
+        "PlaneClearance" => new PcbPlaneClearanceRule(),
+        "PlaneConnect" => new PcbPlaneConnectRule(),
+        "PolygonConnect" => new PcbPolygonConnectRule(),
+        "RoutingCorners" => new PcbRoutingCornersRule(),
+        "RoutingPriority" => new PcbRoutingPriorityRule(),
+        "RoutingTopology" => new PcbRoutingTopologyRule(),
+        "RoutingVias" => new PcbRoutingViasRule(),
+        "ShortCircuit" => new PcbShortCircuitRule(),
+        "SignalStimulus" => new PcbSignalStimulusRule(),
+        "SilkToSilkClearance" => new PcbSilkToSilkClearanceRule(),
+        "SilkToSolderMaskClearance" => new PcbSilkToSolderMaskClearanceRule(),
+        "SolderMaskExpansion" => new PcbSolderMaskExpansionRule(),
+        "SupplyNets" => new PcbSupplyNetsRule(),
+        _ => new PcbRule(),
+    };
 
     private void ReadClasses(CompoundFileAccessor accessor, PcbDocument document)
     {

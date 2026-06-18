@@ -315,21 +315,29 @@ public sealed class PcbDocWriter
         using var ms = new MemoryStream();
         foreach (var rule in document.Rules)
         {
-            // Serialize the rule's parameter list (ordered + verbatim for round-trip; typed
-            // fallback for new rules), then frame it as [2-byte leader][4-byte length][text][null].
-            var sb = new System.Text.StringBuilder();
-            if (rule.RawParametersOrdered is { Count: > 0 } ordered)
+            // Typed rule kinds serialize from named properties (common header + kind body) in canonical
+            // order; not-yet-modeled kinds replay the captured ordered list. Framed as
+            // [2-byte leader][4-byte length][text][null].
+            string text;
+            if (rule.IsModeled)
             {
-                foreach (var kvp in ordered)
-                    sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+                var pairs = new List<KeyValuePair<string, string>>();
+                void Add(string k, string v) => pairs.Add(new KeyValuePair<string, string>(k, v));
+                rule.WriteCommonHeader(Add);
+                rule.WriteBody(Add);
+                text = BuildUnicodeAwareParamString(pairs);
             }
             else
             {
-                foreach (var kvp in rule.ToParameters())
-                    sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+                var sb = new System.Text.StringBuilder();
+                if (rule.RawParametersOrdered is { Count: > 0 } ordered)
+                    foreach (var kvp in ordered) sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+                else
+                    foreach (var kvp in rule.ToParameters()) sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+                text = sb.ToString();
             }
 
-            var textBytes = AltiumEncoding.Windows1252.GetBytes(sb.ToString());
+            var textBytes = AltiumEncoding.Windows1252.GetBytes(text);
             var length = textBytes.Length + 1; // include the trailing null
             ms.WriteByte((byte)(rule.RawLeader & 0xFF));
             ms.WriteByte((byte)((rule.RawLeader >> 8) & 0xFF));
@@ -1026,6 +1034,12 @@ public sealed class PcbDocWriter
     // and a UNICODE__<KEY>=<comma-decimal UTF-16 code units> companion carrying the full value is
     // appended for each affected key, bracketed by UNICODE=EXISTS markers.
     private static void WriteUnicodeAwareParamBlock(BinaryFormatWriter writer, List<KeyValuePair<string, string>> pairs)
+        => writer.WriteCStringParameterBlockRaw(BuildUnicodeAwareParamString(pairs));
+
+    // Builds the "|k=v|..." parameter string for a record, applying the UNICODE=EXISTS wrapping when
+    // any value has non-ASCII content. Used both by WriteCStringParameterBlockRaw consumers and by the
+    // Rules6 framing (which prefixes its own leader+length).
+    private static string BuildUnicodeAwareParamString(List<KeyValuePair<string, string>> pairs)
     {
         static bool NeedsUnicode(string v)
         {
@@ -1055,7 +1069,7 @@ public sealed class PcbDocWriter
             }
             sb.Append("|UNICODE=EXISTS");
         }
-        writer.WriteCStringParameterBlockRaw(sb.ToString());
+        return sb.ToString();
     }
 
     private static void WriteEmbeddedBoards(CompoundFileAccessor cf, PcbDocument document)
