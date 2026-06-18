@@ -31,12 +31,12 @@ public sealed class PcbLibrary : IPcbLibrary
     internal Dictionary<string, string>? LibraryParameters { get; set; }
 
     /// <summary>
-    /// Library-level parameters as an ordered list, preserving key order and duplicate keys
-    /// (the header contains repeated <c>RECORD=Board</c> markers that delimit layer-stack
-    /// sub-records). This is the authoritative representation for round-trip serialization;
-    /// <see cref="LibraryParameters"/> is a flattened convenience view.
+    /// Library-level parameters as an ordered, authorable key/value list — the canonical representation,
+    /// preserving key order and the duplicate keys that <see cref="LibraryParameters"/> (a flattened
+    /// convenience view) collapses (the header concatenates repeated <c>RECORD=</c>-delimited layer-stack
+    /// sub-records). Written verbatim when non-null; null falls back to <see cref="LibraryParameters"/>.
     /// </summary>
-    internal List<KeyValuePair<string, string>>? LibraryParametersOrdered { get; set; }
+    public List<KeyValuePair<string, string>>? LibraryParametersOrdered { get; set; }
 
     /// <summary>
     /// Unique identifier for this library (8-character random string).
