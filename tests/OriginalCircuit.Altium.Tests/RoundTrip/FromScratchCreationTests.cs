@@ -1419,6 +1419,40 @@ public sealed class FromScratchCreationTests
     }
 
     [Fact]
+    public void PcbDoc_SmartUnion_RoundTrip()
+    {
+        var document = new PcbDocument();
+        var union = new PcbSmartUnion();
+        var descriptor = new PcbUnionMember { Layer = "TOP", UserRouted = true, UnionIndex = 1048580 };
+        descriptor.Parameters.Add(new("X1", "0mil"));
+        descriptor.Parameters.Add(new("Y1", "0mil"));
+        descriptor.Parameters.Add(new("UNIONTYPE", "2"));
+        descriptor.Parameters.Add(new("NETNAME", "GND"));
+        union.Members.Add(descriptor);
+        var template = new PcbUnionMember { Layer = "MULTILAYER", UserRouted = true, UnionIndex = 1048580 };
+        template.Parameters.Add(new("DIAMETER", "23.622mil"));
+        template.Parameters.Add(new("HOLESIZE", "11.811mil"));
+        union.Members.Add(template);
+        document.AddSmartUnion(union);
+
+        using var ms = new MemoryStream();
+        new PcbDocWriter().Write(document, ms);
+        ms.Position = 0;
+        var readBack = new PcbDocReader().Read(ms);
+
+        Assert.Equal(1, readBack.SmartUnions.Count);
+        var u = readBack.SmartUnions[0];
+        Assert.Equal(2, u.Members.Count);
+        Assert.Equal(1048580, u.UnionIndex);
+        Assert.Equal(2, u.UnionType);
+        Assert.Equal("TOP", u.Members[0].Layer);
+        Assert.True(u.Members[0].UserRouted);
+        Assert.Equal("GND", u.Members[0].Parameters.Single(p => p.Key == "NETNAME").Value);
+        Assert.Equal("MULTILAYER", u.Members[1].Layer);
+        Assert.Equal("23.622mil", u.Members[1].Parameters.Single(p => p.Key == "DIAMETER").Value);
+    }
+
+    [Fact]
     public void PcbDoc_DifferentialPairs_RoundTrip()
     {
         var document = new PcbDocument();

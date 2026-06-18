@@ -441,8 +441,29 @@ public sealed class PcbDocWriter
         }
         var texts = new List<string>();
         foreach (var u in document.SmartUnions)
-            texts.Add(BuildParamText(u.RawParametersOrdered, u.ToParameters()));
+            texts.Add(BuildUnicodeAwareParamString(BuildUnionPairs(u)));
         WriteParameterStringStorage(cf, "SmartUnions", texts);
+    }
+
+    // Reassembles a SmartUnions record's ordered key list from its typed members: each member emits
+    // the common-primitive prefix in canonical order followed by its member-specific parameters.
+    private static List<KeyValuePair<string, string>> BuildUnionPairs(PcbSmartUnion u)
+    {
+        string B(bool x) => x ? "TRUE" : "FALSE";
+        var pairs = new List<KeyValuePair<string, string>>();
+        void Add(string k, string v) => pairs.Add(new KeyValuePair<string, string>(k, v));
+        foreach (var m in u.Members)
+        {
+            Add("SELECTION", B(m.Selection));
+            Add("LAYER", m.Layer);
+            Add("LOCKED", B(m.Locked));
+            Add("POLYGONOUTLINE", B(m.PolygonOutline));
+            Add("USERROUTED", B(m.UserRouted));
+            Add("KEEPOUT", B(m.Keepout));
+            Add("UNIONINDEX", m.UnionIndex.ToString(CultureInfo.InvariantCulture));
+            pairs.AddRange(m.Parameters);
+        }
+        return pairs;
     }
 
     private static void WriteUnionNames(CompoundFileAccessor cf, PcbDocument document)

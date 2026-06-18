@@ -1,6 +1,6 @@
 # Property Coverage Report
 
-Generated: 2026-06-18 18:32 UTC
+Generated: 2026-06-18 18:41 UTC
 
 ## PCB Primitive Types
 

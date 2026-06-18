@@ -604,15 +604,69 @@ public sealed class PcbDocReader
         });
     }
 
+    // The common-primitive prefix that begins every SmartUnions member sub-block, in order.
+    private static readonly string[] UnionPrefixKeys =
+        { "SELECTION", "LAYER", "LOCKED", "POLYGONOUTLINE", "USERROUTED", "KEEPOUT", "UNIONINDEX" };
+
     private void ReadSmartUnions(CompoundFileAccessor accessor, PcbDocument document)
     {
-        ReadParameterBlockStorage(accessor, "SmartUnions", (parameters, ordered) =>
+        ReadParameterBlockStorage(accessor, "SmartUnions", (_, ordered) =>
+            document.AddSmartUnion(ParseSmartUnion(ordered)));
+    }
+
+    // Splits a SmartUnions record's ordered key list into its member sub-blocks. Each member begins
+    // at a SELECTION key (the start of the common-primitive prefix); the seven prefix keys are typed,
+    // the remainder kept as an ordered member-specific list (preserving duplicates / indexed arrays).
+    private static PcbSmartUnion ParseSmartUnion(List<KeyValuePair<string, string>> ordered)
+    {
+        var union = new PcbSmartUnion();
+        PcbUnionMember? cur = null;
+        var prefixPos = 0;
+        foreach (var kv in ordered)
         {
-            var u = new PcbSmartUnion { Parameters = parameters, RawParametersOrdered = ordered };
-            if (parameters.TryGetValue("UNIONINDEX", out var idx) && int.TryParse(idx, out var i)) u.UnionIndex = i;
-            if (parameters.TryGetValue("UNIONTYPE", out var t) && int.TryParse(t, out var ty)) u.UnionType = ty;
-            document.AddSmartUnion(u);
-        });
+            if (kv.Key.Equals("SELECTION", StringComparison.OrdinalIgnoreCase))
+            {
+                cur = new PcbUnionMember();
+                union.Members.Add(cur);
+                prefixPos = 0;
+            }
+            if (cur == null)
+            {
+                // Defensive: content before the first SELECTION (not seen in the corpus) — keep it
+                // in a leading member so nothing is lost.
+                cur = new PcbUnionMember();
+                union.Members.Add(cur);
+                prefixPos = UnionPrefixKeys.Length;
+            }
+            if (prefixPos < UnionPrefixKeys.Length
+                && kv.Key.Equals(UnionPrefixKeys[prefixPos], StringComparison.OrdinalIgnoreCase))
+            {
+                AssignUnionPrefix(cur, prefixPos, kv.Value);
+                prefixPos++;
+            }
+            else
+            {
+                cur.Parameters.Add(kv);
+            }
+        }
+        return union;
+    }
+
+    private static void AssignUnionPrefix(PcbUnionMember m, int pos, string value)
+    {
+        switch (pos)
+        {
+            case 0: m.Selection = value.Equals("TRUE", StringComparison.OrdinalIgnoreCase); break;
+            case 1: m.Layer = value; break;
+            case 2: m.Locked = value.Equals("TRUE", StringComparison.OrdinalIgnoreCase); break;
+            case 3: m.PolygonOutline = value.Equals("TRUE", StringComparison.OrdinalIgnoreCase); break;
+            case 4: m.UserRouted = value.Equals("TRUE", StringComparison.OrdinalIgnoreCase); break;
+            case 5: m.Keepout = value.Equals("TRUE", StringComparison.OrdinalIgnoreCase); break;
+            case 6:
+                if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ui))
+                    m.UnionIndex = ui;
+                break;
+        }
     }
 
     private void ReadUnionNames(CompoundFileAccessor accessor, PcbDocument document)
