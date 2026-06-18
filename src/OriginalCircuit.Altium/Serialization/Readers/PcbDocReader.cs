@@ -391,6 +391,9 @@ public sealed class PcbDocReader
             : 0;
     }
 
+    // Parses a mil token (e.g. "1338.5827mil") into a Coord via rounded raw units.
+    private static Coord ParamMilCoord(string value) => Coord.FromRaw(ParamMilUnits(value));
+
     private void ReadParameterBlockStorage(CompoundFileAccessor accessor, string storageName,
         Action<Dictionary<string, string>, List<KeyValuePair<string, string>>> addItem)
     {
@@ -1192,95 +1195,54 @@ public sealed class PcbDocReader
             if (parameters.Count == 0)
                 continue;
 
-            var board = new PcbEmbeddedBoard { RawParametersOrdered = PcbLibReader.ParseParametersOrdered(rawBoard) };
-            ApplyEmbeddedBoardParameters(board, parameters);
-            document.AddEmbeddedBoard(board);
+            document.AddEmbeddedBoard(ParseEmbeddedBoard(PcbLibReader.ParseParametersOrdered(rawBoard)));
         }
     }
 
-    private static void ApplyEmbeddedBoardParameters(PcbEmbeddedBoard board, Dictionary<string, string> parameters)
+    // Parses an EmbeddedBoards6 record from its ordered parameter list into a fully typed model.
+    private static PcbEmbeddedBoard ParseEmbeddedBoard(List<KeyValuePair<string, string>> ordered)
     {
-        var knownKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        void Track(params string[] keys) { foreach (var k in keys) knownKeys.Add(k); }
-
-        // String properties
-        Track("DOCUMENTPATH", "VIEWPORTTITLE", "FONTNAME", "VISIBLELAYERS");
-        if (parameters.TryGetValue("DOCUMENTPATH", out var docPath))
-            board.DocumentPath = docPath;
-        if (parameters.TryGetValue("VIEWPORTTITLE", out var vpTitle))
-            board.ViewportTitle = vpTitle;
-        if (parameters.TryGetValue("FONTNAME", out var fontName))
-            board.TitleFontName = fontName;
-
-        // Layer (can be name like "TOP" or number like "1")
-        Track("LAYER");
-        if (parameters.TryGetValue("LAYER", out var layerStr))
-            board.Layer = ParseLayerValue(layerStr);
-
-        // Double properties
-        Track("ROTATION", "VIEWPORTSCALE");
-        if (parameters.TryGetValue("ROTATION", out var rotStr))
+        var b = new PcbEmbeddedBoard();
+        foreach (var (key, value) in ordered)
         {
-            var trimmed = rotStr.Trim();
-            if (double.TryParse(trimmed, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out var rotation))
-                board.Rotation = rotation;
+            switch (key.ToUpperInvariant())
+            {
+                case "SELECTION": b.Selection = ParamBool(value); break;
+                case "LAYER": b.Layer = value; break;
+                case "LOCKED": b.Locked = ParamBool(value); break;
+                case "POLYGONOUTLINE": b.PolygonOutline = ParamBool(value); break;
+                case "USERROUTED": b.UserRouted = ParamBool(value); break;
+                case "KEEPOUT": b.IsKeepout = ParamBool(value); break;
+                case "UNIONINDEX": b.UnionIndex = ParamInt(value); break;
+                case "X1": b.X1Location = ParamMilCoord(value); break;
+                case "Y1": b.Y1Location = ParamMilCoord(value); break;
+                case "X2": b.X2Location = ParamMilCoord(value); break;
+                case "Y2": b.Y2Location = ParamMilCoord(value); break;
+                case "ROTATION": b.Rotation = ParamDouble(value); break;
+                case "ISVIEWPORT": b.IsViewport = ParamBool(value); break;
+                case "VIEWPORTX1": b.ViewportX1 = ParamMilCoord(value); break;
+                case "VIEWPORTY1": b.ViewportY1 = ParamMilCoord(value); break;
+                case "VIEWPORTX2": b.ViewportX2 = ParamMilCoord(value); break;
+                case "VIEWPORTY2": b.ViewportY2 = ParamMilCoord(value); break;
+                case "VIEWPORTSCALE": b.ViewportScale = ParamDouble(value); break;
+                case "VIEWPORTVISIBLE": b.ViewportVisible = ParamBool(value); break;
+                case "VIEWPORTTITLE": b.ViewportTitle = value; break;
+                case "FONTNAME": b.TitleFontName = value; break;
+                case "FONTSIZE": b.TitleFontSize = ParamInt(value); break;
+                case "FONTCOLOR": b.TitleFontColor = ParamInt(value); break;
+                case "VISIBLELAYERS": b.VisibleLayers = value; break;
+                case "DOCUMENTPATH": b.DocumentPath = value; break;
+                case "X": b.X = ParamMilCoord(value); break;
+                case "Y": b.Y = ParamMilCoord(value); break;
+                case "ROWSPACING": b.RowSpacing = ParamMilCoord(value); break;
+                case "COLSPACING": b.ColSpacing = ParamMilCoord(value); break;
+                case "ROWCOUNT": b.RowCount = ParamInt(value); break;
+                case "COLCOUNT": b.ColCount = ParamInt(value); break;
+                case "MIRROR": b.MirrorFlag = ParamBool(value); break;
+                case "ORIGINMODE": b.OriginMode = ParamInt(value); break;
+            }
         }
-        if (parameters.TryGetValue("VIEWPORTSCALE", out var scaleStr))
-        {
-            if (double.TryParse(scaleStr, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out var sc))
-                board.Scale = sc;
-        }
-
-        // Boolean properties (actual keys from real Altium files)
-        Track("SELECTION", "LOCKED", "MIRROR", "KEEPOUT", "POLYGONOUTLINE",
-              "USERROUTED", "ISVIEWPORT", "VIEWPORTVISIBLE");
-        if (TryGetBool(parameters, "MIRROR", out var mirror))
-            board.MirrorFlag = mirror;
-        if (TryGetBool(parameters, "KEEPOUT", out var keepout))
-            board.IsKeepout = keepout;
-        if (TryGetBool(parameters, "POLYGONOUTLINE", out var polyOutline))
-            board.PolygonOutline = polyOutline;
-        if (TryGetBool(parameters, "USERROUTED", out var userRouted))
-            board.UserRouted = userRouted;
-        if (TryGetBool(parameters, "ISVIEWPORT", out var viewport))
-            board.IsViewport = viewport;
-        if (TryGetBool(parameters, "VIEWPORTVISIBLE", out var vpVis))
-            board.ViewportVisible = vpVis;
-
-        // Integer properties
-        Track("ORIGINMODE", "COLCOUNT", "ROWCOUNT", "UNIONINDEX",
-              "FONTSIZE", "FONTCOLOR");
-        if (parameters.TryGetValue("ORIGINMODE", out var omStr) && int.TryParse(omStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var om))
-            board.OriginMode = om;
-        if (parameters.TryGetValue("COLCOUNT", out var ccStr) && int.TryParse(ccStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cc))
-            board.ColCount = cc;
-        if (parameters.TryGetValue("ROWCOUNT", out var rcStr) && int.TryParse(rcStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var rc))
-            board.RowCount = rc;
-        if (parameters.TryGetValue("UNIONINDEX", out var uiStr) && int.TryParse(uiStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ui))
-            board.UnionIndex = ui;
-        if (parameters.TryGetValue("FONTSIZE", out var fsStr) && int.TryParse(fsStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fs))
-            board.TitleFontSize = fs;
-        if (parameters.TryGetValue("FONTCOLOR", out var fcStr) && int.TryParse(fcStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fc))
-            board.TitleFontColor = fc;
-
-        // Coord properties (stored as "1338.5827mil" format)
-        Track("X1", "Y1", "X2", "Y2", "X", "Y",
-              "COLSPACING", "ROWSPACING",
-              "VIEWPORTX1", "VIEWPORTY1", "VIEWPORTX2", "VIEWPORTY2");
-        if (TryParseMilCoord(parameters, "X1", out var x1))
-            board.X1Location = x1;
-        if (TryParseMilCoord(parameters, "Y1", out var y1))
-            board.Y1Location = y1;
-        if (TryParseMilCoord(parameters, "X2", out var x2))
-            board.X2Location = x2;
-        if (TryParseMilCoord(parameters, "Y2", out var y2))
-            board.Y2Location = y2;
-        if (TryParseMilCoord(parameters, "COLSPACING", out var colSp))
-            board.ColSpacing = colSp;
-        if (TryParseMilCoord(parameters, "ROWSPACING", out var rowSp))
-            board.RowSpacing = rowSp;
+        return b;
     }
 
     /// <summary>

@@ -228,7 +228,7 @@ public class ReaderIntegrationTests
         Assert.Contains("USB Power Adapter.PcbDoc", eb.DocumentPath, StringComparison.OrdinalIgnoreCase);
 
         // Layer & orientation
-        Assert.Equal(1, eb.Layer);
+        Assert.Equal("TOP", eb.Layer);
         Assert.Equal(0.0, eb.Rotation);
         Assert.False(eb.MirrorFlag);
         Assert.Equal(1, eb.OriginMode);
@@ -275,7 +275,7 @@ public class ReaderIntegrationTests
 
         // Different file, different values — cross-validates the reader
         Assert.Contains("SPI Isolator.PcbDoc", eb.DocumentPath, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(1, eb.Layer);
+        Assert.Equal("TOP", eb.Layer);
         Assert.Equal(3, eb.RowCount);
         Assert.Equal(3, eb.ColCount);
         Assert.InRange(eb.RowSpacing.ToMils(), 1555.1, 1555.2);

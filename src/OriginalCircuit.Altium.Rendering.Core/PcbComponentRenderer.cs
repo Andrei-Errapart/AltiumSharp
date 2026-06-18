@@ -174,12 +174,11 @@ public sealed class PcbComponentRenderer
 
     private void RenderEmbeddedBoard(IRenderContext context, PcbEmbeddedBoard board)
     {
-        if (board.IsHidden || !board.Enabled) return;
         if (board.X1Location == board.X2Location || board.Y1Location == board.Y2Location) return;
 
         int cols = Math.Max(1, board.ColCount);
         int rows = Math.Max(1, board.RowCount);
-        var color = LayerColors.GetColor(board.Layer != 0 ? board.Layer : 57);
+        var color = LayerColors.GetColor(57);
         var lineWidth = Math.Max(1.0, _transform.ScaleValue(Coord.FromMils(8)));
 
         for (int r = 0; r < rows; r++)

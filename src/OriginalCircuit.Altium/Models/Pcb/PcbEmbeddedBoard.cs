@@ -3,283 +3,83 @@ using OriginalCircuit.Eda.Primitives;
 namespace OriginalCircuit.Altium.Models.Pcb;
 
 /// <summary>
-/// Represents an embedded board object in a PCB design.
+/// Represents an embedded board / board-array object (the <c>EmbeddedBoards6</c> storage). Fully typed
+/// so it round-trips byte-for-byte and is authored from scratch without replaying the raw block.
 /// </summary>
 public sealed class PcbEmbeddedBoard
 {
-    /// <summary>
-    /// Path to the embedded board document.
-    /// </summary>
-    public string? DocumentPath { get; set; }
-
-    /// <summary>
-    /// Layer this embedded board is on.
-    /// </summary>
-    public int Layer { get; set; }
-
-    /// <summary>
-    /// Rotation angle in degrees.
-    /// </summary>
-    public double Rotation { get; set; }
-
-    /// <summary>
-    /// Whether the board is mirrored.
-    /// </summary>
-    public bool MirrorFlag { get; set; }
-
-    /// <summary>
-    /// Origin mode.
-    /// </summary>
-    public int OriginMode { get; set; }
-
-    /// <summary>
-    /// Scale factor.
-    /// </summary>
-    public double Scale { get; set; }
-
-    /// <summary>
-    /// Number of columns.
-    /// </summary>
-    public int ColCount { get; set; }
-
-    /// <summary>
-    /// Column spacing.
-    /// </summary>
-    public Coord ColSpacing { get; set; }
-
-    /// <summary>
-    /// Number of rows.
-    /// </summary>
-    public int RowCount { get; set; }
-
-    /// <summary>
-    /// Row spacing.
-    /// </summary>
-    public Coord RowSpacing { get; set; }
-
-    /// <summary>
-    /// Unique identifier.
-    /// </summary>
-    public string? UniqueId { get; set; }
-
-    /// <summary>
-    /// Whether this embedded board is enabled.
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
-    /// Whether this is a keepout.
-    /// </summary>
-    public bool IsKeepout { get; set; }
-
-    /// <summary>
-    /// Whether this is an electrical primitive.
-    /// </summary>
-    public bool IsElectricalPrim { get; set; }
-
-    /// <summary>
-    /// Whether this is a pre-route.
-    /// </summary>
-    public bool IsPreRoute { get; set; }
-
-    /// <summary>
-    /// Whether this has a teardrop.
-    /// </summary>
-    public bool TearDrop { get; set; }
-
-    /// <summary>
-    /// Whether this is part of a polygon outline.
-    /// </summary>
+    // Common primitive parameter prefix.
+    /// <summary>Selection flag (transient; FALSE on disk).</summary>
+    public bool Selection { get; set; }
+    /// <summary>Layer token (e.g. <c>TOP</c>).</summary>
+    public string Layer { get; set; } = "TOP";
+    /// <summary>Whether the object is locked.</summary>
+    public bool Locked { get; set; }
+    /// <summary>Polygon-outline flag.</summary>
     public bool PolygonOutline { get; set; }
-
-    /// <summary>
-    /// Whether user routed.
-    /// </summary>
-    public bool UserRouted { get; set; }
-
-    /// <summary>
-    /// Union index for grouped primitives.
-    /// </summary>
+    /// <summary>User-routed flag.</summary>
+    public bool UserRouted { get; set; } = true;
+    /// <summary>Whether this is a keepout.</summary>
+    public bool IsKeepout { get; set; }
+    /// <summary>Union index.</summary>
     public int UnionIndex { get; set; }
 
-    /// <summary>
-    /// Whether tenting is applied.
-    /// </summary>
-    public bool IsTenting { get; set; }
+    /// <summary>Bounding-box corner 1 X.</summary>
+    public Coord X1Location { get; set; }
+    /// <summary>Bounding-box corner 1 Y.</summary>
+    public Coord Y1Location { get; set; }
+    /// <summary>Bounding-box corner 2 X.</summary>
+    public Coord X2Location { get; set; }
+    /// <summary>Bounding-box corner 2 Y.</summary>
+    public Coord Y2Location { get; set; }
 
-    /// <summary>
-    /// Whether top side is tented.
-    /// </summary>
-    public bool IsTentingTop { get; set; }
+    /// <summary>Rotation in degrees.</summary>
+    public double Rotation { get; set; }
 
-    /// <summary>
-    /// Whether bottom side is tented.
-    /// </summary>
-    public bool IsTentingBottom { get; set; }
-
-    /// <summary>
-    /// Whether this is a top-side test point.
-    /// </summary>
-    public bool IsTestpointTop { get; set; }
-
-    /// <summary>
-    /// Whether this is a bottom-side test point.
-    /// </summary>
-    public bool IsTestpointBottom { get; set; }
-
-    /// <summary>
-    /// Whether this is a top assembly test point.
-    /// </summary>
-    public bool IsAssyTestpointTop { get; set; }
-
-    /// <summary>
-    /// Whether this is a bottom assembly test point.
-    /// </summary>
-    public bool IsAssyTestpointBottom { get; set; }
-
-    /// <summary>
-    /// Power plane clearance.
-    /// </summary>
-    public Coord PowerPlaneClearance { get; set; }
-
-    /// <summary>
-    /// Power plane connection style.
-    /// </summary>
-    public int PowerPlaneConnectStyle { get; set; }
-
-    /// <summary>
-    /// Power plane relief expansion.
-    /// </summary>
-    public Coord PowerPlaneReliefExpansion { get; set; }
-
-    /// <summary>
-    /// Thermal relief air gap.
-    /// </summary>
-    public Coord ReliefAirGap { get; set; }
-
-    /// <summary>
-    /// Thermal relief conductor width.
-    /// </summary>
-    public Coord ReliefConductorWidth { get; set; }
-
-    /// <summary>
-    /// Number of thermal relief entries.
-    /// </summary>
-    public int ReliefEntries { get; set; }
-
-    /// <summary>
-    /// Solder mask expansion.
-    /// </summary>
-    public Coord SolderMaskExpansion { get; set; }
-
-    /// <summary>
-    /// Whether this is a viewport.
-    /// </summary>
+    /// <summary>Whether this object is a viewport.</summary>
     public bool IsViewport { get; set; }
+    /// <summary>Viewport corner 1 X.</summary>
+    public Coord ViewportX1 { get; set; }
+    /// <summary>Viewport corner 1 Y.</summary>
+    public Coord ViewportY1 { get; set; }
+    /// <summary>Viewport corner 2 X.</summary>
+    public Coord ViewportX2 { get; set; }
+    /// <summary>Viewport corner 2 Y.</summary>
+    public Coord ViewportY2 { get; set; }
+    /// <summary>Viewport scale.</summary>
+    public double ViewportScale { get; set; } = 1.0;
+    /// <summary>Whether the viewport is visible.</summary>
+    public bool ViewportVisible { get; set; } = true;
+    /// <summary>Viewport title.</summary>
+    public string ViewportTitle { get; set; } = "Title";
 
-    /// <summary>
-    /// Viewport title.
-    /// </summary>
-    public string? ViewportTitle { get; set; }
-
-    /// <summary>
-    /// Whether the viewport is visible.
-    /// </summary>
-    public bool ViewportVisible { get; set; }
-
-    /// <summary>
-    /// Title font color.
-    /// </summary>
+    /// <summary>Title font name.</summary>
+    public string TitleFontName { get; set; } = "Arial";
+    /// <summary>Title font size.</summary>
+    public int TitleFontSize { get; set; }
+    /// <summary>Title font color.</summary>
     public int TitleFontColor { get; set; }
 
-    /// <summary>
-    /// Title font name.
-    /// </summary>
-    public string? TitleFontName { get; set; }
+    /// <summary>Visible-layers descriptor string.</summary>
+    public string VisibleLayers { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Title font size.
-    /// </summary>
-    public int TitleFontSize { get; set; }
+    /// <summary>Path to the embedded board document.</summary>
+    public string DocumentPath { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Title object type.
-    /// </summary>
-    public int TitleObject { get; set; }
-
-    /// <summary>
-    /// Whether to transmit board shape.
-    /// </summary>
-    public bool TransmitBoardShape { get; set; }
-
-    /// <summary>
-    /// Whether to transmit dimensions.
-    /// </summary>
-    public bool TransmitDimensions { get; set; }
-
-    /// <summary>
-    /// Whether to transmit drill table.
-    /// </summary>
-    public bool TransmitDrillTable { get; set; }
-
-    /// <summary>
-    /// Whether to transmit top layers enabled.
-    /// </summary>
-    public bool TransmitLayersEnabledTop { get; set; }
-
-    /// <summary>
-    /// Whether to transmit layer stack table.
-    /// </summary>
-    public bool TransmitLayerStackTable { get; set; }
-
-    /// <summary>
-    /// Number of transmit parameters.
-    /// </summary>
-    public int TransmitParametersCount { get; set; }
-
-    /// <summary>
-    /// The embedded board's parameter block as an ordered key/value list, serialized verbatim for
-    /// a byte-faithful round-trip; boards built from scratch fall back to the typed properties.
-    /// </summary>
-    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
-
-    /// <summary>
-    /// Whether this embedded board allows global editing.
-    /// </summary>
-    public bool AllowGlobalEdit { get; set; }
-
-    /// <summary>
-    /// Whether this embedded board is moveable.
-    /// </summary>
-    public bool Moveable { get; set; }
-
-    /// <summary>
-    /// Paste mask expansion override.
-    /// </summary>
-    public Coord PasteMaskExpansion { get; set; }
-
-    /// <summary>
-    /// Whether this embedded board is hidden from view.
-    /// </summary>
-    public bool IsHidden { get; set; }
-
-    /// <summary>
-    /// Bounding box X1 location.
-    /// </summary>
-    public Coord X1Location { get; set; }
-
-    /// <summary>
-    /// Bounding box Y1 location.
-    /// </summary>
-    public Coord Y1Location { get; set; }
-
-    /// <summary>
-    /// Bounding box X2 location.
-    /// </summary>
-    public Coord X2Location { get; set; }
-
-    /// <summary>
-    /// Bounding box Y2 location.
-    /// </summary>
-    public Coord Y2Location { get; set; }
+    /// <summary>Array origin X.</summary>
+    public Coord X { get; set; }
+    /// <summary>Array origin Y.</summary>
+    public Coord Y { get; set; }
+    /// <summary>Array row spacing.</summary>
+    public Coord RowSpacing { get; set; }
+    /// <summary>Array column spacing.</summary>
+    public Coord ColSpacing { get; set; }
+    /// <summary>Array row count.</summary>
+    public int RowCount { get; set; } = 1;
+    /// <summary>Array column count.</summary>
+    public int ColCount { get; set; } = 1;
+    /// <summary>Whether the array is mirrored.</summary>
+    public bool MirrorFlag { get; set; }
+    /// <summary>Origin mode.</summary>
+    public int OriginMode { get; set; }
 }

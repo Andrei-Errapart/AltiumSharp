@@ -331,11 +331,11 @@ public sealed class PcbDocPropertyCoverageTests
         var board = new PcbEmbeddedBoard
         {
             DocumentPath = @"C:\Designs\SubBoard.PcbDoc",
-            Layer = 1,
+            Layer = "TOP",
             Rotation = 45.5,
             MirrorFlag = true,
             OriginMode = 1,
-            Scale = 2.5,
+            ViewportScale = 2.5,
             ColCount = 3,
             ColSpacing = Coord.FromMils(500),
             RowCount = 4,
@@ -362,11 +362,11 @@ public sealed class PcbDocPropertyCoverageTests
         var eb = readBack.EmbeddedBoards[0];
 
         Assert.Equal(@"C:\Designs\SubBoard.PcbDoc", eb.DocumentPath);
-        Assert.Equal(1, eb.Layer);
+        Assert.Equal("TOP", eb.Layer);
         Assert.Equal(45.5, eb.Rotation, 0.01);
         Assert.True(eb.MirrorFlag);
         Assert.Equal(1, eb.OriginMode);
-        Assert.Equal(2.5, eb.Scale, 0.01);
+        Assert.Equal(2.5, eb.ViewportScale, 0.01);
         Assert.Equal(3, eb.ColCount);
         Assert.Equal(500, eb.ColSpacing.ToMils(), 0.1);
         Assert.Equal(4, eb.RowCount);

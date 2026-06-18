@@ -1074,85 +1074,63 @@ public sealed class PcbDocWriter
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
         foreach (var board in document.EmbeddedBoards)
-        {
-            WriteEmbeddedBoardParameters(writer, board);
-        }
+            writer.WriteCStringParameterBlockRaw(BuildEmbeddedBoardParamText(board));
 
         writer.Flush();
         dataStream.SetData(ms.ToArray());
     }
 
-    private static void WriteEmbeddedBoardParameters(BinaryFormatWriter writer, PcbEmbeddedBoard board)
+    // Serializes a PcbEmbeddedBoard to its EmbeddedBoards6 parameter block in Altium's canonical order.
+    private static string BuildEmbeddedBoardParamText(PcbEmbeddedBoard b)
     {
-        // Round-trip: re-emit the original parameter block verbatim. New boards use typed fields.
-        if (board.RawParametersOrdered is { Count: > 0 } ordered)
-        {
-            var sb = new System.Text.StringBuilder();
-            foreach (var kvp in ordered)
-                sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
-            writer.WriteCStringParameterBlockRaw(sb.ToString());
-            return;
-        }
+        var sb = new System.Text.StringBuilder();
+        void Add(string k, string v) => sb.Append('|').Append(k).Append('=').Append(v);
+        static string B(bool x) => x ? "TRUE" : "FALSE";
+        static string I(int x) => x.ToString(CultureInfo.InvariantCulture);
+        static string M(Coord c) => FormatMilUnits(c.ToRaw());
 
-        var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        // Boolean properties (written as present=TRUE/FALSE, matching real Altium format)
-        parameters["SELECTION"] = "FALSE";
-        parameters["LOCKED"] = "FALSE";
-        parameters["POLYGONOUTLINE"] = board.PolygonOutline ? "TRUE" : "FALSE";
-        parameters["USERROUTED"] = board.UserRouted ? "TRUE" : "FALSE";
-        parameters["KEEPOUT"] = board.IsKeepout ? "TRUE" : "FALSE";
-        parameters["MIRROR"] = board.MirrorFlag ? "TRUE" : "FALSE";
-
-        // Layer (as name, matching real format)
-        parameters["LAYER"] = LayerByteToName(board.Layer);
-
-        // Integer properties
-        parameters["UNIONINDEX"] = board.UnionIndex.ToString(CultureInfo.InvariantCulture);
-        if (board.OriginMode != 0)
-            parameters["ORIGINMODE"] = board.OriginMode.ToString(CultureInfo.InvariantCulture);
-        parameters["COLCOUNT"] = board.ColCount.ToString(CultureInfo.InvariantCulture);
-        parameters["ROWCOUNT"] = board.RowCount.ToString(CultureInfo.InvariantCulture);
-
-        // Coord properties (stored as "NNNNmil" format)
-        parameters["X1"] = FormatMilCoord(board.X1Location);
-        parameters["Y1"] = FormatMilCoord(board.Y1Location);
-        parameters["X2"] = FormatMilCoord(board.X2Location);
-        parameters["Y2"] = FormatMilCoord(board.Y2Location);
-        parameters["X"] = FormatMilCoord(board.X1Location);
-        parameters["Y"] = FormatMilCoord(board.Y1Location);
-        parameters["COLSPACING"] = FormatMilCoord(board.ColSpacing);
-        parameters["ROWSPACING"] = FormatMilCoord(board.RowSpacing);
-
-        // Rotation (scientific notation)
-        parameters["ROTATION"] = " " + board.Rotation.ToString("E14", CultureInfo.InvariantCulture);
-
-        // Viewport properties
-        parameters["ISVIEWPORT"] = board.IsViewport ? "TRUE" : "FALSE";
-        parameters["VIEWPORTVISIBLE"] = board.ViewportVisible ? "TRUE" : "FALSE";
-        if (!string.IsNullOrEmpty(board.ViewportTitle))
-            parameters["VIEWPORTTITLE"] = board.ViewportTitle;
-        if (board.Scale != 0)
-            parameters["VIEWPORTSCALE"] = board.Scale.ToString("F3", CultureInfo.InvariantCulture);
-
-        // Font properties
-        if (!string.IsNullOrEmpty(board.TitleFontName))
-            parameters["FONTNAME"] = board.TitleFontName;
-        if (board.TitleFontSize != 0)
-            parameters["FONTSIZE"] = board.TitleFontSize.ToString(CultureInfo.InvariantCulture);
-        if (board.TitleFontColor != 0)
-            parameters["FONTCOLOR"] = board.TitleFontColor.ToString(CultureInfo.InvariantCulture);
-
-        // Document path
-        if (!string.IsNullOrEmpty(board.DocumentPath))
-            parameters["DOCUMENTPATH"] = board.DocumentPath;
-
-        writer.WriteCStringParameterBlock(parameters);
+        Add("SELECTION", B(b.Selection));
+        Add("LAYER", b.Layer);
+        Add("LOCKED", B(b.Locked));
+        Add("POLYGONOUTLINE", B(b.PolygonOutline));
+        Add("USERROUTED", B(b.UserRouted));
+        Add("KEEPOUT", B(b.IsKeepout));
+        Add("UNIONINDEX", I(b.UnionIndex));
+        Add("X1", M(b.X1Location));
+        Add("Y1", M(b.Y1Location));
+        Add("X2", M(b.X2Location));
+        Add("Y2", M(b.Y2Location));
+        Add("ROTATION", DelphiExp(b.Rotation));
+        Add("ISVIEWPORT", B(b.IsViewport));
+        Add("VIEWPORTX1", M(b.ViewportX1));
+        Add("VIEWPORTY1", M(b.ViewportY1));
+        Add("VIEWPORTX2", M(b.ViewportX2));
+        Add("VIEWPORTY2", M(b.ViewportY2));
+        Add("VIEWPORTSCALE", b.ViewportScale.ToString("0.000", CultureInfo.InvariantCulture));
+        Add("VIEWPORTVISIBLE", B(b.ViewportVisible));
+        Add("VIEWPORTTITLE", b.ViewportTitle);
+        Add("FONTNAME", b.TitleFontName);
+        Add("FONTSIZE", I(b.TitleFontSize));
+        Add("FONTCOLOR", I(b.TitleFontColor));
+        Add("VISIBLELAYERS", b.VisibleLayers);
+        Add("DOCUMENTPATH", b.DocumentPath);
+        Add("X", M(b.X));
+        Add("Y", M(b.Y));
+        Add("ROWSPACING", M(b.RowSpacing));
+        Add("COLSPACING", M(b.ColSpacing));
+        Add("ROWCOUNT", I(b.RowCount));
+        Add("COLCOUNT", I(b.ColCount));
+        Add("MIRROR", B(b.MirrorFlag));
+        Add("ORIGINMODE", I(b.OriginMode));
+        return sb.ToString();
     }
 
-    private static string FormatMilCoord(Coord coord)
+    // Delphi FloatToStrF exponential form: 15 sig digits, 4-digit signed exponent, leading space for
+    // non-negative values (the sign column), e.g. 0 -> " 0.00000000000000E+0000", 90 -> " 9.0...E+0001".
+    private static string DelphiExp(double v)
     {
-        return coord.ToMils().ToString("F4", CultureInfo.InvariantCulture) + "mil";
+        var mantissa = Math.Abs(v).ToString("0.00000000000000E+0000", CultureInfo.InvariantCulture);
+        return (v < 0 ? "-" : " ") + mantissa;
     }
 
     private static string LayerByteToName(int layer)

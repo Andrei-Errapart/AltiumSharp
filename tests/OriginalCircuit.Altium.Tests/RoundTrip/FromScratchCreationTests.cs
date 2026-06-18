@@ -566,13 +566,13 @@ public sealed class FromScratchCreationTests
         doc.AddEmbeddedBoard(new PcbEmbeddedBoard
         {
             DocumentPath = @"C:\Designs\SubBoard.PcbDoc",
-            Layer = 1,
+            Layer = "TOP",
             Rotation = 90.0,
             ColCount = 2,
             RowCount = 3,
             ColSpacing = Coord.FromMils(500),
             RowSpacing = Coord.FromMils(400),
-            Scale = 1.0,
+            ViewportScale = 1.0,
             IsViewport = true,
             ViewportTitle = "Panel View",
         });
@@ -585,7 +585,7 @@ public sealed class FromScratchCreationTests
         Assert.Single(readBack.EmbeddedBoards);
         var eb = readBack.EmbeddedBoards[0];
         Assert.Equal(@"C:\Designs\SubBoard.PcbDoc", eb.DocumentPath);
-        Assert.Equal(1, eb.Layer);
+        Assert.Equal("TOP", eb.Layer);
         Assert.Equal(90.0, eb.Rotation);
         Assert.Equal(2, eb.ColCount);
         Assert.Equal(3, eb.RowCount);
