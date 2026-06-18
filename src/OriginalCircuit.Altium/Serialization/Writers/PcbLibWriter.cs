@@ -55,6 +55,7 @@ public sealed class PcbLibWriter
         WriteFileHeader(cf, library);
         WriteSectionKeys(cf, library, sectionKeys);
         WriteLibrary(cf, library, sectionKeys, cancellationToken);
+        WriteFileVersionInfo(cf.RootStorage, library.FileVersionInfo);
         WriteAdditionalRootStreams(cf, library);
 
         cf.Save(stream);
@@ -1115,6 +1116,29 @@ public sealed class PcbLibWriter
         storage.AddStream("Data").SetData(BuildPrimitiveUniqueIdData(component.PrimitiveUniqueIds));
     }
 
+    // Emits a FileVersionInfo/Data stream ([u32 len][|KEY=VALUE| block]) from the typed record.
+    internal static byte[] BuildFileVersionInfoData(PcbFileVersionInfo info)
+    {
+        string text;
+        if (info.RawParametersOrdered is { Count: > 0 } ordered)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var kvp in ordered) sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+            text = sb.ToString();
+        }
+        else
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var kvp in info.Parameters) sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
+            text = sb.ToString();
+        }
+        using var ms = new MemoryStream();
+        using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
+        writer.WriteCStringParameterBlockRaw(text);
+        writer.Flush();
+        return ms.ToArray();
+    }
+
     // Emits the length-prefixed |KEY=VALUE| records of a UniqueIDPrimitiveInformation/Data stream.
     internal static byte[] BuildPrimitiveUniqueIdData(IReadOnlyList<PcbPrimitiveUniqueId> records)
     {
@@ -1206,6 +1230,14 @@ public sealed class PcbLibWriter
     {
         if (library.AdditionalRootStreams != null)
             WriteAdditionalStreams(cf.RootStorage, library.AdditionalRootStreams);
+    }
+
+    internal static void WriteFileVersionInfo(CompoundStorage rootStorage, PcbFileVersionInfo info)
+    {
+        if (!info.Present && info.Parameters.Count == 0 && info.RawParametersOrdered is null) return;
+        var storage = rootStorage.AddStorage("FileVersionInfo");
+        WriteStorageHeader(storage, 1);
+        storage.AddStream("Data").SetData(BuildFileVersionInfoData(info));
     }
 
     internal static void WriteAdditionalStreams(CompoundStorage storage, Dictionary<string, byte[]> streams)

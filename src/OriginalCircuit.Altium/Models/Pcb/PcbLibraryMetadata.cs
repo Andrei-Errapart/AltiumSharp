@@ -40,6 +40,23 @@ public sealed class PcbPadViaLibrary
 }
 
 /// <summary>
+/// The <c>FileVersionInfo</c> stream — Altium's per-file version/compatibility message cache (a single
+/// parameter block of COUNT/VERn/FWDMSGn/BKMSGn entries). Modeled as a typed record (the ordered params
+/// are preserved for byte-exact round-trip) rather than an opaque stream. Present in PcbLib and PcbDoc.
+/// </summary>
+public sealed class PcbFileVersionInfo
+{
+    /// <summary>Parsed parameters (the encoded version messages).</summary>
+    public Dictionary<string, string> Parameters { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Ordered parameter list, preserved for byte-exact round-trip; null for from-scratch.</summary>
+    internal List<KeyValuePair<string, string>>? RawParametersOrdered { get; set; }
+
+    /// <summary>True when this info was present in the source file (so the writer reproduces its presence).</summary>
+    internal bool Present { get; set; }
+}
+
+/// <summary>
 /// One entry of the PcbLib <c>Library/ComponentParamsTOC</c> table of contents (a per-footprint summary
 /// row). See docs/decompile/feature-component-params-toc.md.
 /// </summary>

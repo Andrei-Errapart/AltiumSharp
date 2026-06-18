@@ -68,6 +68,11 @@ public sealed class PcbLibrary : IPcbLibrary
     public Dictionary<string, byte[]>? AdditionalRootStreams { get; set; }
 
     /// <summary>
+    /// The root <c>FileVersionInfo</c> version-message cache, modeled as a typed record.
+    /// </summary>
+    public PcbFileVersionInfo FileVersionInfo { get; set; } = new();
+
+    /// <summary>
     /// The <c>Library/LayerKindMapping</c> metadata Altium writes in every PcbLib. Modeled as a typed
     /// record (rather than an opaque stream) so it round-trips and is emitted for from-scratch libraries.
     /// </summary>

@@ -114,6 +114,9 @@ public sealed class PcbDocument : IPcbDocument
     /// <summary>The document-level <c>UniqueIDPrimitiveInformation</c> short-id tokens (typed records).</summary>
     public List<PcbPrimitiveUniqueId> PrimitiveUniqueIds { get; } = new();
 
+    /// <summary>The root <c>FileVersionInfo</c> version-message cache, modeled as a typed record.</summary>
+    public PcbFileVersionInfo FileVersionInfo { get; set; } = new();
+
     /// <summary>
     /// All differential pairs in this document.
     /// </summary>

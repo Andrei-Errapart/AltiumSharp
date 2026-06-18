@@ -142,22 +142,10 @@ public sealed class PcbLibReader
     {
         library.AdditionalRootStreams = new Dictionary<string, byte[]>();
 
-        // Known additional storages that Altium writes
-        var additionalStorages = new[] { "FileVersionInfo" };
-        foreach (var storageName in additionalStorages)
-        {
-            var storage = accessor.TryGetStorage(storageName);
-            if (storage != null)
-            {
-                foreach (var entry in storage.EnumerateEntries())
-                {
-                    if (entry.IsStream)
-                    {
-                        library.AdditionalRootStreams[$"{storageName}/{entry.Name}"] = entry.AsStream().GetData();
-                    }
-                }
-            }
-        }
+        // FileVersionInfo is now modeled as a typed record.
+        var fviStorage = accessor.TryGetStorage("FileVersionInfo");
+        if (fviStorage != null && fviStorage.TryGetStream("Data", out var fviData))
+            library.FileVersionInfo = ParseFileVersionInfo(fviData.GetData());
     }
 
     private void ReadSectionKeys(CompoundFileAccessor accessor, PcbLibrary library)
@@ -378,6 +366,20 @@ public sealed class PcbLibReader
                 Guid = new Guid(data.AsSpan(pos + 8, 16)),
             });
         }
+    }
+
+    // Parses a FileVersionInfo/Data stream ([u32 len][|KEY=VALUE| block]) into a typed record.
+    internal static PcbFileVersionInfo ParseFileVersionInfo(byte[]? data)
+    {
+        var info = new PcbFileVersionInfo();
+        if (data == null || data.Length < 4) return info;
+        var len = BitConverter.ToInt32(data, 0);
+        if (len <= 0 || 4 + len > data.Length) return info;
+        var text = AltiumEncoding.Windows1252.GetString(data, 4, len).TrimEnd('\0');
+        info.RawParametersOrdered = ParseParametersOrdered(text);
+        foreach (var kvp in info.RawParametersOrdered) info.Parameters[kvp.Key] = kvp.Value;
+        info.Present = true;
+        return info;
     }
 
     internal static void ReadPrimitiveUniqueIds(CompoundStorage parentStorage, PcbComponent component)

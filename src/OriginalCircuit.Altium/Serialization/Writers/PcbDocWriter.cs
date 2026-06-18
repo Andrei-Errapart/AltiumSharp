@@ -104,6 +104,7 @@ public sealed class PcbDocWriter
         WriteEmptyStorageIfPresent(cf, document, "Embeddeds6");
         WriteDocumentPrimitiveGuids(cf, document);
         WriteDocumentPrimitiveUniqueIds(cf, document);
+        PcbLibWriter.WriteFileVersionInfo(cf.RootStorage, document.FileVersionInfo);
         WriteAdditionalStreams(cf, document);
 
         cf.Save(stream);
