@@ -435,6 +435,25 @@ public sealed class PcbSolderMaskExpansionRule : PcbRule
     internal override void WriteBody(Action<string, string> add) { add("EXPANSION", Mil(Expansion)); add("ISTENTINGTOP", Bool(IsTentingTop)); }
 }
 
+/// <summary>RoutingLayers rule: per-layer routability flags (the dynamic <c>{layer}_V5</c> keys).</summary>
+public sealed class PcbRoutingLayersRule : PcbRule
+{
+    /// <summary>Per-layer routing-enabled flags in source order (layer name → enabled).</summary>
+    public List<KeyValuePair<string, bool>> LayerEnabled { get; } = new();
+    internal override bool IsModeled => true;
+    internal override void ReadOrdered(List<KeyValuePair<string, string>> ordered)
+    {
+        foreach (var (key, value) in ordered)
+            if (key.EndsWith("_V5", StringComparison.OrdinalIgnoreCase))
+                LayerEnabled.Add(new KeyValuePair<string, bool>(key[..^3], value.Equals("TRUE", StringComparison.OrdinalIgnoreCase)));
+    }
+    internal override void WriteBody(Action<string, string> add)
+    {
+        foreach (var (layer, enabled) in LayerEnabled)
+            add(layer + "_V5", Bool(enabled));
+    }
+}
+
 /// <summary>SupplyNets rule.</summary>
 public sealed class PcbSupplyNetsRule : PcbRule
 {

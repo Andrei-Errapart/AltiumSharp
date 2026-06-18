@@ -490,7 +490,10 @@ public sealed class PcbDocReader
             rule.Parameters = parameters;
             rule.ReadCommonHeader(parameters);
             if (rule.IsModeled)
+            {
                 rule.ReadBody(parameters);
+                rule.ReadOrdered(PcbLibReader.ParseParametersOrdered(text));
+            }
             else
                 rule.RawParametersOrdered = PcbLibReader.ParseParametersOrdered(text); // kind not yet typed
             document.AddRule(rule);
@@ -521,6 +524,7 @@ public sealed class PcbDocReader
         "PlaneConnect" => new PcbPlaneConnectRule(),
         "PolygonConnect" => new PcbPolygonConnectRule(),
         "RoutingCorners" => new PcbRoutingCornersRule(),
+        "RoutingLayers" => new PcbRoutingLayersRule(),
         "RoutingPriority" => new PcbRoutingPriorityRule(),
         "RoutingTopology" => new PcbRoutingTopologyRule(),
         "RoutingVias" => new PcbRoutingViasRule(),

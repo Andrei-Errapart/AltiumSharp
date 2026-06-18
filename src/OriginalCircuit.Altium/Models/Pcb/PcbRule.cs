@@ -68,6 +68,12 @@ public class PcbRule
     /// <summary>Reads the kind-specific constraint keys from the parsed parameter dictionary.</summary>
     internal virtual void ReadBody(Dictionary<string, string> p) { }
 
+    /// <summary>
+    /// Reads kind-specific keys that need source order preserved (dynamic per-layer blocks). The
+    /// ordered list includes the common-header keys too; overrides should pick out their own keys.
+    /// </summary>
+    internal virtual void ReadOrdered(List<KeyValuePair<string, string>> ordered) { }
+
     /// <summary>Appends the kind-specific constraint keys in Altium's canonical order.</summary>
     internal virtual void WriteBody(Action<string, string> add) { }
 
