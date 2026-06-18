@@ -86,17 +86,20 @@ public sealed class SchDocument : ISchDocument
     internal List<KeyValuePair<string, string>>? HeaderParametersOrdered { get; set; }
 
     /// <summary>
-    /// Every FileHeader record (after the document header) captured as an ordered parameter list in
-    /// original record order. When present, the writer re-emits these verbatim so unmodeled parameters
-    /// and record ordering round-trip exactly; null (or after binary-pin records) falls back to the
-    /// typed-model serialization that supports from-scratch authoring.
+    /// Every FileHeader record (after the document header) captured in original record order, each
+    /// <em>linked to its typed model object</em> (the primitive/component it produced, or a
+    /// <see cref="SchRawRecord"/> holder for sheet/marker/opaque records). The writer walks this list to
+    /// reproduce the exact on-disk order, emitting each record's captured ordered parameters so unmodeled
+    /// parameters round-trip exactly. This replaces the former detached whole-document record blob: the
+    /// captured parameters now live with the model object, matching the PCB and SchLib pattern. Null (or
+    /// after binary-pin records) falls back to typed-model serialization that supports from-scratch authoring.
     /// </summary>
-    internal List<List<KeyValuePair<string, string>>>? RawRecords { get; set; }
+    internal List<SchOrderedRecord>? ReadOrderedRecords { get; set; }
 
     /// <summary>
     /// Count of modeled top-level primitives captured immediately after the document was read. The
     /// writer compares it against the live count to decide whether the byte-faithful
-    /// <see cref="RawRecords"/> fast path is still valid: if a primitive was added or removed after
+    /// <see cref="ReadOrderedRecords"/> fast path is still valid: if a primitive was added or removed after
     /// load the counts differ and the writer falls back to typed serialization so the edit is not
     /// dropped. Null for documents built from scratch.
     /// </summary>

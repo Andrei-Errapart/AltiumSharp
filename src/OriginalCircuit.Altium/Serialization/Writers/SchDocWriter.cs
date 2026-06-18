@@ -235,17 +235,18 @@ public sealed class SchDocWriter
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
-        // Byte-faithful path: when the document was read from a file, re-emit the captured header
-        // and every record verbatim (preserving order, duplicate keys and unmodeled parameters).
-        // Files built from scratch (or containing binary-pin records) fall through to the typed
+        // Byte-faithful path: when the document was read from a file and is unedited, walk the captured
+        // record order (each entry linked to its model object) and re-emit each record's parameters
+        // verbatim — preserving order, duplicate keys and unmodeled parameters. Files built from scratch,
+        // edited (primitive added/removed), or containing binary-pin records fall through to the typed
         // serialization below.
-        if (document.RawRecords is { Count: > 0 } rawRecords &&
+        if (document.ReadOrderedRecords is { Count: > 0 } orderedRecords &&
             document.HeaderParametersOrdered is { Count: > 0 } headerOrdered &&
             document.LoadedPrimitiveCount == document.CountModeledPrimitives())
         {
             writer.WriteCStringParameterBlockRaw(BuildOrderedParamString(headerOrdered));
-            foreach (var rec in rawRecords)
-                writer.WriteCStringParameterBlockRaw(BuildOrderedParamString(rec));
+            foreach (var rec in orderedRecords)
+                writer.WriteCStringParameterBlockRaw(BuildOrderedParamString(rec.OrderedParams));
             writer.Flush();
             headerStream.SetData(ms.ToArray());
             return;

@@ -77,7 +77,7 @@ public sealed class SchDocReader
         ReadAdditionalHarnesses(accessor, document);
 
         // Snapshot the primitive count AFTER all population so the writer can tell whether the
-        // document was edited after load and the byte-faithful RawRecords fast path is still valid.
+        // document was edited after load and the byte-faithful captured-order fast path is still valid.
         document.LoadedPrimitiveCount = document.CountModeledPrimitives();
 
         document.Diagnostics = _diagnostics;
@@ -145,10 +145,13 @@ public sealed class SchDocReader
         document.HeaderParameters = headerParams;
         document.HeaderParametersOrdered = SchLibReader.ParseParametersOrdered(rawHeader);
 
-        // Capture every record verbatim (ordered params) for a byte-faithful round-trip. Disabled
-        // if a binary-pin record is encountered (cannot be re-emitted from a textual param string).
-        var rawRecords = new List<List<KeyValuePair<string, string>>>();
-        var rawRecordsUsable = true;
+        // Capture every record in original order, each linked to the typed model object it produces, for
+        // a byte-faithful round-trip (preserving unmodeled params + ordering). This is the document-level
+        // analogue of the SchLib per-component ordered-primitive capture: the params live with the model,
+        // not in a detached parallel list. A binary-pin record cannot be re-emitted from a textual param
+        // string, so it disables the fast path.
+        var orderedRecords = new List<SchOrderedRecord>();
+        var orderedRecordsUsable = true;
 
         // Build a flat list of all primitives with their indices
         var allPrimitives = new List<(int index, int ownerIndex, object primitive)>();
@@ -169,61 +172,81 @@ public sealed class SchDocReader
             if (parameters == null || parameters.Count == 0)
                 continue;
 
-            if (isBinaryRecord || orderedParams == null)
-                rawRecordsUsable = false;
-            else
-                rawRecords.Add(orderedParams);
+            // The typed model object this record maps to. Records with no first-class model (the sheet
+            // record, the container markers and unknown types) get a SchRawRecord holder so the captured
+            // order list references a real object rather than a detached parameter blob.
+            object model;
 
             if (!parameters.TryGetValue("RECORD", out var recordTypeStr) ||
                 !int.TryParse(recordTypeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var recordType))
-                continue;
-
-            var ownerIndex = -1;
-            if (parameters.TryGetValue("OWNERINDEX", out var ownerStr) && int.TryParse(ownerStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var oi))
-                ownerIndex = oi;
-
-            if (recordType == 31)
             {
-                // Record 31: Sheet settings (font definitions, grid, border, title-block)
-                document.SheetSettings = parameters;
-                // The system (default) font is a 1-based FontID; objects without their own font use it.
-                if (parameters.TryGetValue("SYSTEMFONT", out var sysFontStr) && int.TryParse(sysFontStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sysFont) && sysFont >= 1)
-                    document.SystemFont = sysFont;
-            }
-            else if (recordType == (int)SchRecordType.Component)
-            {
-                var component = CreateComponent(parameters);
-                components[primitiveIndex] = component;
-                allPrimitives.Add((primitiveIndex, ownerIndex, component));
+                model = new SchRawRecord(parameters);
             }
             else
             {
-                var primitive = CreatePrimitive((SchRecordType)recordType, parameters);
-                if (primitive != null)
-                {
-                    allPrimitives.Add((primitiveIndex, ownerIndex, primitive));
+                var ownerIndex = -1;
+                if (parameters.TryGetValue("OWNERINDEX", out var ownerStr) && int.TryParse(ownerStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var oi))
+                    ownerIndex = oi;
 
-                    // Track container types for child ownership
-                    if (primitive is SchParameterSet ps)
-                        parameterSets[primitiveIndex] = ps;
-                    else if (primitive is SchBlanket bl)
-                        blankets[primitiveIndex] = bl;
-                    else if (primitive is SchSheetSymbol ss)
-                        sheetSymbols[primitiveIndex] = ss;
-                    else if (primitive is SchImplementation impl)
-                        implementations[primitiveIndex] = impl;
-                }
-                else if (ownerIndex < 0)
+                if (recordType == 31)
                 {
-                    // Unknown top-level record — store as opaque for round-trip
-                    document.OpaqueRecords.Add(parameters);
+                    // Record 31: Sheet settings (font definitions, grid, border, title-block)
+                    document.SheetSettings = parameters;
+                    // The system (default) font is a 1-based FontID; objects without their own font use it.
+                    if (parameters.TryGetValue("SYSTEMFONT", out var sysFontStr) && int.TryParse(sysFontStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sysFont) && sysFont >= 1)
+                        document.SystemFont = sysFont;
+                    model = new SchRawRecord(parameters);
                 }
+                else if (recordType == (int)SchRecordType.Component)
+                {
+                    var component = CreateComponent(parameters);
+                    components[primitiveIndex] = component;
+                    allPrimitives.Add((primitiveIndex, ownerIndex, component));
+                    model = component;
+                }
+                else
+                {
+                    var primitive = CreatePrimitive((SchRecordType)recordType, parameters);
+                    if (primitive != null)
+                    {
+                        allPrimitives.Add((primitiveIndex, ownerIndex, primitive));
+
+                        // Track container types for child ownership
+                        if (primitive is SchParameterSet ps)
+                            parameterSets[primitiveIndex] = ps;
+                        else if (primitive is SchBlanket bl)
+                            blankets[primitiveIndex] = bl;
+                        else if (primitive is SchSheetSymbol ss)
+                            sheetSymbols[primitiveIndex] = ss;
+                        else if (primitive is SchImplementation impl)
+                            implementations[primitiveIndex] = impl;
+
+                        // Container markers (record 44/46/48) are returned as interned strings; hold them
+                        // so the captured order list keys on a distinct object, not a shared literal.
+                        model = primitive is string ? new SchRawRecord(parameters) : primitive;
+                    }
+                    else
+                    {
+                        if (ownerIndex < 0)
+                        {
+                            // Unknown top-level record — store as opaque for round-trip
+                            document.OpaqueRecords.Add(parameters);
+                        }
+                        model = new SchRawRecord(parameters);
+                    }
+                }
+
+                primitiveIndex++;
             }
 
-            primitiveIndex++;
+            // Link the captured ordered params to the model object (in original record order).
+            if (isBinaryRecord || orderedParams == null)
+                orderedRecordsUsable = false;
+            else
+                orderedRecords.Add(new SchOrderedRecord { Model = model, OrderedParams = orderedParams });
         }
 
-        document.RawRecords = rawRecordsUsable ? rawRecords : null;
+        document.ReadOrderedRecords = orderedRecordsUsable ? orderedRecords : null;
 
         // Font table for rendering: SchDoc stores it in the RECORD=31 sheet settings (header fallback).
         document.Fonts = SchLibReader.ParseFontTable(document.SheetSettings ?? headerParams);
