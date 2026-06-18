@@ -219,24 +219,68 @@ public sealed class PcbDocWriter
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
 
         foreach (var net in document.Nets)
-        {
-            if (net.RawParametersOrdered is { Count: > 0 } ordered)
-            {
-                // Re-emit the full net parameter block verbatim (color, layer, visibility, etc.).
-                var sb = new System.Text.StringBuilder();
-                foreach (var kvp in ordered)
-                    sb.Append('|').Append(kvp.Key).Append('=').Append(kvp.Value);
-                writer.WriteCStringParameterBlockRaw(sb.ToString());
-            }
-            else
-            {
-                writer.WriteCStringParameterBlock(new Dictionary<string, string> { ["NAME"] = net.Name });
-            }
-        }
+            writer.WriteCStringParameterBlockRaw(BuildNetParamText(net));
 
         writer.Flush();
         dataStream.SetData(ms.ToArray());
     }
+
+    // Serializes a PcbNet to its Nets6 parameter block in Altium's canonical key order/formatting,
+    // so a fully typed net round-trips byte-for-byte without replaying the captured block.
+    private static string BuildNetParamText(PcbNet net)
+    {
+        var sb = new System.Text.StringBuilder();
+        void Add(string k, string v) => sb.Append('|').Append(k).Append('=').Append(v);
+        static string B(bool b) => b ? "TRUE" : "FALSE";
+        static string I(int v) => v.ToString(CultureInfo.InvariantCulture);
+
+        Add("SELECTION", B(net.Selection));
+        Add("LAYER", net.Layer);
+        Add("LOCKED", B(net.Locked));
+        Add("POLYGONOUTLINE", B(net.PolygonOutline));
+        Add("USERROUTED", B(net.UserRouted));
+        Add("KEEPOUT", B(net.Keepout));
+        Add("UNIONINDEX", I(net.UnionIndex));
+        Add("PRIMITIVELOCK", B(net.PrimitiveLock));
+        Add("NAME", net.Name);
+        Add("VISIBLE", B(net.Visible));
+        Add("COLOR", I(net.Color));
+        Add("LOOPREMOVAL", B(net.LoopRemoval));
+        Add("OVERRIDECOLORFORDRAW", B(net.OverrideColorForDraw));
+        if (net.TargetLengthUnits is { } tl)
+            Add("TARGETLENGTH", FormatMilUnits(tl));
+        if (net.LayerMinRoutedWidths is { } widths)
+            foreach (var w in widths)
+                Add(w.LayerKey + "_MRWIDTH", FormatMilUnits(w.WidthUnits));
+        if (net.MinRoutedViaSizeUnits is { } mvs)
+            Add("MRVIASIZE", FormatMilUnits(mvs));
+        if (net.MinRoutedViaHoleUnits is { } mvh)
+            Add("MRVIAHOLE", FormatMilUnits(mvh));
+        Add("UNIQUEID", net.UniqueId);
+        Add("JUMPERSVISIBLE", B(net.JumpersVisible));
+        if (net.RoutedLength is { } rl)
+            Add("ROUTEDLENGTH", I(rl));
+        if (net.ManhattanLength is { } ml)
+            Add("MANHATTANLENGTH", I(ml));
+        if (net.DelayTotal is { } dt)
+            Add("DELAYTOTAL", D(dt));
+        if (net.SignalLength is { } sl)
+            Add("SIGNALLENGTH", I(sl));
+        if (net.SignalDelay is { } sd)
+            Add("SIGNALDELAY", D(sd));
+        if (net.CurrentTotal is { } ct)
+            Add("CURRENTTOTAL", D(ct));
+        if (net.ResistanceTotal is { } rt)
+            Add("RESISTANCETOTAL", D(rt));
+        return sb.ToString();
+    }
+
+    // 15 significant digits matches Delphi's FloatToStr (e.g. 1.8542496354265E-10, 0.819995004733263).
+    private static string D(double v) => v.ToString("G15", CultureInfo.InvariantCulture);
+
+    // Formats internal coordinate units (1 mil = 10000) as Altium's mil text, e.g. 118110 -> "11.811mil".
+    private static string FormatMilUnits(int units) =>
+        (units / 10000.0).ToString("0.#####", CultureInfo.InvariantCulture) + "mil";
 
     private static void WriteParameterBlockStorage(CompoundFileAccessor cf, string storageName, IReadOnlyList<Dictionary<string, string>> parameterSets)
     {

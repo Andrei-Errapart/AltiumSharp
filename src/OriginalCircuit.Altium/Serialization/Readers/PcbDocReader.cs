@@ -319,12 +319,76 @@ public sealed class PcbDocReader
             if (parameters.Count == 0)
                 continue;
 
-            var net = new PcbNet { RawParametersOrdered = PcbLibReader.ParseParametersOrdered(rawNet) };
-            if (parameters.TryGetValue("NAME", out var name))
-                net.Name = name;
-
-            document.AddNet(net);
+            document.AddNet(ParseNet(PcbLibReader.ParseParametersOrdered(rawNet)));
         }
+    }
+
+    // Parses a Nets6 record from its ordered parameter list into a fully typed PcbNet, so the writer
+    // can regenerate the exact bytes without replaying the captured parameter block.
+    private static PcbNet ParseNet(List<KeyValuePair<string, string>> ordered)
+    {
+        var net = new PcbNet();
+        foreach (var (key, value) in ordered)
+        {
+            switch (key.ToUpperInvariant())
+            {
+                case "SELECTION": net.Selection = ParamBool(value); break;
+                case "LAYER": net.Layer = value; break;
+                case "LOCKED": net.Locked = ParamBool(value); break;
+                case "POLYGONOUTLINE": net.PolygonOutline = ParamBool(value); break;
+                case "USERROUTED": net.UserRouted = ParamBool(value); break;
+                case "KEEPOUT": net.Keepout = ParamBool(value); break;
+                case "UNIONINDEX": net.UnionIndex = ParamInt(value); break;
+                case "PRIMITIVELOCK": net.PrimitiveLock = ParamBool(value); break;
+                case "NAME": net.Name = value; break;
+                case "VISIBLE": net.Visible = ParamBool(value); break;
+                case "COLOR": net.Color = ParamInt(value); break;
+                case "LOOPREMOVAL": net.LoopRemoval = ParamBool(value); break;
+                case "OVERRIDECOLORFORDRAW": net.OverrideColorForDraw = ParamBool(value); break;
+                case "UNIQUEID": net.UniqueId = value; break;
+                case "JUMPERSVISIBLE": net.JumpersVisible = ParamBool(value); break;
+                case "ROUTEDLENGTH": net.RoutedLength = ParamInt(value); break;
+                case "MANHATTANLENGTH": net.ManhattanLength = ParamInt(value); break;
+                case "TARGETLENGTH": net.TargetLengthUnits = ParamMilUnits(value); break;
+                case "MRVIASIZE": net.MinRoutedViaSizeUnits = ParamMilUnits(value); break;
+                case "MRVIAHOLE": net.MinRoutedViaHoleUnits = ParamMilUnits(value); break;
+                case "SIGNALLENGTH": net.SignalLength = ParamInt(value); break;
+                case "SIGNALDELAY": net.SignalDelay = ParamDouble(value); break;
+                case "DELAYTOTAL": net.DelayTotal = ParamDouble(value); break;
+                case "CURRENTTOTAL": net.CurrentTotal = ParamDouble(value); break;
+                case "RESISTANCETOTAL": net.ResistanceTotal = ParamDouble(value); break;
+                default:
+                    if (key.EndsWith("_MRWIDTH", StringComparison.OrdinalIgnoreCase))
+                    {
+                        net.LayerMinRoutedWidths ??= new List<PcbNetLayerWidth>();
+                        net.LayerMinRoutedWidths.Add(new PcbNetLayerWidth
+                        {
+                            LayerKey = key[..^"_MRWIDTH".Length],
+                            WidthUnits = ParamMilUnits(value),
+                        });
+                    }
+                    break;
+            }
+        }
+        return net;
+    }
+
+    private static bool ParamBool(string value) => value.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
+
+    private static int ParamInt(string value) =>
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0;
+
+    private static double ParamDouble(string value) =>
+        double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : 0;
+
+    // Parses a width token like "11.811mil" into internal coordinate units (1 mil = 10000), rounding
+    // to the nearest unit (Coord.FromMils truncates, which would lose the last unit on round-trip).
+    private static int ParamMilUnits(string value)
+    {
+        var s = value.EndsWith("mil", StringComparison.OrdinalIgnoreCase) ? value[..^3] : value;
+        return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var mils)
+            ? (int)Math.Round(mils * 10000.0)
+            : 0;
     }
 
     private void ReadParameterBlockStorage(CompoundFileAccessor accessor, string storageName,
