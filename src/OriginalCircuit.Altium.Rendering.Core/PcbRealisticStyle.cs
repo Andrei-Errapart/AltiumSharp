@@ -95,15 +95,19 @@ public sealed class PcbRealisticStyle
     /// </summary>
     public int Supersample { get; set; } = 1;
 
-    /// <summary>The default plating colour for a given surface finish.</summary>
+    /// <summary>
+    /// The default plating colour for a given surface finish. These are kept a touch muted/darker than the
+    /// bare-laminate substrate so that, with the whole copper layer drawn in this colour, mask-over-copper
+    /// composites slightly darker than mask-over-laminate (the "copper under mask is darker" effect).
+    /// </summary>
     public static EdaColor DefaultFinishColor(SurfaceFinish finish) => finish switch
     {
-        SurfaceFinish.Hasl => EdaColor.FromRgb(0xC9, 0xCC, 0xD0),           // dull tin/silver
-        SurfaceFinish.Enig => EdaColor.FromRgb(0xD9, 0xB5, 0x49),           // flat gold
-        SurfaceFinish.Osp => EdaColor.FromRgb(0xCB, 0x8E, 0x5E),            // bare copper
-        SurfaceFinish.ImmersionSilver => EdaColor.FromRgb(0xD3, 0xD6, 0xDA),// bright silver
-        SurfaceFinish.ImmersionTin => EdaColor.FromRgb(0xC4, 0xC6, 0xCB),   // pale matte silver
-        _ => EdaColor.FromRgb(0xD9, 0xB5, 0x49),
+        SurfaceFinish.Hasl => EdaColor.FromRgb(0xB4, 0xB8, 0xBE),           // dull tin/silver
+        SurfaceFinish.Enig => EdaColor.FromRgb(0xBE, 0x90, 0x42),           // muted flat gold
+        SurfaceFinish.Osp => EdaColor.FromRgb(0xB0, 0x76, 0x44),            // bare copper
+        SurfaceFinish.ImmersionSilver => EdaColor.FromRgb(0xC2, 0xC6, 0xCC),// bright silver
+        SurfaceFinish.ImmersionTin => EdaColor.FromRgb(0xB2, 0xB4, 0xBA),   // pale matte silver
+        _ => EdaColor.FromRgb(0xBE, 0x90, 0x42),
     };
 
     /// <summary>Returns a copy of this style configured for the given board side.</summary>

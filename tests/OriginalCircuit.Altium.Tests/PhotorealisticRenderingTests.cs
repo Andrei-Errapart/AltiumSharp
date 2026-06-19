@@ -176,40 +176,72 @@ public sealed class PhotorealisticRenderingTests
     }
 
     [Fact]
-    public async Task SolderMaskLayer_OverLaminate_ShowsSubstrate()
+    public async Task Svg_RendersNamedLayerGroups()
     {
-        // Geometry on the Top Solder layer (37) is a negative: it marks where mask is removed. Over bare
-        // laminate (no copper beneath) the exposed surface is the substrate colour. The track here runs
-        // along the top edge (y=2mm), away from any copper, so it knocks the mask back to laminate.
-        var board = BuildBoard();
-        board.AddTrack(PcbTrack.Create().From(Coord.FromMm(2), Coord.FromMm(2))
-            .To(Coord.FromMm(38), Coord.FromMm(2)).Width(Coord.FromMm(0.3)).Layer(37).Build());
+        // The renderer composites by physical layer, each emitted as a named <g> so an SVG export can
+        // toggle/style layers individually.
+        var doc = await RenderRealisticSvg(BuildBoard());
 
-        var doc = await RenderRealisticSvg(board);
-
-        // Default substrate colour (0xC8,0xB9,0x8C) -> rgb(200,185,140).
-        Assert.Contains(doc.Descendants(SvgNs + "line"),
-            l => (string?)l.Attribute("stroke") == "rgb(200,185,140)");
+        var ids = doc.Descendants(SvgNs + "g")
+            .Select(g => (string?)g.Attribute("id"))
+            .Where(id => id is not null)
+            .ToList();
+        foreach (var layer in new[] { "substrate", "copper", "soldermask", "silkscreen", "drills" })
+            Assert.Contains(layer, ids);
     }
 
     [Fact]
-    public async Task SolderMaskLayer_OverCopper_ShowsPlatingFinish()
+    public async Task Svg_SolderMask_IsTranslucentEvenOddLayerWithOpenings()
     {
-        // A solder-mask opening over copper (here a region covering SMD pad "1" at 8,8mm) exposes plated
-        // copper, so it must paint in the finish colour, not the substrate colour.
-        var board = BuildBoard();
-        board.AddRegion(PcbRegion.Create().OnLayer(37)
-            .AddPoint(Coord.FromMm(7), Coord.FromMm(7))
-            .AddPoint(Coord.FromMm(9), Coord.FromMm(7))
-            .AddPoint(Coord.FromMm(9), Coord.FromMm(9))
-            .AddPoint(Coord.FromMm(7), Coord.FromMm(9))
-            .Build());
+        // The mask is one translucent even-odd path = board outline MINUS openings. With pads present the
+        // path has multiple subpaths (the outer outline plus a hole per opening).
+        var doc = await RenderRealisticSvg(BuildBoard());
 
-        var doc = await RenderRealisticSvg(board);
+        var maskGroup = doc.Descendants(SvgNs + "g").First(g => (string?)g.Attribute("id") == "soldermask");
+        var maskPath = maskGroup.Descendants(SvgNs + "path")
+            .First(p => (string?)p.Attribute("fill-rule") == "evenodd");
 
-        // Default ENIG finish colour (0xD9,0xB5,0x49) -> rgb(217,181,73).
-        Assert.Contains(doc.Descendants(SvgNs + "polygon"),
-            p => (string?)p.Attribute("fill") == "rgb(217,181,73)");
+        var opacity = double.Parse(maskPath.Attribute("opacity")!.Value, System.Globalization.CultureInfo.InvariantCulture);
+        Assert.InRange(opacity, 0.01, 0.999); // translucent
+        // Multiple subpaths => the outline plus knocked-out openings.
+        Assert.True(maskPath.Attribute("d")!.Value.Count(ch => ch == 'M') > 1,
+            "Expected the mask path to contain holes (multiple subpaths)");
+    }
+
+    [Fact]
+    public async Task Svg_ExposedCopper_RendersInFinishColour()
+    {
+        // The copper layer is drawn in the finish colour, so exposed copper (through mask openings) reads
+        // as plating. Default ENIG finish (0xBE,0x90,0x42) -> rgb(190,144,66).
+        var doc = await RenderRealisticSvg(BuildBoard());
+
+        var copperGroup = doc.Descendants(SvgNs + "g").First(g => (string?)g.Attribute("id") == "copper");
+        Assert.Contains(copperGroup.Descendants(),
+            e => (string?)e.Attribute("fill") == "rgb(190,144,66)");
+    }
+
+    [Fact]
+    public async Task Svg_SolderMaskLayerGeometry_AddsAnotherOpening()
+    {
+        // Negative geometry on the solder-mask layer (37) adds a hole to the mask path: a board with an
+        // extra layer-37 track has one more mask subpath than one without.
+        var bare = await RenderRealisticSvg(BuildBoard());
+
+        var withOpening = BuildBoard();
+        withOpening.AddTrack(PcbTrack.Create().From(Coord.FromMm(4), Coord.FromMm(26))
+            .To(Coord.FromMm(36), Coord.FromMm(26)).Width(Coord.FromMm(0.3)).Layer(37).Build());
+        var opened = await RenderRealisticSvg(withOpening);
+
+        Assert.True(MaskSubpathCount(opened) > MaskSubpathCount(bare),
+            "A solder-mask-layer track should add a hole to the mask");
+    }
+
+    private static int MaskSubpathCount(XDocument doc)
+    {
+        var maskGroup = doc.Descendants(SvgNs + "g").First(g => (string?)g.Attribute("id") == "soldermask");
+        var d = maskGroup.Descendants(SvgNs + "path").First(p => (string?)p.Attribute("fill-rule") == "evenodd")
+            .Attribute("d")!.Value;
+        return d.Count(ch => ch == 'M');
     }
 
     private static async Task<XDocument> RenderRealisticSvg(PcbDocument board)

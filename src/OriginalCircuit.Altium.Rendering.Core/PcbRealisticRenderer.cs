@@ -77,76 +77,91 @@ public sealed class PcbRealisticRenderer
 
         var collected = Collect(document);
         var outline = MapOutline(document.GetBoardOutline());
-
-        // 1 ── Substrate (bare laminate). Filled with non-zero winding, because a real board outline is
-        //      often a non-simple polygon (tessellated arcs, slots) that an even-odd fill would cancel.
-        RenderSubstrate(context, outline, substrateArgb);
-
-        // 2 ── Copper sheet on this side (tracks/arcs/fills/regions + pad/via metal), under the mask.
-        foreach (var t in collected.Tracks) if (t.Layer == copperLayer) DrawTrack(context, t, copperArgb);
-        foreach (var a in collected.Arcs) if (a.Layer == copperLayer) DrawArc(context, a, copperArgb);
-        foreach (var f in collected.Fills) if (f.Layer == copperLayer) DrawFill(context, f, copperArgb);
-        foreach (var r in collected.Regions) if (r.Layer == copperLayer) DrawRegion(context, r, copperArgb);
-
         var metal = CollectMetal(collected, bottom, sideSignalLayer);
-        foreach (var m in metal) context.FillPolygon(m.CopperXs, m.CopperYs, copperArgb);
 
-        // 3 ── Solder mask: one translucent sheet over the whole board. Over copper it composites darker
-        //      green, over bare laminate lighter green — the requested "mask over copper is darker" effect.
-        //      Openings are knocked back below by overpainting (robust against the non-simple outline that
-        //      makes an even-odd inverse fill unreliable).
+        // Plated-copper colour: exposed copper reads as the surface finish (or bare copper when finish is
+        // disabled). The whole copper layer is drawn in this colour; the mask then tints whatever it covers.
+        uint copperShownArgb = _style.ShowSurfaceFinish ? finishArgb : copperArgb;
+
+        // The renderer composites by physical layer, each emitted as a named group ("substrate", "copper",
+        // "soldermask", "silkscreen", "drills") so a vector (SVG) export can toggle/style them individually.
+
+        // Layer 1 ── Substrate (bare laminate). Non-zero winding fill: a real board outline is often a
+        //            non-simple polygon (tessellated arcs, slots) that an even-odd fill would cancel.
+        context.BeginGroup("substrate");
+        RenderSubstrate(context, outline, substrateArgb);
+        context.EndGroup();
+
+        // Layer 2 ── Copper (plated). Every copper feature on this side. Where the mask doesn't cover it,
+        //            it shows as exposed plating; where the mask covers it, the translucent mask tints it.
+        context.BeginGroup("copper");
+        foreach (var t in collected.Tracks) if (t.Layer == copperLayer) DrawTrack(context, t, copperShownArgb);
+        foreach (var a in collected.Arcs) if (a.Layer == copperLayer) DrawArc(context, a, copperShownArgb);
+        foreach (var f in collected.Fills) if (f.Layer == copperLayer) DrawFill(context, f, copperShownArgb);
+        foreach (var r in collected.Regions) if (r.Layer == copperLayer) DrawRegion(context, r, copperShownArgb);
+        foreach (var m in metal) context.FillPolygon(m.CopperXs, m.CopperYs, copperShownArgb);
+        context.EndGroup();
+
+        // Layer 3 ── Solder mask: one translucent sheet = board outline MINUS the openings (even-odd fill),
+        //            so wherever the mask is absent the copper/laminate beneath shows through directly — no
+        //            per-opening guessing. Mask over copper composites darker than mask over bare laminate
+        //            automatically. Openings = non-tented pad/via expansions + the negative geometry drawn
+        //            on the solder-mask layer (37/38), e.g. the clearance ring around the board outline.
         if (_style.ShowSolderMask && outline is not null)
-            context.FillPolygon(outline.Value.X, outline.Value.Y, maskArgb);
-
-        // The exposed-copper colour: plated surface finish, or bare copper when finish is disabled.
-        uint plateArgb = _style.ShowSurfaceFinish ? finishArgb : copperArgb;
-
-        // 3a ─ Explicit mask openings: geometry drawn on the solder-mask layer (37/38) is a NEGATIVE — it
-        //      marks where mask is removed (e.g. the clearance ring Altium draws around the board outline).
-        //      The exposed surface shows the plated finish where copper lies beneath, else bare laminate —
-        //      so a mask pullback over a ground pour reads as plated metal, not laminate.
-        if (_style.ShowSolderMask)
         {
-            var copper = BuildCopperShapes(collected, copperLayer);
-            foreach (var t in collected.Tracks) if (t.Layer == solderLayer)
-                DrawTrack(context, t, OpeningColor(copper, SampleTrack(t), plateArgb, substrateArgb));
-            foreach (var a in collected.Arcs) if (a.Layer == solderLayer)
-                DrawArc(context, a, OpeningColor(copper, SampleArc(a), plateArgb, substrateArgb));
-            foreach (var f in collected.Fills) if (f.Layer == solderLayer)
-                DrawFill(context, f, OpeningColor(copper, SampleFill(f), plateArgb, substrateArgb));
-            foreach (var r in collected.Regions) if (r.Layer == solderLayer)
-                DrawRegion(context, r, OpeningColor(copper, SampleRegion(r), plateArgb, substrateArgb));
+            context.BeginGroup("soldermask");
+            var contours = new List<(double[] X, double[] Y)> { outline.Value };
+            foreach (var m in metal) if (m.HasOpening) contours.Add((m.OpeningXs, m.OpeningYs));
+            AddSolderLayerOpenings(collected, solderLayer, contours);
+            context.FillContours(contours, maskArgb);
+            context.EndGroup();
         }
 
-        // 4 ── Pad/via mask openings + plating: each non-tented pad/via exposes bare laminate (the expansion
-        //      ring) with the plated metal (finish, or bare copper) on top. Tented pads/vias stay masked.
-        foreach (var m in metal)
-        {
-            if (!m.HasOpening) continue;
-            if (_style.ShowSolderMask)
-                context.FillPolygon(m.OpeningXs, m.OpeningYs, substrateArgb); // bare laminate in the opening
-            context.FillPolygon(m.CopperXs, m.CopperYs, plateArgb);          // plated pad/via metal
-        }
-
-        // 5 ── Silkscreen, printed over the mask.
+        // Layer 4 ── Silkscreen, printed over the mask.
         if (_style.ShowSilkscreen)
         {
+            context.BeginGroup("silkscreen");
             foreach (var t in collected.Tracks) if (t.Layer == silkLayer) DrawTrack(context, t, silkArgb);
             foreach (var a in collected.Arcs) if (a.Layer == silkLayer) DrawArc(context, a, silkArgb);
             foreach (var f in collected.Fills) if (f.Layer == silkLayer) DrawFill(context, f, silkArgb);
             foreach (var r in collected.Regions) if (r.Layer == silkLayer) DrawRegion(context, r, silkArgb);
             foreach (var (text, owner) in collected.Texts)
                 if (text.Layer == silkLayer && IsTextVisible(text, owner)) DrawText(context, text, silkArgb);
+            context.EndGroup();
         }
 
-        // 6 ── Drilled holes / barrels, punched through everything.
+        // Layer 5 ── Drilled holes / barrels, punched through everything.
         if (_style.ShowDrillHoles)
         {
+            context.BeginGroup("drills");
             foreach (var pad in collected.Pads) DrawPadHole(context, pad, holeArgb);
             foreach (var via in collected.Vias) DrawViaHole(context, via, holeArgb);
+            context.EndGroup();
         }
 
         if (bottom) context.RestoreState();
+    }
+
+    // Adds the negative geometry on the solder-mask layer (tracks/arcs/fills/regions) as opening contours
+    // (screen space), so the mask sheet is knocked back wherever the designer removed mask.
+    private void AddSolderLayerOpenings(Collected c, int solderLayer, List<(double[] X, double[] Y)> contours)
+    {
+        foreach (var t in c.Tracks)
+            if (t.Layer == solderLayer)
+            {
+                var (x1, y1) = _transform.WorldToScreen(t.Start.X, t.Start.Y);
+                var (x2, y2) = _transform.WorldToScreen(t.End.X, t.End.Y);
+                contours.Add(StrokePolyline(new[] { (x1, y1), (x2, y2) }, Math.Max(0.5, _transform.ScaleValue(t.Width) / 2.0)));
+            }
+        foreach (var a in c.Arcs)
+            if (a.Layer == solderLayer)
+                contours.Add(StrokePolyline(SampleArcScreen(a), Math.Max(0.5, _transform.ScaleValue(a.Width) / 2.0)));
+        foreach (var f in c.Fills)
+            if (f.Layer == solderLayer)
+                contours.Add(FillRectScreen(f));
+        foreach (var r in c.Regions)
+            if (r.Layer == solderLayer && r.Outline.Count >= 3)
+                contours.Add(MapContour(r.Outline));
     }
 
     // ── Collection ──────────────────────────────────────────────────
@@ -473,114 +488,35 @@ public sealed class PcbRealisticRenderer
         if (holeR > 0.5) context.FillEllipse(cx, cy, holeR, holeR, holeColor);
     }
 
-    // ── Copper-beneath hit test (decides solder-mask-opening colour) ─
+    // ── Opening-geometry helpers (solder-mask-layer negatives) ──────
 
-    // World-space (raw) copper geometry, used to decide whether a solder-mask-layer opening exposes plated
-    // copper (→ finish colour) or bare laminate (→ substrate colour).
-    private sealed class CopperShapes
-    {
-        public readonly List<(double[] X, double[] Y)> Polys = new();              // regions, fills, pad rects
-        public readonly List<(double Cx, double Cy, double R)> Circles = new();    // vias
-        public readonly List<(double X1, double Y1, double X2, double Y2, double Half)> Segments = new(); // tracks
-
-        public bool Covers(double x, double y)
-        {
-            foreach (var (cx, cy, r) in Circles)
-            {
-                var dx = x - cx; var dy = y - cy;
-                if (dx * dx + dy * dy <= r * r) return true;
-            }
-            foreach (var (x1, y1, x2, y2, half) in Segments)
-                if (DistSqToSegment(x, y, x1, y1, x2, y2) <= half * half) return true;
-            foreach (var (xs, ys) in Polys)
-                if (PointInPolygon(x, y, xs, ys)) return true;
-            return false;
-        }
-    }
-
-    // Gathers this side's copper (pours/fills/tracks + pad/via metal) as world-space shapes.
-    private static CopperShapes BuildCopperShapes(Collected c, int copperLayer)
-    {
-        var s = new CopperShapes();
-        foreach (var r in c.Regions)
-            if (r.Layer == copperLayer && r.Outline.Count >= 3) s.Polys.Add(WorldPoly(r.Outline));
-        foreach (var f in c.Fills)
-            if (f.Layer == copperLayer)
-                s.Polys.Add(WorldRect(
-                    (f.Corner1.X.ToRaw() + f.Corner2.X.ToRaw()) / 2.0, (f.Corner1.Y.ToRaw() + f.Corner2.Y.ToRaw()) / 2.0,
-                    Math.Abs(f.Corner2.X.ToRaw() - f.Corner1.X.ToRaw()) / 2.0,
-                    Math.Abs(f.Corner2.Y.ToRaw() - f.Corner1.Y.ToRaw()) / 2.0, f.Rotation));
-        foreach (var t in c.Tracks)
-            if (t.Layer == copperLayer)
-                s.Segments.Add((t.Start.X.ToRaw(), t.Start.Y.ToRaw(), t.End.X.ToRaw(), t.End.Y.ToRaw(), t.Width.ToRaw() / 2.0));
-        // Pads/vias are copper too — a mask opening over a connector pad reads as plated metal.
-        foreach (var p in c.Pads)
-            s.Polys.Add(WorldRect(p.Location.X.ToRaw(), p.Location.Y.ToRaw(),
-                p.SizeTop.X.ToRaw() / 2.0, p.SizeTop.Y.ToRaw() / 2.0, p.Rotation));
-        foreach (var v in c.Vias)
-            s.Circles.Add((v.Location.X.ToRaw(), v.Location.Y.ToRaw(), v.Diameter.ToRaw() / 2.0));
-        return s;
-    }
-
-    // Majority vote: if at least half the sampled points sit over copper, the opening exposes plated metal.
-    private static uint OpeningColor(CopperShapes copper, IEnumerable<(double X, double Y)> samples,
-        uint plate, uint substrate)
-    {
-        int total = 0, over = 0;
-        foreach (var (x, y) in samples) { total++; if (copper.Covers(x, y)) over++; }
-        return total > 0 && over * 2 >= total ? plate : substrate;
-    }
-
-    private static IEnumerable<(double X, double Y)> SampleTrack(PcbTrack t)
-    {
-        double x1 = t.Start.X.ToRaw(), y1 = t.Start.Y.ToRaw(), x2 = t.End.X.ToRaw(), y2 = t.End.Y.ToRaw();
-        for (int i = 0; i <= 8; i++) { double f = i / 8.0; yield return (x1 + (x2 - x1) * f, y1 + (y2 - y1) * f); }
-    }
-
-    private static IEnumerable<(double X, double Y)> SampleArc(PcbArc a)
+    // Samples a solder-mask-layer arc's centreline to screen-space points (Y-inverted via the transform).
+    private IReadOnlyList<(double X, double Y)> SampleArcScreen(PcbArc a)
     {
         double cx = a.Center.X.ToRaw(), cy = a.Center.Y.ToRaw(), r = a.Radius.ToRaw();
         double start = Finite(a.StartAngle), sweep = Finite(a.EndAngle) - Finite(a.StartAngle);
         if (sweep <= 0) sweep += 360;
-        for (int i = 0; i <= 8; i++)
+        int steps = Math.Max(2, (int)(sweep / 6.0));
+        var pts = new List<(double X, double Y)>(steps + 1);
+        for (int i = 0; i <= steps; i++)
         {
-            double ang = (start + sweep * i / 8.0) * Math.PI / 180.0;
-            yield return (cx + r * Math.Cos(ang), cy + r * Math.Sin(ang));
+            double ang = (start + sweep * i / steps) * Math.PI / 180.0;
+            var (sx, sy) = _transform.WorldToScreen(
+                Coord.FromRaw((int)(cx + r * Math.Cos(ang))), Coord.FromRaw((int)(cy + r * Math.Sin(ang))));
+            pts.Add((sx, sy));
         }
+        return pts;
     }
 
-    private static IEnumerable<(double X, double Y)> SampleFill(PcbFill f)
+    // The rotated screen-space rectangle of a fill, as a closed contour.
+    private (double[] X, double[] Y) FillRectScreen(PcbFill f)
     {
-        yield return ((f.Corner1.X.ToRaw() + f.Corner2.X.ToRaw()) / 2.0, (f.Corner1.Y.ToRaw() + f.Corner2.Y.ToRaw()) / 2.0);
-        yield return (f.Corner1.X.ToRaw(), f.Corner1.Y.ToRaw());
-        yield return (f.Corner2.X.ToRaw(), f.Corner2.Y.ToRaw());
-        yield return (f.Corner1.X.ToRaw(), f.Corner2.Y.ToRaw());
-        yield return (f.Corner2.X.ToRaw(), f.Corner1.Y.ToRaw());
-    }
-
-    private static IEnumerable<(double X, double Y)> SampleRegion(PcbRegion r)
-    {
-        var o = r.Outline;
-        if (o.Count == 0) yield break;
-        double cx = 0, cy = 0;
-        foreach (var p in o) { cx += p.X.ToRaw(); cy += p.Y.ToRaw(); }
-        yield return (cx / o.Count, cy / o.Count); // approximate centroid
-        int step = Math.Max(1, o.Count / 16);
-        for (int i = 0; i < o.Count; i += step) yield return (o[i].X.ToRaw(), o[i].Y.ToRaw());
-    }
-
-    private static (double[] X, double[] Y) WorldPoly(IReadOnlyList<CoordPoint> pts)
-    {
-        var xs = new double[pts.Count];
-        var ys = new double[pts.Count];
-        for (int i = 0; i < pts.Count; i++) { xs[i] = pts[i].X.ToRaw(); ys[i] = pts[i].Y.ToRaw(); }
-        return (xs, ys);
-    }
-
-    private static (double[] X, double[] Y) WorldRect(double cx, double cy, double hw, double hh, double rotationDeg)
-    {
-        double a = Finite(rotationDeg) * Math.PI / 180.0;
-        double cos = Math.Cos(a), sin = Math.Sin(a);
+        var (x1, y1) = _transform.WorldToScreen(f.Corner1.X, f.Corner1.Y);
+        var (x2, y2) = _transform.WorldToScreen(f.Corner2.X, f.Corner2.Y);
+        double cx = (x1 + x2) / 2.0, cy = (y1 + y2) / 2.0;
+        double hw = Math.Abs(x2 - x1) / 2.0, hh = Math.Abs(y2 - y1) / 2.0;
+        double rad = -Finite(f.Rotation) * Math.PI / 180.0;
+        double cos = Math.Cos(rad), sin = Math.Sin(rad);
         double[] lx = { -hw, hw, hw, -hw }, ly = { -hh, -hh, hh, hh };
         var xs = new double[4];
         var ys = new double[4];
@@ -588,25 +524,38 @@ public sealed class PcbRealisticRenderer
         return (xs, ys);
     }
 
-    private static bool PointInPolygon(double px, double py, double[] xs, double[] ys)
+    // Outlines a polyline of half-width `halfW` into a closed contour (left side forward, right side back;
+    // square ends). Used to turn solder-mask-layer tracks/arcs into fillable opening shapes.
+    private static (double[] X, double[] Y) StrokePolyline(IReadOnlyList<(double X, double Y)> pts, double halfW)
     {
-        bool inside = false;
-        int n = xs.Length;
-        for (int i = 0, j = n - 1; i < n; j = i++)
-            if (((ys[i] > py) != (ys[j] > py)) &&
-                (px < (xs[j] - xs[i]) * (py - ys[i]) / (ys[j] - ys[i]) + xs[i]))
-                inside = !inside;
-        return inside;
-    }
+        int n = pts.Count;
+        if (n == 1)
+        {
+            var (px, py) = pts[0];
+            return (new[] { px - halfW, px + halfW, px + halfW, px - halfW },
+                    new[] { py - halfW, py - halfW, py + halfW, py + halfW });
+        }
 
-    private static double DistSqToSegment(double px, double py, double x1, double y1, double x2, double y2)
-    {
-        double dx = x2 - x1, dy = y2 - y1;
-        double len2 = dx * dx + dy * dy;
-        double t = len2 > 0 ? ((px - x1) * dx + (py - y1) * dy) / len2 : 0;
-        t = Math.Clamp(t, 0, 1);
-        double ex = px - (x1 + t * dx), ey = py - (y1 + t * dy);
-        return ex * ex + ey * ey;
+        var left = new (double X, double Y)[n];
+        var right = new (double X, double Y)[n];
+        for (int i = 0; i < n; i++)
+        {
+            double tx, ty;
+            if (i == 0) { tx = pts[1].X - pts[0].X; ty = pts[1].Y - pts[0].Y; }
+            else if (i == n - 1) { tx = pts[n - 1].X - pts[n - 2].X; ty = pts[n - 1].Y - pts[n - 2].Y; }
+            else { tx = pts[i + 1].X - pts[i - 1].X; ty = pts[i + 1].Y - pts[i - 1].Y; }
+            double len = Math.Sqrt(tx * tx + ty * ty);
+            if (len < 1e-9) { tx = 1; ty = 0; len = 1; }
+            double nx = -ty / len * halfW, ny = tx / len * halfW;
+            left[i] = (pts[i].X + nx, pts[i].Y + ny);
+            right[i] = (pts[i].X - nx, pts[i].Y - ny);
+        }
+
+        var xs = new double[2 * n];
+        var ys = new double[2 * n];
+        for (int i = 0; i < n; i++) { xs[i] = left[i].X; ys[i] = left[i].Y; }
+        for (int i = 0; i < n; i++) { xs[n + i] = right[n - 1 - i].X; ys[n + i] = right[n - 1 - i].Y; }
+        return (xs, ys);
     }
 
     // ── Geometry helpers ────────────────────────────────────────────
