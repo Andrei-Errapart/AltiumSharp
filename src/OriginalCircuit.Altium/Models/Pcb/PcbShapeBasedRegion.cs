@@ -35,8 +35,6 @@ public sealed class PcbShapeBasedRegion
     /// <summary>Record type byte (0x0B = shape-based region, 0x0C = shape-based component body).</summary>
     internal byte TypeByte { get; set; } = 0x0B;
 
-    /// <summary>Raw 4-byte SubRecord-1 length field (preserved; some records use non-standard values).</summary>
-    internal byte[] Sr1LengthBytes { get; set; } = new byte[4];
     /// <summary>Layer byte.</summary>
     public byte Layer { get; set; }
     /// <summary>Raw flags1 byte (bit 0x04 cleared = locked, 0x02 = polygon outline).</summary>
@@ -49,10 +47,9 @@ public sealed class PcbShapeBasedRegion
     public ushort PolygonIndex { get; set; } = 0xFFFF;
     /// <summary>Component index (0xFFFF = free).</summary>
     public ushort ComponentIndex { get; set; } = 0xFFFF;
-    /// <summary>5 preserved header bytes (union index + unknown).</summary>
-    internal byte[] HeaderSkip5 { get; set; } = new byte[5];
-    /// <summary>5 preserved header bytes after the hole count.</summary>
-    internal byte[] HeaderSkip2 { get; set; } = new byte[2];
+    // The fixed header bytes after ComponentIndex (union-index-none "FF FF FF FF 00") and after the hole
+    // count ("00 00"), and the SubRecord-1 length, are all constants/derived — written by the serializer,
+    // not captured (verified across all 209 corpus shape-based records).
     /// <summary>
     /// The property block as an ordered, authorable key/value list (the <c>V7_LAYER</c>/<c>NAME</c>/
     /// <c>KIND</c>/<c>ISSHAPEBASED</c>… params), in source order. Reconstructed byte-for-byte by joining

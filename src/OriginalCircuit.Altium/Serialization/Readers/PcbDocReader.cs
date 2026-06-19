@@ -977,16 +977,16 @@ public sealed class PcbDocReader
     {
         var r = new PcbShapeBasedRegion { TypeByte = data[pos] };
         pos += 1;                                                       // type byte (0x0B / 0x0C)
-        r.Sr1LengthBytes = data.AsSpan(pos, 4).ToArray(); pos += 4;
+        pos += 4;                                                       // SubRecord-1 length (derived on write = body length)
         r.Layer = data[pos]; pos += 1;
         r.Flags1 = data[pos]; pos += 1;
         r.Flags2 = data[pos]; pos += 1;
         r.NetIndex = BitConverter.ToUInt16(data, pos); pos += 2;
         r.PolygonIndex = BitConverter.ToUInt16(data, pos); pos += 2;
         r.ComponentIndex = BitConverter.ToUInt16(data, pos); pos += 2;
-        r.HeaderSkip5 = data.AsSpan(pos, 5).ToArray(); pos += 5;
+        pos += 5;                                                       // constant: union-index-none FF FF FF FF + reserved 00
         var holeCount = BitConverter.ToUInt16(data, pos); pos += 2;
-        r.HeaderSkip2 = data.AsSpan(pos, 2).ToArray(); pos += 2;
+        pos += 2;                                                       // constant: reserved 00 00
         var propsLen = BitConverter.ToInt32(data, pos); pos += 4;
         var fullText = System.Text.Encoding.UTF8.GetString(data, pos, propsLen); pos += propsLen;
         var trimmed = fullText.TrimEnd('\0');

@@ -751,39 +751,46 @@ public sealed class PcbDocWriter
         using var ms = new MemoryStream();
         foreach (var r in items)
         {
-            ms.WriteByte(r.TypeByte);
-            ms.Write(r.Sr1LengthBytes.Length == 4 ? r.Sr1LengthBytes : new byte[4]);
-            ms.WriteByte(r.Layer);
-            ms.WriteByte(r.Flags1);
-            ms.WriteByte(r.Flags2);
-            ms.Write(BitConverter.GetBytes(r.NetIndex));
-            ms.Write(BitConverter.GetBytes(r.PolygonIndex));
-            ms.Write(BitConverter.GetBytes(r.ComponentIndex));
-            ms.Write(r.HeaderSkip5.Length == 5 ? r.HeaderSkip5 : new byte[5]);
-            ms.Write(BitConverter.GetBytes((ushort)r.Holes.Count));
-            ms.Write(r.HeaderSkip2.Length == 2 ? r.HeaderSkip2 : new byte[2]);
+            // Build the SubRecord-1 body (everything after the length field), then prefix the type byte
+            // and the computed SR1 length. The length, the post-component-index "FF FF FF FF 00"
+            // (union-index=none + reserved) and the post-hole-count "00 00" are derived/constant — verified
+            // across all 209 corpus shape-based records — so nothing here is captured/replayed.
+            using var body = new MemoryStream();
+            body.WriteByte(r.Layer);
+            body.WriteByte(r.Flags1);
+            body.WriteByte(r.Flags2);
+            body.Write(BitConverter.GetBytes(r.NetIndex));
+            body.Write(BitConverter.GetBytes(r.PolygonIndex));
+            body.Write(BitConverter.GetBytes(r.ComponentIndex));
+            body.Write(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x00 });
+            body.Write(BitConverter.GetBytes((ushort)r.Holes.Count));
+            body.Write(new byte[] { 0x00, 0x00 });
             // Property block: rejoin the ordered KEY=VALUE list byte-identically (no canonical reorder),
             // then re-append the inner terminating NUL(s); byte-exact for any captured or authored block.
             var propsText = string.Join("|", r.Properties.Select(p => p.Value is null ? p.Key : p.Key + "=" + p.Value))
                 + new string('\0', r.PropsInnerNulls);
             var propBytes = System.Text.Encoding.UTF8.GetBytes(propsText);
-            ms.Write(BitConverter.GetBytes(propBytes.Length));
-            ms.Write(propBytes);
-            if (r.PropsHasTrailingNull) ms.WriteByte(0);
-            ms.Write(BitConverter.GetBytes((uint)Math.Max(0, r.Outline.Count - 1)));   // disk count = N-1
+            body.Write(BitConverter.GetBytes(propBytes.Length));
+            body.Write(propBytes);
+            if (r.PropsHasTrailingNull) body.WriteByte(0);
+            body.Write(BitConverter.GetBytes((uint)Math.Max(0, r.Outline.Count - 1)));   // disk count = N-1
             foreach (var v in r.Outline)
             {
-                ms.WriteByte(v.IsRoundRaw);
-                ms.Write(BitConverter.GetBytes(v.X)); ms.Write(BitConverter.GetBytes(v.Y));
-                ms.Write(BitConverter.GetBytes(v.CenterX)); ms.Write(BitConverter.GetBytes(v.CenterY));
-                ms.Write(BitConverter.GetBytes(v.Radius));
-                ms.Write(BitConverter.GetBytes(v.StartAngle)); ms.Write(BitConverter.GetBytes(v.EndAngle));
+                body.WriteByte(v.IsRoundRaw);
+                body.Write(BitConverter.GetBytes(v.X)); body.Write(BitConverter.GetBytes(v.Y));
+                body.Write(BitConverter.GetBytes(v.CenterX)); body.Write(BitConverter.GetBytes(v.CenterY));
+                body.Write(BitConverter.GetBytes(v.Radius));
+                body.Write(BitConverter.GetBytes(v.StartAngle)); body.Write(BitConverter.GetBytes(v.EndAngle));
             }
             foreach (var hole in r.Holes)
             {
-                ms.Write(BitConverter.GetBytes((uint)hole.Count));
-                foreach (var (x, y) in hole) { ms.Write(BitConverter.GetBytes(x)); ms.Write(BitConverter.GetBytes(y)); }
+                body.Write(BitConverter.GetBytes((uint)hole.Count));
+                foreach (var (x, y) in hole) { body.Write(BitConverter.GetBytes(x)); body.Write(BitConverter.GetBytes(y)); }
             }
+            var bodyBytes = body.ToArray();
+            ms.WriteByte(r.TypeByte);
+            ms.Write(BitConverter.GetBytes((uint)bodyBytes.Length));    // SR1 length = body length (derived)
+            ms.Write(bodyBytes);
         }
         storage.AddStream("Data").SetData(ms.ToArray());
     }
