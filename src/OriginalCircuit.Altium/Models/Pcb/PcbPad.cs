@@ -669,12 +669,6 @@ public sealed class PcbPad : IPcbPad
     internal int SolderMaskCache { get; set; }
 
     /// <summary>
-    /// SubRecord-5 reserved marker byte at offset 172 (0x1A in PcbLib pads, 0x12 in PcbDoc pads).
-    /// Modeled so both round-trip exactly; default is the PcbLib value.
-    /// </summary>
-    internal byte Marker172 { get; set; } = 0x1A;
-
-    /// <summary>
     /// SubRecord-5 reserved marker byte at offset 185 (observed values 0x03/0x01/0x11; default 0x03).
     /// Modeled so a loaded pad round-trips exactly; Altium does not require a specific value here.
     /// </summary>

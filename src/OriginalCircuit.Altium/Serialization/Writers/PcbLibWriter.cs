@@ -827,7 +827,7 @@ public sealed class PcbLibWriter
         PutGuid(142, pad.IdentityGuidB);                                 // 142-157 GUID-B (footprint/stack identity)
         PutI32(162, pad.HolePositiveTolerance.ToRaw());                  // 162-165
         PutI32(166, pad.HoleNegativeTolerance.ToRaw());                  // 166-169
-        ext[172 - PadExtendedStart] = pad.Marker172;                     // 172 reserved marker (1A PcbLib / 12 PcbDoc)
+        ext[172 - PadExtendedStart] = (byte)(pad.Sr5Length == 202 ? 0x1A : 0x12); // 172: derived from pad-record format (RE: tracks Sr5Length, not editable)
         ext[185 - PadExtendedStart] = pad.ReservedMarker185;             // 185 reserved marker
 
         // Reproduce the original SubRecord-5 length (PcbLib pads are 202 bytes, PcbDoc pads 194).

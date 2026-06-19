@@ -1105,7 +1105,7 @@ public sealed class PcbLibReader
             pad.CachePasteMaskExpansionValid = TB(103);
             pad.CacheSolderMaskExpansionValid = TB(104);
             pad.SolderMaskCache = TI32(121);
-            pad.Marker172 = TB(172);
+            // Offset 172 is derived from the SubRecord-5 length (pad-record format), not captured.
             pad.ReservedMarker185 = TB(185);
         }
         // When per-layer overrides replaced the typed shapes, keep the source's base main-block shapes.
