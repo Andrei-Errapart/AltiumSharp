@@ -188,10 +188,14 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         SKBitmap? downscaled = null;
         if (ss > 1)
         {
+            // Box-filter the supersampled buffer down to the target size. A paint-less DrawBitmap samples
+            // nearest-neighbor (no smoothing), so draw through an explicit linear SKSamplingOptions.
             downscaled = new SKBitmap(options.Width, options.Height);
             using (var sc = new SKCanvas(downscaled))
+            using (var image = SKImage.FromBitmap(bitmap))
             {
-                sc.DrawBitmap(bitmap, new SKRect(0, 0, options.Width, options.Height));
+                sc.DrawImage(image, new SKRect(0, 0, options.Width, options.Height),
+                    new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
             }
             finalBitmap = downscaled;
         }

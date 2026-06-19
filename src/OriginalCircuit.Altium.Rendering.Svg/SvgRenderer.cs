@@ -102,6 +102,9 @@ public sealed class SvgRenderer : IRenderer
         PcbRealisticStyle? style = null,
         CancellationToken cancellationToken = default)
     {
+        // Validate before opening the file so a null document doesn't leave an empty file behind.
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(path);
         await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
         await RenderRealisticAsync(document, stream, options, style, cancellationToken);
     }

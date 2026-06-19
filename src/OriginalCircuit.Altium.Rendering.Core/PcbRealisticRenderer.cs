@@ -1,5 +1,6 @@
 using OriginalCircuit.Altium.Models.Pcb;
 using OriginalCircuit.Eda.Enums;
+using OriginalCircuit.Eda.Models.Pcb;
 using OriginalCircuit.Eda.Primitives;
 using OriginalCircuit.Eda.Rendering;
 using PadShape = OriginalCircuit.Altium.Models.Pcb.PadShape;
@@ -61,6 +62,7 @@ public sealed class PcbRealisticRenderer
         bool bottom = _style.ViewSide == PcbViewSide.Bottom;
         int copperLayer = bottom ? 32 : 1;
         int silkLayer = bottom ? 34 : 33;
+        int solderLayer = bottom ? 38 : 37; // solder-mask layer: objects on it mean "mask removed"
         int sideSignalLayer = bottom ? 32 : 1;
 
         var substrateArgb = ColorHelper.EdaColorToArgb(_style.SubstrateColor);
@@ -95,6 +97,18 @@ public sealed class PcbRealisticRenderer
         //      makes an even-odd inverse fill unreliable).
         if (_style.ShowSolderMask && outline is not null)
             context.FillPolygon(outline.Value.X, outline.Value.Y, maskArgb);
+
+        // 3a ─ Explicit mask openings: geometry drawn on the solder-mask layer (37/38) is a NEGATIVE — it
+        //      marks where mask is removed (e.g. the bare-laminate clearance ring Altium draws around the
+        //      board outline). Knock the mask back to laminate there. (Exposed copper beneath such an
+        //      opening is shown as laminate — a v1 simplification.)
+        if (_style.ShowSolderMask)
+        {
+            foreach (var t in collected.Tracks) if (t.Layer == solderLayer) DrawTrack(context, t, substrateArgb);
+            foreach (var a in collected.Arcs) if (a.Layer == solderLayer) DrawArc(context, a, substrateArgb);
+            foreach (var f in collected.Fills) if (f.Layer == solderLayer) DrawFill(context, f, substrateArgb);
+            foreach (var r in collected.Regions) if (r.Layer == solderLayer) DrawRegion(context, r, substrateArgb);
+        }
 
         // 4 ── Mask openings + plating: each non-tented pad/via exposes bare laminate (the expansion ring)
         //      with the plated metal (finish, or bare copper) on top. Tented pads/vias stay under the mask.
@@ -141,21 +155,39 @@ public sealed class PcbRealisticRenderer
         public readonly List<(PcbText Text, PcbComponent? Owner)> Texts = new();
     }
 
-    // Flattens the document's own primitives plus every component's children. Component children are
-    // already baked into world coordinates by the reader, so they collect flat alongside doc-level ones.
+    // Flattens the document's own primitives plus every component's children, de-duplicated by reference.
+    // The PcbDoc reader assigns each component pad into BOTH document.Pads and component.Pads (the same
+    // object), so a naive collect would draw component pads twice; a from-scratch board, conversely, may
+    // hold primitives only under a component. Reference de-dup covers both. Component children are already
+    // baked into world coordinates by the reader, so they collect flat alongside doc-level ones.
     private static Collected Collect(PcbDocument document)
     {
         var c = new Collected();
         var components = document.Components;
 
-        c.Tracks.AddRange(document.Tracks.Cast<PcbTrack>());
-        c.Arcs.AddRange(document.Arcs.Cast<PcbArc>());
-        c.Fills.AddRange(document.Fills.Cast<PcbFill>());
-        c.Regions.AddRange(document.Regions.Cast<PcbRegion>());
-        c.Pads.AddRange(document.Pads.Cast<PcbPad>());
-        c.Vias.AddRange(document.Vias.Cast<PcbVia>());
+        var seenTracks = new HashSet<PcbTrack>();
+        var seenArcs = new HashSet<PcbArc>();
+        var seenFills = new HashSet<PcbFill>();
+        var seenRegions = new HashSet<PcbRegion>();
+        var seenPads = new HashSet<PcbPad>();
+        var seenVias = new HashSet<PcbVia>();
+        var seenTexts = new HashSet<PcbText>();
+
+        void AddPrims(IEnumerable<IPcbTrack> tracks, IEnumerable<IPcbArc> arcs, IEnumerable<IPcbFill> fills,
+            IEnumerable<IPcbRegion> regions, IEnumerable<IPcbPad> pads, IEnumerable<IPcbVia> vias)
+        {
+            foreach (var t in tracks.Cast<PcbTrack>()) if (seenTracks.Add(t)) c.Tracks.Add(t);
+            foreach (var a in arcs.Cast<PcbArc>()) if (seenArcs.Add(a)) c.Arcs.Add(a);
+            foreach (var f in fills.Cast<PcbFill>()) if (seenFills.Add(f)) c.Fills.Add(f);
+            foreach (var r in regions.Cast<PcbRegion>()) if (seenRegions.Add(r)) c.Regions.Add(r);
+            foreach (var p in pads.Cast<PcbPad>()) if (seenPads.Add(p)) c.Pads.Add(p);
+            foreach (var v in vias.Cast<PcbVia>()) if (seenVias.Add(v)) c.Vias.Add(v);
+        }
+
+        AddPrims(document.Tracks, document.Arcs, document.Fills, document.Regions, document.Pads, document.Vias);
         foreach (var t in document.Texts.Cast<PcbText>())
         {
+            if (!seenTexts.Add(t)) continue;
             var owner = t.ComponentIndex >= 0 && t.ComponentIndex < components.Count
                 ? components[t.ComponentIndex] as PcbComponent
                 : null;
@@ -164,14 +196,9 @@ public sealed class PcbRealisticRenderer
 
         foreach (var comp in components.Cast<PcbComponent>())
         {
-            c.Tracks.AddRange(comp.Tracks.Cast<PcbTrack>());
-            c.Arcs.AddRange(comp.Arcs.Cast<PcbArc>());
-            c.Fills.AddRange(comp.Fills.Cast<PcbFill>());
-            c.Regions.AddRange(comp.Regions.Cast<PcbRegion>());
-            c.Pads.AddRange(comp.Pads.Cast<PcbPad>());
-            c.Vias.AddRange(comp.Vias.Cast<PcbVia>());
+            AddPrims(comp.Tracks, comp.Arcs, comp.Fills, comp.Regions, comp.Pads, comp.Vias);
             foreach (var t in comp.Texts.Cast<PcbText>())
-                c.Texts.Add((t, comp));
+                if (seenTexts.Add(t)) c.Texts.Add((t, comp));
         }
         return c;
     }
@@ -281,8 +308,8 @@ public sealed class PcbRealisticRenderer
         var r = _transform.ScaleValue(arc.Radius);
         var strokeWidth = Math.Max(1, _transform.ScaleValue(arc.Width));
 
-        var startAngle = -arc.StartAngle;
-        var sweep = arc.EndAngle - arc.StartAngle;
+        var startAngle = -Finite(arc.StartAngle);
+        var sweep = Finite(arc.EndAngle) - Finite(arc.StartAngle);
         if (sweep <= 0) sweep += 360;
 
         if (Math.Abs(sweep - 360) < 0.01)
@@ -301,11 +328,11 @@ public sealed class PcbRealisticRenderer
         var w = Math.Max(1, Math.Abs(x2 - x1));
         var h = Math.Max(1, Math.Abs(y2 - y1));
 
-        if (fill.Rotation != 0)
+        if (Finite(fill.Rotation) != 0)
         {
             var centerX = (x1 + x2) / 2.0;
             var centerY = (y1 + y2) / 2.0;
-            var rad = -fill.Rotation * Math.PI / 180.0;
+            var rad = -Finite(fill.Rotation) * Math.PI / 180.0;
             var cos = Math.Cos(rad);
             var sin = Math.Sin(rad);
             var halfW = w / 2.0;
@@ -349,6 +376,7 @@ public sealed class PcbRealisticRenderer
 
         var (x, y) = _transform.WorldToScreen(text.Location.X, text.Location.Y);
         var height = Math.Max(1, _transform.ScaleValue(text.Height));
+        double rotation = Finite(text.Rotation);
 
         if (text.TextKind == PcbTextKind.Stroke && !text.IsTrueType)
         {
@@ -359,7 +387,7 @@ public sealed class PcbRealisticRenderer
             var strokeWidth = Math.Max(1, _transform.ScaleValue(text.StrokeWidth));
             context.SaveState();
             context.Translate(x, y);
-            if (text.Rotation != 0) context.Rotate(-text.Rotation);
+            if (rotation != 0) context.Rotate(-rotation);
             if (text.IsMirrored) context.Scale(-1, 1);
             foreach (var s in segments)
                 context.DrawLine(s.X1 * height, -s.Y1 * height, s.X2 * height, -s.Y2 * height, color, strokeWidth);
@@ -376,11 +404,11 @@ public sealed class PcbRealisticRenderer
             VerticalAlignment = TextVAlign.Baseline,
         };
 
-        if (text.Rotation != 0 || text.IsMirrored)
+        if (rotation != 0 || text.IsMirrored)
         {
             context.SaveState();
             context.Translate(x, y);
-            if (text.Rotation != 0) context.Rotate(-text.Rotation);
+            if (rotation != 0) context.Rotate(-rotation);
             if (text.IsMirrored) context.Scale(-1, 1);
             context.DrawText(text.Text, 0, 0, height, color, options);
             context.RestoreState();
@@ -413,7 +441,8 @@ public sealed class PcbRealisticRenderer
 
         context.SaveState();
         context.Translate(cx, cy);
-        if (pad.HoleRotation != 0) context.Rotate(-pad.HoleRotation);
+        double holeRotation = Finite(pad.HoleRotation);
+        if (holeRotation != 0) context.Rotate(-holeRotation);
 
         if (pad.HoleType == PadHoleType.Square)
             context.FillRectangle(-holeR, -holeR, holeR * 2, holeR * 2, holeColor);
@@ -463,17 +492,20 @@ public sealed class PcbRealisticRenderer
     {
         var (cx, cy) = _transform.WorldToScreen(center.X, center.Y);
         var exp = _transform.ScaleValue(expansion);
-        double rx = _transform.ScaleValue(sizeX) / 2.0 + exp;
-        double ry = _transform.ScaleValue(sizeY) / 2.0 + exp;
-        if (rx < 0.5) rx = 0.5;
-        if (ry < 0.5) ry = 0.5;
+        double rxBase = _transform.ScaleValue(sizeX) / 2.0;
+        double ryBase = _transform.ScaleValue(sizeY) / 2.0;
+        double rx = Math.Max(0.5, rxBase + exp);
+        double ry = Math.Max(0.5, ryBase + exp);
 
         var local = shape switch
         {
             PadShape.Rectangular => RectLocal(rx, ry),
             PadShape.Octagonal => OctagonLocal(rx, ry),
-            PadShape.RoundedRectangle => RoundedRectLocal(rx, ry, Math.Min(rx, ry) * 2.0 * cornerRadiusPercent / 100.0),
-            _ => RoundedRectLocal(rx, ry, Math.Min(rx, ry)), // Round → obround/circle
+            // Corner radius is derived from the UNEXPANDED pad, then offset by the expansion, so the
+            // opening is a true uniform outward offset of the copper (they only coincide at 50% otherwise).
+            PadShape.RoundedRectangle => RoundedRectLocal(rx, ry,
+                Math.Min(rxBase, ryBase) * 2.0 * cornerRadiusPercent / 100.0 + exp),
+            _ => RoundedRectLocal(rx, ry, Math.Min(rx, ry)), // Round → obround/circle (already a true offset)
         };
         return Place(local, cx, cy, rotationDeg);
     }
@@ -532,11 +564,15 @@ public sealed class PcbRealisticRenderer
         return pts;
     }
 
+    // Coerces a non-finite double (NaN/Infinity, which a corrupt file can carry in a rotation/angle
+    // field) to a safe value so it never reaches the render context (Skia drops it; SVG would emit "NaN").
+    private static double Finite(double v, double fallback = 0) => double.IsFinite(v) ? v : fallback;
+
     // Rotates local (screen-space, y-down) points by -rotation about the origin and offsets to (cx,cy),
     // matching PcbComponentRenderer's Translate(cx,cy)+Rotate(-rotation) pad drawing.
     private static (double[] X, double[] Y) Place(List<(double X, double Y)> local, double cx, double cy, double rotationDeg)
     {
-        double a = -rotationDeg * Math.PI / 180.0;
+        double a = -Finite(rotationDeg) * Math.PI / 180.0;
         double cos = Math.Cos(a), sin = Math.Sin(a);
         var xs = new double[local.Count];
         var ys = new double[local.Count];
