@@ -116,6 +116,101 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         return RenderAsync(component, output, options, cancellationToken);
     }
 
+    /// <summary>
+    /// Renders a whole PCB document (board) as a photorealistic 2D image (a fab-house / gerber-viewer
+    /// look) rather than the Altium-editor view. Configure the solder-mask, copper, silkscreen, finish
+    /// and substrate colours via <paramref name="style"/>; null uses the default green-mask / ENIG / white
+    /// preset (<see cref="PcbRealisticStyle.GreenEnig"/>).
+    /// </summary>
+    /// <param name="style">Appearance (colours, viewed side, finish, supersampling); null uses the default preset.</param>
+    public async ValueTask RenderRealisticAsync(
+        PcbDocument document,
+        Stream output,
+        RenderOptions? options = null,
+        PcbRealisticStyle? style = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(output);
+
+        options ??= new RenderOptions();
+        var bytes = RenderRealisticToBytes(options, style ?? new PcbRealisticStyle(), document);
+        await output.WriteAsync(bytes, cancellationToken);
+    }
+
+    /// <summary>
+    /// Renders a whole PCB document (board) as a photorealistic 2D image to a file (format inferred from
+    /// the extension: .png / .jpg / .jpeg).
+    /// </summary>
+    /// <param name="style">Appearance (colours, viewed side, finish, supersampling); null uses the default preset.</param>
+    public async ValueTask RenderRealisticAsync(
+        PcbDocument document,
+        string path,
+        RenderOptions? options = null,
+        PcbRealisticStyle? style = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        options = ApplyPathFormat(options, path);
+        var bytes = RenderRealisticToBytes(options, style ?? new PcbRealisticStyle(), document);
+        await WriteFileAsync(path, bytes, cancellationToken);
+    }
+
+    // Renders the photorealistic board, optionally supersampled (drawn at style.Supersample× the output
+    // size then downscaled) for smoother edges, and returns the encoded image bytes.
+    private static byte[] RenderRealisticToBytes(RenderOptions options, PcbRealisticStyle style, PcbDocument document)
+    {
+        int ss = Math.Clamp(style.Supersample, 1, 4);
+        int rw = options.Width * ss;
+        int rh = options.Height * ss;
+
+        using var bitmap = new SKBitmap(rw, rh);
+        using (var canvas = new SKCanvas(bitmap))
+        using (var context = new SkiaRenderContext(canvas))
+        {
+            context.Clear(ColorHelper.EdaColorToArgb(options.BackgroundColor));
+
+            // Set Scale*ss so a fixed-scale (AutoZoom off) render still fills the same area after
+            // downscaling; AutoZoom overwrites Scale anyway when on.
+            var transform = new CoordTransform
+            {
+                ScreenWidth = rw,
+                ScreenHeight = rh,
+                Scale = options.Scale * ss,
+            };
+            if (options.AutoZoom)
+                transform.AutoZoom(document.GetFramingBounds(), 0.95);
+
+            new PcbRealisticRenderer(transform, style).Render(document, context);
+        }
+
+        SKBitmap finalBitmap = bitmap;
+        SKBitmap? downscaled = null;
+        if (ss > 1)
+        {
+            downscaled = new SKBitmap(options.Width, options.Height);
+            using (var sc = new SKCanvas(downscaled))
+            {
+                sc.DrawBitmap(bitmap, new SKRect(0, 0, options.Width, options.Height));
+            }
+            finalBitmap = downscaled;
+        }
+
+        try
+        {
+            using var image = SKImage.FromBitmap(finalBitmap);
+            var (skFormat, quality) = options.Format == RasterImageFormat.Jpeg
+                ? (SKEncodedImageFormat.Jpeg, Math.Clamp(options.Quality, 1, 100))
+                : (SKEncodedImageFormat.Png, 100);
+            using var data = image.Encode(skFormat, quality);
+            return data.ToArray();
+        }
+        finally
+        {
+            downscaled?.Dispose();
+        }
+    }
+
     // ── internals ───────────────────────────────────────────────────────────
 
     // What to draw and how to frame it — built once per input type and shared by the stream and

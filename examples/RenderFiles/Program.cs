@@ -384,4 +384,52 @@ using (var fs = File.Create(boardRoutingPath))
         });
 Console.WriteLine($"  Top routing:  {boardRoutingPath}");
 
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║  9. Photorealistic board render (RenderRealisticAsync)                   ║
+// ║                                                                         ║
+// ║  A separate render path produces a fab-house / gerber-viewer look       ║
+// ║  (think JLCPCB) instead of the Altium-editor view: a coloured solder    ║
+// ║  mask over copper and laminate, plated pads (HASL/ENIG), silkscreen,    ║
+// ║  and drilled holes. PCB-only. Configure colours via PcbRealisticStyle   ║
+// ║  — use a preset (GreenEnig, BlackEnig, BlueHasl, …) or set your own.     ║
+// ║  Available on both RasterRenderer (PNG/JPEG) and SvgRenderer (SVG).      ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+
+Console.WriteLine("\n=== Rendering a Photorealistic PCB Board ===");
+
+var realisticOptions = new RenderOptions { Width = 1000, Height = 800 };
+
+// Green mask + ENIG (gold) + white silk — the default fab look (top view).
+var greenTopPath = Path.Combine(outputDir, "board_realistic_green.png");
+using (var fs = File.Create(greenTopPath))
+    await rasterRenderer.RenderRealisticAsync(board, fs, realisticOptions, PcbRealisticStyle.GreenEnig);
+Console.WriteLine($"  Green/ENIG top:  {greenTopPath}");
+
+// Matte-black mask preset, supersampled 2x for smoother edges.
+var blackStyle = PcbRealisticStyle.BlackEnig;
+blackStyle.Supersample = 2;
+var blackPath = Path.Combine(outputDir, "board_realistic_black.png");
+using (var fs = File.Create(blackPath))
+    await rasterRenderer.RenderRealisticAsync(board, fs, realisticOptions, blackStyle);
+Console.WriteLine($"  Black/ENIG:      {blackPath}");
+
+// Bottom side (mirrored) of any preset via .For(PcbViewSide.Bottom).
+var bottomPath = Path.Combine(outputDir, "board_realistic_bottom.png");
+using (var fs = File.Create(bottomPath))
+    await rasterRenderer.RenderRealisticAsync(board, fs, realisticOptions,
+        PcbRealisticStyle.GreenEnig.For(PcbViewSide.Bottom));
+Console.WriteLine($"  Green bottom:    {bottomPath}");
+
+// Fully custom colours (purple mask, immersion-silver finish, yellow silk).
+var customStyle = new PcbRealisticStyle
+{
+    SolderMaskColor = EdaColor.FromArgb(0xDC, 0x52, 0x1E, 0x7A), // translucent purple (A,R,G,B)
+    FinishColor = EdaColor.FromRgb(0xD3, 0xD6, 0xDA),           // immersion silver
+    SilkscreenColor = EdaColor.FromRgb(0xF5, 0xE6, 0x4B),       // yellow silk
+};
+var customPath = Path.Combine(outputDir, "board_realistic_custom.svg");
+using (var fs = File.Create(customPath))
+    await svgRenderer.RenderRealisticAsync(board, fs, realisticOptions, customStyle);
+Console.WriteLine($"  Custom (SVG):    {customPath}");
+
 Console.WriteLine($"\nAll rendered files are in: {outputDir}");

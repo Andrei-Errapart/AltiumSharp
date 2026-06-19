@@ -69,6 +69,43 @@ public sealed class SvgRenderer : IRenderer
         await output.WriteAsync(bytes, cancellationToken);
     }
 
+    /// <summary>
+    /// Renders a whole PCB document (board) as a photorealistic 2D SVG (a fab-house / gerber-viewer look)
+    /// rather than the Altium-editor view. Configure the solder-mask, copper, silkscreen, finish and
+    /// substrate colours via <paramref name="style"/>; null uses the default green-mask / ENIG / white
+    /// preset. The supersample knob is ignored for vector output.
+    /// </summary>
+    /// <param name="style">Appearance (colours, viewed side, finish); null uses the default preset.</param>
+    public async ValueTask RenderRealisticAsync(
+        PcbDocument document,
+        Stream output,
+        RenderOptions? options = null,
+        PcbRealisticStyle? style = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(output);
+
+        options ??= new RenderOptions();
+        var s = style ?? new PcbRealisticStyle();
+        var bytes = RenderToBytes(options, document.GetFramingBounds(), 0.95,
+            (transform, ctx) => new PcbRealisticRenderer(transform, s).Render(document, ctx));
+        await output.WriteAsync(bytes, cancellationToken);
+    }
+
+    /// <summary>Renders a whole PCB document (board) as a photorealistic 2D SVG to a file.</summary>
+    /// <param name="style">Appearance (colours, viewed side, finish); null uses the default preset.</param>
+    public async ValueTask RenderRealisticAsync(
+        PcbDocument document,
+        string path,
+        RenderOptions? options = null,
+        PcbRealisticStyle? style = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
+        await RenderRealisticAsync(document, stream, options, style, cancellationToken);
+    }
+
     private static PcbComponentRenderer CreatePcbRenderer(CoordTransform transform, PcbRenderSettings? settings)
     {
         var renderer = new PcbComponentRenderer(transform);
