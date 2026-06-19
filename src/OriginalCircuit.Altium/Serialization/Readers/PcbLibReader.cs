@@ -1787,6 +1787,11 @@ public sealed class PcbLibReader
         int Int(string k) => parameters.TryGetValue(k, out var v) && int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : 0;
         bool Bool(string k) => parameters.TryGetValue(k, out var v) && v.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
 
+        // Propagate the numeric layer id from the CommonPrimitiveData byte (e.g. 69 = Mechanical 13).
+        // This is the inverse of the writer's LayerNameToByte(LayerName), so it stays in sync with the
+        // V7_LAYER name below. Without it, Layer was left at its model default of 57 (Mechanical 1)
+        // regardless of the body's real layer, while only LayerName reflected the truth.
+        result.Layer = layer;
         if (parameters.TryGetValue("V7_LAYER", out var v7Layer)) result.LayerName = v7Layer;
         if (parameters.TryGetValue("NAME", out var name)) result.Name = name;
         result.Kind = Int("KIND");

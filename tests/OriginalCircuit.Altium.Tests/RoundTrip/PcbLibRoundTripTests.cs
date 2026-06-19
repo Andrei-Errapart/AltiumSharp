@@ -212,6 +212,42 @@ public sealed class PcbLibRoundTripTests
     }
 
     [Fact]
+    public void ComponentBody_LayerIdMatchesLayerName()
+    {
+        // Regression: a body placed on a mechanical layer other than Mechanical 1 used to round-trip
+        // with LayerName correct ("MECHANICAL13") but Layer stuck at its default of 57 (Mechanical 1),
+        // because ReadComponentBody set LayerName from V7_LAYER but never assigned the numeric Layer.
+        const int mechLayerIdBase = 56; // Mechanical N => 56 + N
+        var original = new PcbLibrary();
+        var component = PcbComponent.Create("BodyLayers")
+            .AddComponentBody(b => b
+                .OnLayer("MECHANICAL13")
+                .AddPoint(Coord.FromMils(0), Coord.FromMils(0))
+                .AddPoint(Coord.FromMils(100), Coord.FromMils(0))
+                .AddPoint(Coord.FromMils(100), Coord.FromMils(100)))
+            .AddComponentBody(b => b
+                .OnLayer("MECHANICAL5")
+                .AddPoint(Coord.FromMils(0), Coord.FromMils(0))
+                .AddPoint(Coord.FromMils(50), Coord.FromMils(50)))
+            .Build();
+        original.Add(component);
+
+        var readBack = RoundTrip(original);
+        var bodies = ((PcbComponent)readBack.Components.First()).ComponentBodies
+            .Cast<PcbComponentBody>().ToList();
+        Assert.Equal(2, bodies.Count);
+
+        var mech13 = bodies.Single(b => b.LayerName == "MECHANICAL13");
+        Assert.Equal(mechLayerIdBase + 13, mech13.Layer); // 69, not the default 57
+
+        var mech5 = bodies.Single(b => b.LayerName == "MECHANICAL5");
+        Assert.Equal(mechLayerIdBase + 5, mech5.Layer); // 61
+
+        // The reported query: no body should be mis-reported on Mechanical 1.
+        Assert.DoesNotContain(bodies, b => b.Layer == mechLayerIdBase + 1);
+    }
+
+    [Fact]
     public void MultipleComponents_PreservesAll()
     {
         var original = new PcbLibrary();
