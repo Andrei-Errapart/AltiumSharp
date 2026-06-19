@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Altium Board Viewer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%231b6e3c'/%3E%3Ccircle cx='8' cy='8' r='2.4' fill='%23be9042'/%3E%3Ccircle cx='16' cy='16' r='2.4' fill='%23be9042'/%3E%3Cpath d='M8 8h6a2 2 0 0 1 2 2v4' stroke='%23be9042' stroke-width='1.6' fill='none'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0d11; --bg2:#0e1217; --panel:#11161d; --panel2:#141a22;
+  --line:#202832; --line2:#2c3742;
+  --ink:#cdd4de; --ink-dim:#7e8896; --ink-faint:#525c68;
+  --copper:#d08a3f; --copper-bright:#f0a857; --copper-deep:#8a5526;
+  --phos:#54d08a; --danger:#e0664f;
+  --r:7px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"JetBrains Mono",ui-monospace,monospace; font-size:13px; line-height:1.4;
+  overflow:hidden;
+  background-image:
+    radial-gradient(1200px 600px at 78% -10%, rgba(208,138,63,.10), transparent 60%),
+    radial-gradient(900px 700px at -5% 110%, rgba(84,208,138,.06), transparent 55%),
+    linear-gradient(transparent 95%, rgba(255,255,255,.018) 95%),
+    linear-gradient(90deg, transparent 95%, rgba(255,255,255,.018) 95%);
+  background-size:auto,auto,22px 22px,22px 22px;
+}
+/* faint grain */
+body::after{
+  content:""; position:fixed; inset:0; pointer-events:none; opacity:.035; z-index:9999;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.app{display:grid; grid-template-rows:auto 1fr; height:100%}
+
+/* ── Header ─────────────────────────────────────────── */
+header{
+  display:flex; align-items:center; gap:18px; padding:0 18px; height:54px;
+  border-bottom:1px solid var(--line); background:linear-gradient(180deg,var(--bg2),var(--bg));
+}
+.brand{display:flex; align-items:baseline; gap:10px; font-family:"Chakra Petch",sans-serif}
+.brand .mark{
+  font-weight:700; font-size:19px; letter-spacing:.06em; color:var(--ink);
+  text-transform:uppercase;
+}
+.brand .mark b{color:var(--copper)}
+.brand .sub{font-size:10.5px; letter-spacing:.32em; color:var(--ink-faint); text-transform:uppercase}
+.spacer{flex:1}
+.stat{display:flex; align-items:center; gap:7px; font-size:11px; color:var(--ink-dim); letter-spacing:.04em}
+.led{width:7px; height:7px; border-radius:50%; background:var(--ink-faint); box-shadow:none; transition:.3s}
+.stat.on .led{background:var(--phos); box-shadow:0 0 8px var(--phos)}
+.stat.busy .led{background:var(--copper-bright); box-shadow:0 0 8px var(--copper); animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.35}}
+
+/* ── Body ───────────────────────────────────────────── */
+.body{display:grid; grid-template-columns:312px 1fr; height:100%; min-height:0}
+aside{
+  border-right:1px solid var(--line); background:var(--panel);
+  overflow-y:auto; overflow-x:hidden;
+}
+aside::-webkit-scrollbar{width:9px} aside::-webkit-scrollbar-thumb{background:var(--line2); border-radius:9px}
+.sec{border-bottom:1px solid var(--line); padding:15px 16px}
+.sec h2{
+  margin:0 0 12px; font-family:"Chakra Petch",sans-serif; font-weight:600;
+  font-size:10.5px; letter-spacing:.28em; text-transform:uppercase; color:var(--ink-faint);
+  display:flex; align-items:center; gap:8px;
+}
+.sec h2::before{content:""; width:11px; height:1px; background:var(--copper); box-shadow:0 0 6px var(--copper)}
+
+/* board readout */
+.readout{display:grid; grid-template-columns:1fr 1fr; gap:8px 12px}
+.readout .k{font-size:9.5px; letter-spacing:.18em; color:var(--ink-faint); text-transform:uppercase}
+.readout .v{font-size:14px; color:var(--copper-bright); margin-top:1px; word-break:break-word}
+.readout .wide{grid-column:1/3}
+
+/* segmented */
+.seg{display:flex; border:1px solid var(--line2); border-radius:var(--r); overflow:hidden}
+.seg button{
+  flex:1; appearance:none; border:0; background:transparent; color:var(--ink-dim);
+  font-family:inherit; font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+  padding:9px 0; cursor:pointer; transition:.18s;
+}
+.seg button+button{border-left:1px solid var(--line2)}
+.seg button:hover{color:var(--ink); background:rgba(255,255,255,.02)}
+.seg button.on{color:#1a120a; background:linear-gradient(180deg,var(--copper-bright),var(--copper)); font-weight:700}
+
+/* presets */
+.presets{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
+.preset{
+  appearance:none; border:1px solid var(--line2); background:var(--panel2); border-radius:var(--r);
+  padding:7px 6px 6px; cursor:pointer; transition:.18s; color:var(--ink-dim);
+}
+.preset:hover{border-color:var(--copper-deep); transform:translateY(-1px)}
+.preset.on{border-color:var(--copper); box-shadow:0 0 0 1px var(--copper-deep), 0 4px 14px rgba(0,0,0,.4)}
+.chip{height:24px; border-radius:4px; border:1px solid rgba(0,0,0,.4); position:relative; overflow:hidden}
+.chip i{position:absolute; width:7px; height:7px; border-radius:50%; top:50%; left:50%; transform:translate(-50%,-50%)}
+.preset span{display:block; font-size:8.5px; letter-spacing:.08em; margin-top:6px; text-transform:uppercase}
+
+/* color rows */
+.crow{display:flex; align-items:center; gap:11px; padding:6px 0}
+.crow label{flex:1; font-size:11px; letter-spacing:.05em; color:var(--ink-dim)}
+.crow .hex{font-size:10.5px; color:var(--ink-faint); width:62px; text-align:right}
+.swatch{position:relative; width:30px; height:22px; border-radius:5px; border:1px solid var(--line2); overflow:hidden; cursor:pointer; flex:none}
+.swatch input{position:absolute; inset:-6px; width:150%; height:150%; border:0; padding:0; cursor:pointer; background:none}
+.range{width:100%; appearance:none; height:3px; border-radius:3px; background:var(--line2); outline:none; margin:4px 0 2px}
+.range::-webkit-slider-thumb{appearance:none; width:13px; height:13px; border-radius:50%; background:var(--copper-bright); cursor:pointer; box-shadow:0 0 6px var(--copper-deep)}
+.subnote{display:flex; justify-content:space-between; font-size:9.5px; color:var(--ink-faint); letter-spacing:.1em; text-transform:uppercase}
+
+/* layers */
+.layer{display:flex; align-items:center; gap:11px; padding:7px 0; cursor:pointer; user-select:none}
+.layer .sw{width:30px; height:17px; border-radius:9px; background:var(--line2); position:relative; transition:.2s; flex:none}
+.layer .sw::after{content:""; position:absolute; width:13px; height:13px; border-radius:50%; background:var(--ink-dim); top:2px; left:2px; transition:.2s}
+.layer.on .sw{background:var(--copper-deep)}
+.layer.on .sw::after{left:15px; background:var(--copper-bright); box-shadow:0 0 6px var(--copper)}
+.layer .name{flex:1; font-size:11.5px; letter-spacing:.05em; color:var(--ink-dim)}
+.layer.on .name{color:var(--ink)}
+.layer .dot{width:8px;height:8px;border-radius:2px;flex:none;border:1px solid rgba(0,0,0,.4)}
+
+/* export buttons */
+.btns{display:grid; grid-template-columns:1fr 1fr; gap:9px}
+.btn{
+  appearance:none; border:1px solid var(--line2); background:var(--panel2); color:var(--ink);
+  font-family:inherit; font-size:11px; letter-spacing:.12em; text-transform:uppercase; font-weight:500;
+  padding:11px 0; border-radius:var(--r); cursor:pointer; transition:.18s; display:flex; align-items:center; justify-content:center; gap:7px;
+}
+.btn:hover{border-color:var(--copper); color:var(--copper-bright); background:rgba(208,138,63,.06)}
+.btn svg{width:13px;height:13px;opacity:.8}
+.btn[disabled]{opacity:.35; pointer-events:none}
+
+/* ── Stage ──────────────────────────────────────────── */
+.stage{position:relative; min-width:0; overflow:hidden;
+  background:
+    radial-gradient(80% 80% at 50% 40%, rgba(255,255,255,.025), transparent 70%),
+    repeating-linear-gradient(0deg, transparent 0 31px, rgba(255,255,255,.012) 31px 32px),
+    repeating-linear-gradient(90deg, transparent 0 31px, rgba(255,255,255,.012) 31px 32px),
+    var(--bg);
+}
+#pan{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; cursor:grab; touch-action:none}
+#pan.drag{cursor:grabbing}
+#pan svg{display:block; filter:drop-shadow(0 24px 60px rgba(0,0,0,.6)); max-width:none}
+.stage.empty #pan{display:none}
+
+/* drop zone / empty */
+.drop{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; text-align:center; padding:30px}
+.stage:not(.empty) .drop{display:none}
+.drop .ring{
+  width:120px; height:120px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  border:1px dashed var(--line2); position:relative; transition:.25s;
+}
+.drop .ring svg{width:42px; height:42px; stroke:var(--copper); opacity:.85}
+.drop .ring::before{content:""; position:absolute; inset:-9px; border-radius:50%; border:1px solid var(--line); opacity:.5}
+.drop h3{margin:0; font-family:"Chakra Petch",sans-serif; font-weight:600; font-size:16px; letter-spacing:.06em; color:var(--ink)}
+.drop p{margin:0; font-size:11.5px; color:var(--ink-faint); letter-spacing:.08em; max-width:300px}
+.drop .pick{color:var(--copper-bright); text-decoration:underline; cursor:pointer}
+body.dragging .stage{outline:1px dashed var(--copper); outline-offset:-6px}
+body.dragging .drop .ring{border-color:var(--copper); box-shadow:0 0 40px rgba(208,138,63,.2); transform:scale(1.04)}
+
+/* hud + toast */
+.hud{position:absolute; left:14px; bottom:12px; display:flex; gap:10px; align-items:center; font-size:10px; color:var(--ink-faint); letter-spacing:.12em; text-transform:uppercase; pointer-events:none}
+.hud .pill{border:1px solid var(--line); background:rgba(10,13,17,.7); padding:4px 9px; border-radius:5px; backdrop-filter:blur(4px)}
+.zoombar{position:absolute; right:14px; bottom:12px; display:flex; gap:6px}
+.zoombar button{width:30px; height:30px; border:1px solid var(--line); background:rgba(10,13,17,.7); color:var(--ink-dim); border-radius:6px; cursor:pointer; font-size:15px; backdrop-filter:blur(4px); transition:.15s}
+.zoombar button:hover{color:var(--copper-bright); border-color:var(--copper-deep)}
+.toast{position:absolute; top:14px; left:50%; transform:translateX(-50%) translateY(-16px); opacity:0; transition:.25s;
+  background:var(--panel2); border:1px solid var(--danger); color:#f3b6a9; padding:9px 16px; border-radius:7px; font-size:11.5px; letter-spacing:.04em; pointer-events:none}
+.toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+.scan{position:absolute; inset:0; pointer-events:none; opacity:0; transition:.2s}
+.stage.busy .scan{opacity:1; background:linear-gradient(90deg,transparent,rgba(208,138,63,.07),transparent); background-size:40% 100%; animation:scan 1.1s linear infinite}
+@keyframes scan{from{background-position:-40% 0}to{background-position:140% 0}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <span class="mark">Altium<b>·</b>Board<b>·</b>Viewer</span>
+      <span class="sub">photorealistic&nbsp;pcb&nbsp;render</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="stat" id="status"><span class="led"></span><span id="statusText">no board loaded</span></div>
+  </header>
+
+  <div class="body">
+    <aside>
+      <div class="sec">
+        <h2>Board</h2>
+        <div class="readout" id="readout">
+          <div class="wide"><div class="k">File</div><div class="v" id="r-name">—</div></div>
+          <div><div class="k">Size</div><div class="v" id="r-size">—</div></div>
+          <div><div class="k">Pads</div><div class="v" id="r-pads">—</div></div>
+        </div>
+        <div class="btns" style="margin-top:13px;grid-template-columns:1fr">
+          <button class="btn" id="loadBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
+            Load .PcbDoc
+          </button>
+        </div>
+      </div>
+
+      <div class="sec">
+        <h2>View Side</h2>
+        <div class="seg" id="side">
+          <button data-side="top" class="on">Top</button>
+          <button data-side="bottom">Bottom</button>
+        </div>
+      </div>
+
+      <div class="sec">
+        <h2>Preset</h2>
+        <div class="presets" id="presets"></div>
+      </div>
+
+      <div class="sec">
+        <h2>Colours</h2>
+        <div id="colors"></div>
+        <div style="margin-top:9px">
+          <div class="subnote"><span>Mask opacity</span><span id="alphaVal">84%</span></div>
+          <input type="range" class="range" id="alpha" min="60" max="255" value="214">
+        </div>
+      </div>
+
+      <div class="sec">
+        <h2>Layers</h2>
+        <div id="layers"></div>
+      </div>
+
+      <div class="sec">
+        <h2>Export</h2>
+        <div class="btns">
+          <button class="btn" id="svgBtn" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v5h5M14 3H6v18h12V8z"/></svg> SVG
+          </button>
+          <button class="btn" id="pngBtn" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15l-5-5L5 21M3 5h18v14H3z"/></svg> PNG
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <div class="stage empty" id="stage">
+      <div id="pan"></div>
+      <div class="scan"></div>
+      <div class="drop">
+        <div class="ring">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="16" cy="16" r="1.4" fill="currentColor"/><path d="M8 8h6a2 2 0 0 1 2 2v4"/></svg>
+        </div>
+        <h3>Drop an Altium board here</h3>
+        <p>Drag &amp; drop a <b>.PcbDoc</b> file, or <span class="pick" id="pickLink">browse</span>. It renders right here — no upload to anywhere but this local service.</p>
+      </div>
+      <div class="hud"><span class="pill" id="hudZoom">100%</span><span class="pill">drag&nbsp;to&nbsp;pan&nbsp;·&nbsp;scroll&nbsp;to&nbsp;zoom</span></div>
+      <div class="zoombar"><button id="zOut">−</button><button id="zFit">⊡</button><button id="zIn">+</button></div>
+      <div class="toast" id="toast"></div>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file" accept=".PcbDoc" hidden>
+
+<script>
+const PRESETS = {
+  'green-enig':  {label:'Green ENIG',  solderMask:'#1b6e3c', alpha:214, silkscreen:'#f2f2f2', finish:'#be9042', substrate:'#c8b98c', copper:'#b07742', hole:'#1a1a1a'},
+  'black-enig':  {label:'Black ENIG',  solderMask:'#1c1e22', alpha:240, silkscreen:'#f2f2f2', finish:'#be9042', substrate:'#c8b98c', copper:'#b07742', hole:'#1a1a1a'},
+  'blue-hasl':   {label:'Blue HASL',   solderMask:'#16479a', alpha:220, silkscreen:'#f2f2f2', finish:'#b4b8be', substrate:'#c8b98c', copper:'#b07742', hole:'#1a1a1a'},
+  'red-hasl':    {label:'Red HASL',    solderMask:'#a32424', alpha:220, silkscreen:'#f2f2f2', finish:'#b4b8be', substrate:'#c8b98c', copper:'#b07742', hole:'#1a1a1a'},
+  'white-enig':  {label:'White ENIG',  solderMask:'#e2e2de', alpha:230, silkscreen:'#202020', finish:'#be9042', substrate:'#c8b98c', copper:'#b07742', hole:'#1a1a1a'},
+  'purple-enig': {label:'Purple ENIG', solderMask:'#4a1e6e', alpha:220, silkscreen:'#f2f2f2', finish:'#be9042', substrate:'#c8b98c', copper:'#b07742', hole:'#1a1a1a'},
+};
+const COLOR_FIELDS = [
+  {key:'solderMask', label:'Solder mask'},
+  {key:'silkscreen', label:'Silkscreen'},
+  {key:'finish',     label:'Finish (plating)'},
+  {key:'substrate',  label:'Substrate'},
+  {key:'copper',     label:'Bare copper'},
+  {key:'hole',       label:'Drill / hole'},
+  {key:'background', label:'Background'},
+];
+const LAYERS = [
+  {id:'silkscreen', name:'Silkscreen', color:'#f2f2f2'},
+  {id:'soldermask', name:'Solder mask', color:'#1b6e3c'},
+  {id:'copper',     name:'Copper',      color:'#be9042'},
+  {id:'substrate',  name:'Substrate',   color:'#c8b98c'},
+  {id:'drills',     name:'Drills',      color:'#1a1a1a'},
+];
+
+const state = {
+  id:null, name:null,
+  viewSide:'top', preset:'green-enig',
+  colors:{...PRESETS['green-enig'], background:'#12161c'},
+  layers:{substrate:true, copper:true, soldermask:true, silkscreen:true, drills:true},
+  view:{scale:1, x:0, y:0}, fit:1,
+};
+
+const $ = s => document.querySelector(s);
+const stage=$('#stage'), pan=$('#pan'), status=$('#status'), statusText=$('#statusText');
+
+// ── Build controls ───────────────────────────────────
+$('#presets').innerHTML = Object.entries(PRESETS).map(([k,p])=>`
+  <button class="preset${k===state.preset?' on':''}" data-preset="${k}">
+    <div class="chip" style="background:${p.solderMask}"><i style="background:${p.finish}"></i></div>
+    <span>${p.label}</span>
+  </button>`).join('');
+
+$('#colors').innerHTML = COLOR_FIELDS.map(f=>`
+  <div class="crow">
+    <span class="swatch"><input type="color" data-color="${f.key}" value="${state.colors[f.key]}"></span>
+    <label>${f.label}</label>
+    <span class="hex" data-hex="${f.key}">${state.colors[f.key]}</span>
+  </div>`).join('');
+
+$('#layers').innerHTML = LAYERS.map(l=>`
+  <div class="layer on" data-layer="${l.id}">
+    <span class="sw"></span><span class="name">${l.name}</span>
+    <span class="dot" style="background:${l.color}"></span>
+  </div>`).join('');
+
+// ── Wiring ───────────────────────────────────────────
+$('#presets').addEventListener('click', e=>{
+  const b=e.target.closest('[data-preset]'); if(!b) return;
+  applyPreset(b.dataset.preset);
+});
+$('#colors').addEventListener('input', e=>{
+  const inp=e.target.closest('[data-color]'); if(!inp) return;
+  state.colors[inp.dataset.color]=inp.value;
+  document.querySelector(`[data-hex="${inp.dataset.color}"]`).textContent=inp.value;
+  if(inp.dataset.color==='background') stage.style.background='';
+  clearPreset(); scheduleRender();
+});
+$('#alpha').addEventListener('input', e=>{
+  state.colors.alpha=+e.target.value;
+  $('#alphaVal').textContent=Math.round(e.target.value/255*100)+'%';
+  clearPreset(); scheduleRender();
+});
+$('#side').addEventListener('click', e=>{
+  const b=e.target.closest('[data-side]'); if(!b) return;
+  state.viewSide=b.dataset.side;
+  [...$('#side').children].forEach(c=>c.classList.toggle('on', c===b));
+  resetView(); scheduleRender();
+});
+$('#layers').addEventListener('click', e=>{
+  const row=e.target.closest('[data-layer]'); if(!row) return;
+  const id=row.dataset.layer; state.layers[id]=!state.layers[id];
+  row.classList.toggle('on', state.layers[id]);
+  applyLayers();
+});
+
+$('#loadBtn').onclick = $('#pickLink').onclick = ()=>$('#file').click();
+$('#file').addEventListener('change', e=>{ if(e.target.files[0]) upload(e.target.files[0]); });
+$('#svgBtn').onclick = exportSvg;
+$('#pngBtn').onclick = exportPng;
+
+// drag & drop (whole window)
+['dragenter','dragover'].forEach(ev=>window.addEventListener(ev, e=>{e.preventDefault(); document.body.classList.add('dragging');}));
+['dragleave','drop'].forEach(ev=>window.addEventListener(ev, e=>{e.preventDefault(); if(ev!=='dragleave'||e.clientX<=0) document.body.classList.remove('dragging');}));
+window.addEventListener('drop', e=>{
+  document.body.classList.remove('dragging');
+  const f=[...e.dataTransfer.files].find(f=>/\.pcbdoc$/i.test(f.name)) || e.dataTransfer.files[0];
+  if(f) upload(f);
+});
+
+function applyPreset(key){
+  const p=PRESETS[key]; if(!p) return;
+  state.preset=key;
+  Object.assign(state.colors, {solderMask:p.solderMask, alpha:p.alpha, silkscreen:p.silkscreen, finish:p.finish, substrate:p.substrate, copper:p.copper, hole:p.hole});
+  syncColorInputs();
+  document.querySelectorAll('[data-preset]').forEach(b=>b.classList.toggle('on', b.dataset.preset===key));
+  scheduleRender();
+}
+function clearPreset(){ state.preset=null; document.querySelectorAll('[data-preset]').forEach(b=>b.classList.remove('on')); }
+function syncColorInputs(){
+  COLOR_FIELDS.forEach(f=>{
+    const v=state.colors[f.key];
+    document.querySelector(`[data-color="${f.key}"]`).value=v;
+    document.querySelector(`[data-hex="${f.key}"]`).textContent=v;
+  });
+  $('#alpha').value=state.colors.alpha;
+  $('#alphaVal').textContent=Math.round(state.colors.alpha/255*100)+'%';
+}
+
+// ── Upload + render ──────────────────────────────────
+async function upload(file){
+  if(!/\.pcbdoc$/i.test(file.name)){ toast('That doesn’t look like a .PcbDoc file'); return; }
+  setStatus('busy','reading '+file.name);
+  try{
+    const fd=new FormData(); fd.append('file', file);
+    const res=await fetch('/api/upload',{method:'POST', body:fd});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||'upload failed');
+    state.id=data.id; state.name=data.name;
+    $('#r-name').textContent=data.name;
+    $('#r-size').textContent=`${data.widthMm} × ${data.heightMm} mm`;
+    $('#r-pads').textContent=`${data.pads}`;
+    $('#svgBtn').disabled=$('#pngBtn').disabled=false;
+    resetView();
+    await render();
+  }catch(err){ setStatus('','no board loaded'); toast(err.message); }
+}
+
+let renderTimer=null, renderSeq=0;
+function scheduleRender(){ clearTimeout(renderTimer); renderTimer=setTimeout(render, 170); }
+
+async function render(){
+  if(!state.id) return;
+  const seq=++renderSeq;
+  setStatus('busy','rendering…'); stage.classList.add('busy');
+  try{
+    const body={
+      id:state.id, name:state.name, viewSide:state.viewSide,
+      solderMask:state.colors.solderMask, solderMaskAlpha:state.colors.alpha,
+      silkscreen:state.colors.silkscreen, finish:state.colors.finish,
+      substrate:state.colors.substrate, copper:state.colors.copper,
+      hole:state.colors.hole, background:state.colors.background,
+    };
+    const res=await fetch('/api/render.svg',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    if(seq!==renderSeq) return;             // a newer render superseded this one
+    if(!res.ok){ const e=await res.json().catch(()=>({})); throw new Error(e.error||'render failed'); }
+    const text=await res.text();
+    if(seq!==renderSeq) return;
+    pan.innerHTML=text;
+    const svg=pan.querySelector('svg');
+    if(svg){ svg.removeAttribute('width'); svg.removeAttribute('height'); stage.classList.remove('empty'); }
+    fitView(); applyLayers();
+    setStatus('on', `${state.name} · ${state.viewSide}`);
+  }catch(err){ toast(err.message); setStatus('on', state.name||''); }
+  finally{ stage.classList.remove('busy'); }
+}
+
+function applyLayers(){
+  const svg=pan.querySelector('svg'); if(!svg) return;
+  for(const l of LAYERS){
+    const g=svg.querySelector(`#${l.id}`);
+    if(g) g.style.display = state.layers[l.id] ? '' : 'none';
+  }
+}
+
+// ── Pan / zoom ───────────────────────────────────────
+function svgEl(){ return pan.querySelector('svg'); }
+function fitView(){
+  const svg=svgEl(); if(!svg) return;
+  const vb=svg.viewBox.baseVal;
+  const r=stage.getBoundingClientRect();
+  const pad=48;
+  const s=Math.min((r.width-pad)/vb.width, (r.height-pad)/vb.height);
+  svg.style.width=vb.width+'px'; svg.style.height=vb.height+'px';
+  state.fit=s; state.view={scale:s, x:0, y:0};
+  applyView();
+}
+function applyView(){
+  const svg=svgEl(); if(!svg) return;
+  svg.style.transformOrigin='center';
+  pan.style.transform=`translate(${state.view.x}px,${state.view.y}px) scale(${state.view.scale})`;
+  $('#hudZoom').textContent=Math.round(state.view.scale/state.fit*100)+'%';
+}
+function resetView(){ state.view={scale:1,x:0,y:0}; }
+stage.addEventListener('wheel', e=>{
+  if(!svgEl()) return; e.preventDefault();
+  const f=e.deltaY<0?1.12:1/1.12;
+  const ns=Math.max(state.fit*0.3, Math.min(state.fit*14, state.view.scale*f));
+  const r=stage.getBoundingClientRect(), cx=e.clientX-r.left-r.width/2, cy=e.clientY-r.top-r.height/2;
+  const k=ns/state.view.scale;
+  state.view.x=cx-(cx-state.view.x)*k; state.view.y=cy-(cy-state.view.y)*k; state.view.scale=ns;
+  applyView();
+},{passive:false});
+let drag=null;
+pan.addEventListener('pointerdown', e=>{ drag={x:e.clientX,y:e.clientY,vx:state.view.x,vy:state.view.y}; pan.classList.add('drag'); pan.setPointerCapture(e.pointerId); });
+pan.addEventListener('pointermove', e=>{ if(!drag) return; state.view.x=drag.vx+(e.clientX-drag.x); state.view.y=drag.vy+(e.clientY-drag.y); applyView(); });
+pan.addEventListener('pointerup', e=>{ drag=null; pan.classList.remove('drag'); });
+$('#zIn').onclick=()=>zoomBy(1.2); $('#zOut').onclick=()=>zoomBy(1/1.2); $('#zFit').onclick=fitView;
+function zoomBy(f){ state.view.scale=Math.max(state.fit*0.3, Math.min(state.fit*14, state.view.scale*f)); applyView(); }
+window.addEventListener('resize', ()=>{ if(svgEl()) fitView(); });
+
+// ── Export ───────────────────────────────────────────
+function liveSvgString(){
+  const svg=svgEl(); if(!svg) return null;
+  const clone=svg.cloneNode(true);
+  clone.removeAttribute('style');
+  const vb=svg.viewBox.baseVal;
+  clone.setAttribute('width', vb.width); clone.setAttribute('height', vb.height);
+  if(!clone.getAttribute('xmlns')) clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  return '<?xml version="1.0" encoding="UTF-8"?>\n'+clone.outerHTML;
+}
+function download(blob, name){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+function exportSvg(){
+  const s=liveSvgString(); if(!s) return;
+  download(new Blob([s],{type:'image/svg+xml'}), `${state.name}-${state.viewSide}.svg`);
+}
+function exportPng(){
+  const s=liveSvgString(); const svg=svgEl(); if(!s||!svg) return;
+  const vb=svg.viewBox.baseVal, scale=2;
+  const img=new Image();
+  img.onload=()=>{
+    const c=document.createElement('canvas'); c.width=vb.width*scale; c.height=vb.height*scale;
+    const ctx=c.getContext('2d');
+    ctx.fillStyle=state.colors.background; ctx.fillRect(0,0,c.width,c.height);
+    ctx.drawImage(img,0,0,c.width,c.height);
+    c.toBlob(b=>download(b, `${state.name}-${state.viewSide}.png`), 'image/png');
+  };
+  img.onerror=()=>toast('PNG export failed');
+  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(s);
+}
+
+// ── Helpers ──────────────────────────────────────────
+function setStatus(cls, text){ status.className='stat'+(cls?' '+cls:''); statusText.textContent=text; }
+let toastTimer=null;
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'), 3600); }
+</script>
+</body>
+</html>

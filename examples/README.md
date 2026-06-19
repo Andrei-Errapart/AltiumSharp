@@ -4,7 +4,8 @@ This directory contains runnable example projects demonstrating common tasks wit
 
 ## Running Examples
 
-Each example is a standalone console application. Run an example with:
+Each example is a standalone application (mostly console apps; **BoardViewer** is a web
+app). Run an example with:
 
 ```
 dotnet run --project examples/<ExampleName>
@@ -185,14 +186,25 @@ See [ValidateLibrary/README.md](ValidateLibrary/README.md).
 dotnet run --project examples/ValidateLibrary
 ```
 
-### WebPreviewService
+### RenderBoard
 
-Renders components to an HTTP response (minimal API); the default run renders to a stream
-and exits, `serve` starts the server. See [WebPreviewService/README.md](WebPreviewService/README.md).
+Renders a whole PCB document (`.PcbDoc`) as a **photorealistic 2D board** (a fab-house /
+gerber-viewer look) to PNG and SVG, in a few colour/finish/side variations.
+See [RenderBoard/README.md](RenderBoard/README.md).
 
 ```
-dotnet run --project examples/WebPreviewService          # render + exit
-dotnet run --project examples/WebPreviewService -- serve # HTTP server
+dotnet run --project examples/RenderBoard                 # bundled sample board
+dotnet run --project examples/RenderBoard -- MyBoard.PcbDoc
+```
+
+### BoardViewer
+
+An interactive web app: **drag-and-drop a `.PcbDoc`** and view a photorealistic render in
+the browser, with live colour controls, layer toggles, and SVG/PNG export.
+See [BoardViewer/README.md](BoardViewer/README.md).
+
+```
+dotnet run --project examples/BoardViewer   # then open the printed URL
 ```
 
 ## Test Data
