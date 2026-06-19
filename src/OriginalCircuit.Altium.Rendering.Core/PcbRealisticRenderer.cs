@@ -95,25 +95,31 @@ public sealed class PcbRealisticRenderer
         // Layer 2 ── Copper (plated). Every copper feature on this side. Where the mask doesn't cover it,
         //            it shows as exposed plating; where the mask covers it, the translucent mask tints it.
         context.BeginGroup("copper");
-        foreach (var t in collected.Tracks) if (t.Layer == copperLayer) DrawTrack(context, t, copperShownArgb);
-        foreach (var a in collected.Arcs) if (a.Layer == copperLayer) DrawArc(context, a, copperShownArgb);
-        foreach (var f in collected.Fills) if (f.Layer == copperLayer) DrawFill(context, f, copperShownArgb);
-        foreach (var r in collected.Regions) if (r.Layer == copperLayer) DrawRegion(context, r, copperShownArgb);
-        foreach (var m in metal) context.FillPolygon(m.CopperXs, m.CopperYs, copperShownArgb);
+        DrawCopperLayer(context, collected, metal, copperLayer, copperShownArgb);
         context.EndGroup();
 
-        // Layer 3 ── Solder mask: one translucent sheet = board outline MINUS the openings (even-odd fill),
-        //            so wherever the mask is absent the copper/laminate beneath shows through directly — no
-        //            per-opening guessing. Mask over copper composites darker than mask over bare laminate
-        //            automatically. Openings = non-tented pad/via expansions + the negative geometry drawn
-        //            on the solder-mask layer (37/38), e.g. the clearance ring around the board outline.
+        // Layer 3 ── Solder mask: a SOLID translucent sheet over the whole board, then the openings are
+        //            re-vealed by re-drawing the un-masked stack (substrate + copper) clipped to the UNION
+        //            of the openings. Using a union clip (not an even-odd hole fill) means overlapping
+        //            openings — e.g. a pad's mask expansion overlapping a solder-mask-layer clearance — do
+        //            NOT cancel ("double negative") and leave the mask filled in the overlap. The sheet is
+        //            translucent, so mask over copper still composites darker than mask over laminate.
+        //            Openings = non-tented pad/via expansions + the negative geometry on the solder-mask
+        //            layer (37/38), e.g. the clearance ring around the board outline.
         if (_style.ShowSolderMask && outline is not null)
         {
             context.BeginGroup("soldermask");
-            var contours = new List<(double[] X, double[] Y)> { outline.Value };
-            foreach (var m in metal) if (m.HasOpening) contours.Add((m.OpeningXs, m.OpeningYs));
-            AddSolderLayerOpenings(collected, solderLayer, contours);
-            context.FillContours(contours, maskArgb);
+            context.FillPolygon(outline.Value.X, outline.Value.Y, maskArgb); // solid translucent sheet
+
+            var openings = CollectOpenings(collected, metal, solderLayer);
+            if (openings.Count > 0)
+            {
+                context.SaveState();
+                context.SetClipPath(openings);                                            // union of openings
+                RenderSubstrate(context, outline, substrateArgb);                         // exposed laminate
+                DrawCopperLayer(context, collected, metal, copperLayer, copperShownArgb); // exposed plating
+                context.RestoreState();
+            }
             context.EndGroup();
         }
 
@@ -140,6 +146,47 @@ public sealed class PcbRealisticRenderer
         }
 
         if (bottom) context.RestoreState();
+    }
+
+    // Draws every copper feature on the side (tracks/arcs/fills/regions + pad/via metal) in one colour.
+    // Used for the copper layer and, clipped to the openings, to re-veal exposed copper through the mask.
+    private void DrawCopperLayer(IRenderContext context, Collected collected, List<MetalFeature> metal,
+        int copperLayer, uint color)
+    {
+        foreach (var t in collected.Tracks) if (t.Layer == copperLayer) DrawTrack(context, t, color);
+        foreach (var a in collected.Arcs) if (a.Layer == copperLayer) DrawArc(context, a, color);
+        foreach (var f in collected.Fills) if (f.Layer == copperLayer) DrawFill(context, f, color);
+        foreach (var r in collected.Regions) if (r.Layer == copperLayer) DrawRegion(context, r, color);
+        foreach (var m in metal) context.FillPolygon(m.CopperXs, m.CopperYs, color);
+    }
+
+    // All mask openings (screen space) for this side: non-tented pad/via expansions plus the negative
+    // geometry on the solder-mask layer. Normalized to a consistent winding so the non-zero clip unions
+    // overlapping openings instead of cancelling them.
+    private List<(double[] X, double[] Y)> CollectOpenings(Collected collected, List<MetalFeature> metal, int solderLayer)
+    {
+        var openings = new List<(double[] X, double[] Y)>();
+        foreach (var m in metal) if (m.HasOpening) openings.Add((m.OpeningXs, m.OpeningYs));
+        AddSolderLayerOpenings(collected, solderLayer, openings);
+        for (int i = 0; i < openings.Count; i++) openings[i] = NormalizeWinding(openings[i]);
+        return openings;
+    }
+
+    // Ensures a contour winds in a consistent (positive shoelace) orientation, so a non-zero-winding clip
+    // built from many contours unions them (overlaps stay covered) rather than subtracting on overlap.
+    private static (double[] X, double[] Y) NormalizeWinding((double[] X, double[] Y) c)
+    {
+        var (xs, ys) = c;
+        int n = xs.Length;
+        if (n < 3) return c;
+        double area2 = 0;
+        for (int i = 0, j = n - 1; i < n; j = i++)
+            area2 += (xs[j] - xs[i]) * (ys[j] + ys[i]);
+        if (area2 >= 0) return c;
+        var rx = new double[n];
+        var ry = new double[n];
+        for (int i = 0; i < n; i++) { rx[i] = xs[n - 1 - i]; ry[i] = ys[n - 1 - i]; }
+        return (rx, ry);
     }
 
     // Adds the negative geometry on the solder-mask layer (tracks/arcs/fills/regions) as opening contours

@@ -191,21 +191,20 @@ public sealed class PhotorealisticRenderingTests
     }
 
     [Fact]
-    public async Task Svg_SolderMask_IsTranslucentEvenOddLayerWithOpenings()
+    public async Task Svg_SolderMask_IsTranslucentSheetWithClippedReveal()
     {
-        // The mask is one translucent even-odd path = board outline MINUS openings. With pads present the
-        // path has multiple subpaths (the outer outline plus a hole per opening).
+        // The mask is a SOLID translucent sheet (a polygon), and the openings are re-vealed by re-drawing
+        // the stack clipped to a non-zero (union) clip path — NOT an even-odd hole fill — so overlapping
+        // openings can't cancel ("double negative") and refill the mask.
         var doc = await RenderRealisticSvg(BuildBoard());
 
         var maskGroup = doc.Descendants(SvgNs + "g").First(g => (string?)g.Attribute("id") == "soldermask");
-        var maskPath = maskGroup.Descendants(SvgNs + "path")
-            .First(p => (string?)p.Attribute("fill-rule") == "evenodd");
 
-        var opacity = double.Parse(maskPath.Attribute("opacity")!.Value, System.Globalization.CultureInfo.InvariantCulture);
-        Assert.InRange(opacity, 0.01, 0.999); // translucent
-        // Multiple subpaths => the outline plus knocked-out openings.
-        Assert.True(maskPath.Attribute("d")!.Value.Count(ch => ch == 'M') > 1,
-            "Expected the mask path to contain holes (multiple subpaths)");
+        Assert.Contains(maskGroup.Descendants(SvgNs + "polygon"), p =>
+            p.Attribute("opacity") is { } o &&
+            double.Parse(o.Value, System.Globalization.CultureInfo.InvariantCulture) is > 0.0 and < 0.999);
+        Assert.Contains(maskGroup.Descendants(), e => e.Attribute("clip-path") != null);
+        Assert.NotEmpty(doc.Descendants(SvgNs + "clipPath"));
     }
 
     [Fact]
@@ -221,10 +220,10 @@ public sealed class PhotorealisticRenderingTests
     }
 
     [Fact]
-    public async Task Svg_SolderMaskLayerGeometry_AddsAnotherOpening()
+    public async Task Svg_SolderMaskLayerGeometry_AddsToOpeningClip()
     {
-        // Negative geometry on the solder-mask layer (37) adds a hole to the mask path: a board with an
-        // extra layer-37 track has one more mask subpath than one without.
+        // Negative geometry on the solder-mask layer (37) adds another contour to the openings clip path:
+        // a board with an extra layer-37 track has more clip subpaths than one without.
         var bare = await RenderRealisticSvg(BuildBoard());
 
         var withOpening = BuildBoard();
@@ -232,17 +231,46 @@ public sealed class PhotorealisticRenderingTests
             .To(Coord.FromMm(36), Coord.FromMm(26)).Width(Coord.FromMm(0.3)).Layer(37).Build());
         var opened = await RenderRealisticSvg(withOpening);
 
-        Assert.True(MaskSubpathCount(opened) > MaskSubpathCount(bare),
-            "A solder-mask-layer track should add a hole to the mask");
+        Assert.True(ClipSubpathCount(opened) > ClipSubpathCount(bare),
+            "A solder-mask-layer track should add a contour to the openings clip");
     }
 
-    private static int MaskSubpathCount(XDocument doc)
+    [Fact]
+    public async Task Svg_OverlappingPadAndSolderOpenings_DoNotRefillMask()
     {
+        // Regression: a pad's mask opening overlapping a solder-mask-layer region must NOT re-fill the mask
+        // in the overlap. The union-clip approach has no even-odd mask path whose overlap could cancel.
+        var board = new PcbDocument
+        {
+            BoardParameters = new Dictionary<string, string>
+            {
+                ["KIND0"] = "0", ["VX0"] = "0mil",   ["VY0"] = "0mil",
+                ["KIND1"] = "0", ["VX1"] = "800mil", ["VY1"] = "0mil",
+                ["KIND2"] = "0", ["VX2"] = "800mil", ["VY2"] = "600mil",
+                ["KIND3"] = "0", ["VX3"] = "0mil",   ["VY3"] = "600mil",
+                ["KIND4"] = "0", ["VX4"] = "0mil",   ["VY4"] = "0mil",
+            },
+        };
+        board.AddPad(PcbPad.Create("1").At(Coord.FromMm(10), Coord.FromMm(7.5))
+            .Size(Coord.FromMm(6), Coord.FromMm(6)).Smd(1).Build());
+        board.AddRegion(PcbRegion.Create().OnLayer(37)
+            .AddPoint(Coord.FromMm(10), Coord.FromMm(3)).AddPoint(Coord.FromMm(16), Coord.FromMm(3))
+            .AddPoint(Coord.FromMm(16), Coord.FromMm(12)).AddPoint(Coord.FromMm(10), Coord.FromMm(12))
+            .Build());
+
+        var doc = await RenderRealisticSvg(board);
         var maskGroup = doc.Descendants(SvgNs + "g").First(g => (string?)g.Attribute("id") == "soldermask");
-        var d = maskGroup.Descendants(SvgNs + "path").First(p => (string?)p.Attribute("fill-rule") == "evenodd")
-            .Attribute("d")!.Value;
-        return d.Count(ch => ch == 'M');
+
+        // No even-odd holed mask path (the thing that caused the double-negative).
+        Assert.DoesNotContain(maskGroup.Descendants(SvgNs + "path"),
+            p => (string?)p.Attribute("fill-rule") == "evenodd");
+        Assert.NotEmpty(doc.Descendants(SvgNs + "clipPath"));
     }
+
+    private static int ClipSubpathCount(XDocument doc) =>
+        doc.Descendants(SvgNs + "clipPath")
+            .SelectMany(cp => cp.Descendants(SvgNs + "path"))
+            .Sum(p => (p.Attribute("d")?.Value ?? "").Count(ch => ch == 'M'));
 
     private static async Task<XDocument> RenderRealisticSvg(PcbDocument board)
     {
