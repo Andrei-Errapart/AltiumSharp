@@ -42,6 +42,35 @@ public sealed class PcbRealisticRenderer
     }
 
     /// <summary>
+    /// Computes the output image size and AutoZoom margin for a board render. When
+    /// <paramref name="cropToBounds"/> is set and the board bounds are non-degenerate, the size is the
+    /// board's aspect ratio fitted within the requested width/height and the margin is 1.0, so the rendered
+    /// board fills the image with no surrounding letterbox (the image is the board's bounding box).
+    /// Otherwise the requested size and the default 5% fit margin are returned.
+    /// </summary>
+    public static (int Width, int Height, double Margin) FitOutput(
+        CoordRect bounds, int requestedWidth, int requestedHeight, bool cropToBounds)
+    {
+        double bw = bounds.Width.ToRaw(), bh = bounds.Height.ToRaw();
+        if (!cropToBounds || bw <= 0 || bh <= 0)
+            return (requestedWidth, requestedHeight, 0.95);
+
+        double aspect = bw / bh;
+        int w, h;
+        if (requestedWidth / (double)requestedHeight > aspect)
+        {
+            h = requestedHeight;
+            w = Math.Max(1, (int)Math.Round(requestedHeight * aspect));
+        }
+        else
+        {
+            w = requestedWidth;
+            h = Math.Max(1, (int)Math.Round(requestedWidth / aspect));
+        }
+        return (w, h, 1.0);
+    }
+
+    /// <summary>
     /// Resolves the solder-mask opening expansion for a pad/via copper shape from its expansion mode:
     /// <c>0</c> = none (opening == copper), <c>2</c> = the object's manual expansion, anything else
     /// (the Altium default <c>1</c> = From-Rule) = <paramref name="defaultExpansion"/>.

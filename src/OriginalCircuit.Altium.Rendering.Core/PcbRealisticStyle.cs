@@ -96,6 +96,15 @@ public sealed class PcbRealisticStyle
     public int Supersample { get; set; } = 1;
 
     /// <summary>
+    /// Crop the output to the board's bounding box. When set (the default), the output image takes the
+    /// board's aspect ratio fitted within the requested <c>RenderOptions.Width</c>/<c>Height</c> and the
+    /// board fills it, so there is no surrounding margin/letterbox — the image <em>is</em> the board's
+    /// bounding box. When clear, the requested width/height are used verbatim with a small fit margin.
+    /// Only applies when <c>RenderOptions.AutoZoom</c> is enabled.
+    /// </summary>
+    public bool CropToBoardBounds { get; set; } = true;
+
+    /// <summary>
     /// The default plating colour for a given surface finish. These are kept a touch muted/darker than the
     /// bare-laminate substrate so that, with the whole copper layer drawn in this colour, mask-over-copper
     /// composites slightly darker than mask-over-laminate (the "copper under mask is darker" effect).

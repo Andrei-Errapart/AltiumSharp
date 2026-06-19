@@ -107,6 +107,7 @@ public sealed class PhotorealisticRenderingTests
         var renderer = new RasterRenderer();
         var style = PcbRealisticStyle.GreenEnig;
         style.Supersample = 3;
+        style.CropToBoardBounds = false; // test the verbatim width/height path
 
         using var ms = new MemoryStream();
         await renderer.RenderRealisticAsync(board, ms, new RenderOptions { Width = 320, Height = 240 }, style);
@@ -116,6 +117,39 @@ public sealed class PhotorealisticRenderingTests
         var (w, h) = ReadPngSize(bytes);
         Assert.Equal(320, w);
         Assert.Equal(240, h);
+    }
+
+    [Fact]
+    public async Task Raster_CropToBoardBounds_OutputTakesBoardAspectRatio()
+    {
+        // The 40 x 30 mm board (4:3) requested into a 400 x 400 square should crop to 4:3 = 400 x 300,
+        // so there is no surrounding letterbox.
+        var board = BuildBoard();
+        var renderer = new RasterRenderer();
+
+        using var ms = new MemoryStream();
+        await renderer.RenderRealisticAsync(board, ms, new RenderOptions { Width = 400, Height = 400 },
+            PcbRealisticStyle.GreenEnig); // CropToBoardBounds defaults to true
+
+        var (w, h) = ReadPngSize(ms.ToArray());
+        Assert.Equal(400, w);
+        Assert.Equal(300, h);
+    }
+
+    [Fact]
+    public async Task Raster_CropDisabled_UsesRequestedDimensions()
+    {
+        var board = BuildBoard();
+        var renderer = new RasterRenderer();
+        var style = PcbRealisticStyle.GreenEnig;
+        style.CropToBoardBounds = false;
+
+        using var ms = new MemoryStream();
+        await renderer.RenderRealisticAsync(board, ms, new RenderOptions { Width = 400, Height = 400 }, style);
+
+        var (w, h) = ReadPngSize(ms.ToArray());
+        Assert.Equal(400, w);
+        Assert.Equal(400, h);
     }
 
     [Fact]

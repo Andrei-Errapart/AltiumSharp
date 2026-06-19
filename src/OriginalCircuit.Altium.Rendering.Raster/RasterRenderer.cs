@@ -161,8 +161,14 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
     private static byte[] RenderRealisticToBytes(RenderOptions options, PcbRealisticStyle style, PcbDocument document)
     {
         int ss = Math.Clamp(style.Supersample, 1, 4);
-        int rw = options.Width * ss;
-        int rh = options.Height * ss;
+
+        // Crop the output to the board's bounding box: the image takes the board's aspect ratio so the
+        // board fills it with no surrounding letterbox.
+        var bounds = document.GetFramingBounds();
+        var (outW, outH, margin) = PcbRealisticRenderer.FitOutput(
+            bounds, options.Width, options.Height, style.CropToBoardBounds && options.AutoZoom);
+        int rw = outW * ss;
+        int rh = outH * ss;
 
         using var bitmap = new SKBitmap(rw, rh);
         using (var canvas = new SKCanvas(bitmap))
@@ -179,7 +185,7 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
                 Scale = options.Scale * ss,
             };
             if (options.AutoZoom)
-                transform.AutoZoom(document.GetFramingBounds(), 0.95);
+                transform.AutoZoom(bounds, margin);
 
             new PcbRealisticRenderer(transform, style).Render(document, context);
         }
@@ -190,11 +196,11 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
         {
             // Box-filter the supersampled buffer down to the target size. A paint-less DrawBitmap samples
             // nearest-neighbor (no smoothing), so draw through an explicit linear SKSamplingOptions.
-            downscaled = new SKBitmap(options.Width, options.Height);
+            downscaled = new SKBitmap(outW, outH);
             using (var sc = new SKCanvas(downscaled))
             using (var image = SKImage.FromBitmap(bitmap))
             {
-                sc.DrawImage(image, new SKRect(0, 0, options.Width, options.Height),
+                sc.DrawImage(image, new SKRect(0, 0, outW, outH),
                     new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
             }
             finalBitmap = downscaled;

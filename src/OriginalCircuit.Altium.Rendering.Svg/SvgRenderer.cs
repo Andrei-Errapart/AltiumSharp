@@ -88,9 +88,23 @@ public sealed class SvgRenderer : IRenderer
 
         options ??= new RenderOptions();
         var s = style ?? new PcbRealisticStyle();
-        var bytes = RenderToBytes(options, document.GetFramingBounds(), 0.95,
-            (transform, ctx) => new PcbRealisticRenderer(transform, s).Render(document, ctx));
-        await output.WriteAsync(bytes, cancellationToken);
+
+        // Crop the output to the board's bounding box: the SVG viewport takes the board's aspect ratio so
+        // the board fills it with no surrounding letterbox.
+        var bounds = document.GetFramingBounds();
+        var (outW, outH, margin) = PcbRealisticRenderer.FitOutput(
+            bounds, options.Width, options.Height, s.CropToBoardBounds && options.AutoZoom);
+
+        var ctx = new SvgRenderContext(outW, outH);
+        ctx.Clear(ColorHelper.EdaColorToArgb(options.BackgroundColor));
+        var transform = new CoordTransform { ScreenWidth = outW, ScreenHeight = outH, Scale = options.Scale };
+        if (options.AutoZoom)
+            transform.AutoZoom(bounds, margin);
+        new PcbRealisticRenderer(transform, s).Render(document, ctx);
+
+        using var buffer = new MemoryStream();
+        ctx.WriteTo(buffer);
+        await output.WriteAsync(buffer.ToArray(), cancellationToken);
     }
 
     /// <summary>Renders a whole PCB document (board) as a photorealistic 2D SVG to a file.</summary>
