@@ -178,8 +178,10 @@ public sealed class PcbLibWriter
         ms.Write(BitConverter.GetBytes(textBytes.Length));
         ms.Write(textBytes);
         // [u32 signature][u32 count][count × (u32 layerId, u32 kind)]. PcbLib emits 0/0 (the 8 zero
-        // bytes); PcbDoc emits the typed mapping table.
-        ms.Write(BitConverter.GetBytes(lkm.Signature));
+        // bytes); PcbDoc emits the typed mapping table. Preserve a captured (non-zero) signature
+        // verbatim for byte-exact round-trip; for a from-scratch table compute it (MurmurHash2).
+        var signature = lkm.Signature != 0 ? lkm.Signature : lkm.ComputeSignature();
+        ms.Write(BitConverter.GetBytes(signature));
         ms.Write(BitConverter.GetBytes(lkm.Entries.Count));
         foreach (var e in lkm.Entries)
         {

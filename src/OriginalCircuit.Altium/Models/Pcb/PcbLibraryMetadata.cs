@@ -20,12 +20,48 @@ public sealed class PcbLayerKindMapping
     public List<PcbLayerKindEntry> Entries { get; set; } = new();
 
     /// <summary>
-    /// A 32-bit content checksum Altium writes immediately before the mapping table (0 in PcbLib,
-    /// which has no table). The hash algorithm is content-derived but not yet reverse-engineered
-    /// (a ghidra task), so the parsed value is preserved for byte-exact round-trip; from-scratch
-    /// files write 0. The whole tail layout is otherwise fully typed.
+    /// A 32-bit content checksum Altium writes immediately before the mapping table (0 when the table
+    /// is empty). It is <see cref="ComputeSignature"/> — MurmurHash2-32 over the packed entry buffer.
+    /// On round-trip the value read from disk is preserved verbatim (some Altium-saved files hash a
+    /// couple of bytes of uninitialised heap past the buffer, so their stored value is not exactly
+    /// reproducible); for a from-scratch table the writer fills it in via <see cref="ComputeSignature"/>.
+    /// Altium does not validate this field on load, so a computed value is always accepted.
     /// </summary>
-    internal uint Signature { get; set; }
+    public uint Signature { get; set; }
+
+    /// <summary>
+    /// Computes the layer-kind-mapping signature exactly as Altium's <c>TLayerKindMappingSection</c>
+    /// does: MurmurHash2-32 (seed <c>0xDEADBEEF</c>, multiplier <c>0x5BD1E995</c>) over a packed buffer
+    /// of 5 bytes per entry (int32 little-endian <see cref="PcbLayerKindEntry.LayerId"/> followed by the
+    /// low byte of <see cref="PcbLayerKindEntry.Kind"/>), consumed as ceil(n/4) 32-bit little-endian
+    /// words with the final partial word zero-filled (Altium uses no MurmurHash2 tail step). Returns 0
+    /// for an empty table.
+    /// </summary>
+    public uint ComputeSignature()
+    {
+        const uint m = 0x5bd1e995;
+        if (Entries.Count == 0) return 0;
+        var buf = new byte[Entries.Count * 5];
+        for (var i = 0; i < Entries.Count; i++)
+        {
+            var p = i * 5;
+            var id = Entries[i].LayerId;
+            buf[p] = (byte)id; buf[p + 1] = (byte)(id >> 8); buf[p + 2] = (byte)(id >> 16); buf[p + 3] = (byte)(id >> 24);
+            buf[p + 4] = (byte)Entries[i].Kind;
+        }
+        var n = buf.Length;
+        var h = 0xdeadbeefu;
+        var words = (n + 3) / 4;
+        for (var i = 0; i < words; i++)
+        {
+            uint k = 0;
+            for (var b = 0; b < 4; b++) { var idx = i * 4 + b; if (idx < n) k |= (uint)buf[idx] << (8 * b); }
+            k *= m; k ^= k >> 24; k *= m;
+            h = (h * m) ^ k;
+        }
+        h ^= h >> 13; h *= m; h ^= h >> 15;
+        return h;
+    }
 }
 
 /// <summary>One entry of the PcbDoc <c>LayerKindMapping</c> table: a physical layer id and its kind.</summary>
