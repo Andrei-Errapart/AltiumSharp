@@ -53,12 +53,25 @@ public sealed class PcbShapeBasedRegion
     internal byte[] HeaderSkip5 { get; set; } = new byte[5];
     /// <summary>5 preserved header bytes after the hole count.</summary>
     internal byte[] HeaderSkip2 { get; set; } = new byte[2];
-    /// <summary>The exact property-block bytes (parsed text is also exposed via <see cref="Parameters"/>).</summary>
-    internal byte[] RawPropertyBytes { get; set; } = Array.Empty<byte>();
-    /// <summary>Whether a trailing NUL byte follows the property block.</summary>
+    /// <summary>
+    /// The property block as an ordered, authorable key/value list (the <c>V7_LAYER</c>/<c>NAME</c>/
+    /// <c>KIND</c>/<c>ISSHAPEBASED</c>… params), in source order. Reconstructed byte-for-byte by joining
+    /// <c>KEY=VALUE</c> with <c>|</c> (a null value preserves a rare segment that has no <c>=</c>). This
+    /// replaces the former opaque raw-byte capture. Authorable from scratch.
+    /// </summary>
+    public List<KeyValuePair<string, string?>> Properties { get; } = new();
+    /// <summary>Count of NUL bytes that terminate the property block (inside its length-prefixed span).</summary>
+    internal int PropsInnerNulls { get; set; }
+    /// <summary>Whether an extra trailing NUL byte follows the property block's length-prefixed span.</summary>
     internal bool PropsHasTrailingNull { get; set; }
-    /// <summary>Parsed property parameters.</summary>
-    public Dictionary<string, string> Parameters { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Looks up a property value by key (case-insensitive); null if absent.</summary>
+    public string? GetProperty(string key)
+    {
+        foreach (var p in Properties)
+            if (string.Equals(p.Key, key, StringComparison.OrdinalIgnoreCase)) return p.Value;
+        return null;
+    }
     /// <summary>Outline vertices (the last is the closing vertex; <c>count</c> on disk is N-1).</summary>
     public List<PcbExtendedVertex> Outline { get; } = new();
     /// <summary>Hole contours (simple x/y double vertices).</summary>

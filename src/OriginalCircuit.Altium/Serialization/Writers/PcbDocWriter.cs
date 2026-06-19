@@ -762,8 +762,13 @@ public sealed class PcbDocWriter
             ms.Write(r.HeaderSkip5.Length == 5 ? r.HeaderSkip5 : new byte[5]);
             ms.Write(BitConverter.GetBytes((ushort)r.Holes.Count));
             ms.Write(r.HeaderSkip2.Length == 2 ? r.HeaderSkip2 : new byte[2]);
-            ms.Write(BitConverter.GetBytes(r.RawPropertyBytes.Length));
-            ms.Write(r.RawPropertyBytes);
+            // Property block: rejoin the ordered KEY=VALUE list byte-identically (no canonical reorder),
+            // then re-append the inner terminating NUL(s); byte-exact for any captured or authored block.
+            var propsText = string.Join("|", r.Properties.Select(p => p.Value is null ? p.Key : p.Key + "=" + p.Value))
+                + new string('\0', r.PropsInnerNulls);
+            var propBytes = System.Text.Encoding.UTF8.GetBytes(propsText);
+            ms.Write(BitConverter.GetBytes(propBytes.Length));
+            ms.Write(propBytes);
             if (r.PropsHasTrailingNull) ms.WriteByte(0);
             ms.Write(BitConverter.GetBytes((uint)Math.Max(0, r.Outline.Count - 1)));   // disk count = N-1
             foreach (var v in r.Outline)

@@ -988,13 +988,17 @@ public sealed class PcbDocReader
         var holeCount = BitConverter.ToUInt16(data, pos); pos += 2;
         r.HeaderSkip2 = data.AsSpan(pos, 2).ToArray(); pos += 2;
         var propsLen = BitConverter.ToInt32(data, pos); pos += 4;
-        r.RawPropertyBytes = data.AsSpan(pos, propsLen).ToArray(); pos += propsLen;
-        var propsText = System.Text.Encoding.UTF8.GetString(r.RawPropertyBytes).TrimEnd('\0');
-        foreach (var pair in propsText.Split('|'))
-        {
-            var eq = pair.IndexOf('=');
-            if (eq > 0) r.Parameters[pair[..eq]] = pair[(eq + 1)..];
-        }
+        var fullText = System.Text.Encoding.UTF8.GetString(data, pos, propsLen); pos += propsLen;
+        var trimmed = fullText.TrimEnd('\0');
+        r.PropsInnerNulls = fullText.Length - trimmed.Length;
+        if (trimmed.Length > 0)
+            foreach (var seg in trimmed.Split('|'))
+            {
+                var eq = seg.IndexOf('=');
+                r.Properties.Add(eq < 0
+                    ? new KeyValuePair<string, string?>(seg, null)
+                    : new KeyValuePair<string, string?>(seg[..eq], seg[(eq + 1)..]));
+            }
         if (pos < data.Length && data[pos] == 0) { r.PropsHasTrailingNull = true; pos += 1; }
         var outlineCount = BitConverter.ToUInt32(data, pos); pos += 4;
         for (var i = 0; i <= outlineCount; i++)   // disk count is N, but N+1 vertices are stored
