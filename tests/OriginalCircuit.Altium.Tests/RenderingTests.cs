@@ -54,6 +54,45 @@ public sealed class RenderingTests
     }
 
     [Fact]
+    public void PcbDocument_GetFramingBounds_IncludesBoardOutlineBeyondPrimitives()
+    {
+        // A 40 x 30 mm board outline with a single tiny pad near the centre. The board edge
+        // extends far past the pad, so framing must fit the outline, not just the primitive.
+        var board = new PcbDocument
+        {
+            BoardParameters = new Dictionary<string, string>
+            {
+                ["KIND0"] = "0", ["VX0"] = "0mil",      ["VY0"] = "0mil",
+                ["KIND1"] = "0", ["VX1"] = "1574.8mil", ["VY1"] = "0mil",
+                ["KIND2"] = "0", ["VX2"] = "1574.8mil", ["VY2"] = "1181.1mil",
+                ["KIND3"] = "0", ["VX3"] = "0mil",      ["VY3"] = "1181.1mil",
+                ["KIND4"] = "0", ["VX4"] = "0mil",      ["VY4"] = "0mil",
+            },
+        };
+        board.AddPad(PcbPad.Create("1").At(Coord.FromMm(20), Coord.FromMm(15))
+            .Size(Coord.FromMm(1), Coord.FromMm(1)).Smd(1).Build());
+
+        var content = board.Bounds;
+        var framing = board.GetFramingBounds();
+
+        // Content bounds are just the 1 mm pad; framing must span the whole ~40 mm board.
+        Assert.True(content.Width.ToMm() < 5, $"content width should be ~1mm, was {content.Width.ToMm()}");
+        Assert.True(framing.Width.ToMm() > 39, $"framing width should span the board (~40mm), was {framing.Width.ToMm()}");
+        Assert.True(framing.Height.ToMm() > 29, $"framing height should span the board (~30mm), was {framing.Height.ToMm()}");
+    }
+
+    [Fact]
+    public void PcbDocument_GetFramingBounds_FallsBackToContentWhenNoOutline()
+    {
+        // No Board6 outline: framing falls back to the content bounds (the pad).
+        var board = new PcbDocument();
+        board.AddPad(PcbPad.Create("1").At(Coord.FromMm(5), Coord.FromMm(5))
+            .Size(Coord.FromMm(2), Coord.FromMm(2)).Smd(1).Build());
+
+        Assert.Equal(board.Bounds, board.GetFramingBounds());
+    }
+
+    [Fact]
     public void ColorHelper_BgrToArgb_ConvertsCorrectly()
     {
         // BGR: Blue=0xFF, Green=0x00, Red=0x00 -> ARGB: 0xFF0000FF

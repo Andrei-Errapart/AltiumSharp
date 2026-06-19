@@ -262,6 +262,30 @@ public sealed class PcbDocument : IPcbDocument
     }
 
     /// <summary>
+    /// The world-space rectangle a renderer should frame the whole board to when auto-zooming.
+    /// Unlike <see cref="Bounds"/> (which measures only placed/free primitives and components),
+    /// this also folds in the physical board outline from <see cref="GetBoardOutline"/>, so the
+    /// board edge — which usually extends past the outermost copper (edge clearance, mounting
+    /// margins, tabs) — is fully visible rather than cropped.
+    /// </summary>
+    /// <remarks>
+    /// Falls back to <see cref="Bounds"/> when the document has no Board6 outline, so boards built
+    /// from primitives alone still frame correctly. When an outline is present the result is always
+    /// non-degenerate, which also fixes the outline-only board that would otherwise render tiny
+    /// (<see cref="CoordRect.Empty"/> makes <c>CoordTransform.AutoZoom</c> early-return).
+    /// </remarks>
+    public CoordRect GetFramingBounds()
+    {
+        var outline = GetBoardOutline();
+        if (outline.Count == 0) return Bounds;
+
+        // Seed from the outline points (Union(IEnumerable) avoids the origin-sentinel pull), then
+        // widen to include any primitives that stick out beyond the board edge.
+        var outlineBounds = CoordRect.Union(outline.Select(p => new CoordRect(p, p)));
+        return outlineBounds.Union(Bounds);
+    }
+
+    /// <summary>
     /// Adds a component to the document.
     /// </summary>
     public void AddComponent(PcbComponent component) => _components.Add(component);

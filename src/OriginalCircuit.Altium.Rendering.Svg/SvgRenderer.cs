@@ -62,7 +62,9 @@ public sealed class SvgRenderer : IRenderer
         ArgumentNullException.ThrowIfNull(output);
 
         options ??= new RenderOptions();
-        var bytes = RenderToBytes(options, document.Bounds, 0.95,
+        // Frame to the physical board (outline ∪ content), not just the primitives, so the board
+        // edge isn't cropped and an outline-only board still fills the canvas.
+        var bytes = RenderToBytes(options, document.GetFramingBounds(), 0.95,
             (transform, ctx) => CreatePcbRenderer(transform, settings).Render(document, ctx));
         await output.WriteAsync(bytes, cancellationToken);
     }
