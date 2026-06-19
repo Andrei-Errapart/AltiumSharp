@@ -98,21 +98,28 @@ public sealed class PcbRealisticRenderer
         if (_style.ShowSolderMask && outline is not null)
             context.FillPolygon(outline.Value.X, outline.Value.Y, maskArgb);
 
+        // The exposed-copper colour: plated surface finish, or bare copper when finish is disabled.
+        uint plateArgb = _style.ShowSurfaceFinish ? finishArgb : copperArgb;
+
         // 3a ─ Explicit mask openings: geometry drawn on the solder-mask layer (37/38) is a NEGATIVE — it
-        //      marks where mask is removed (e.g. the bare-laminate clearance ring Altium draws around the
-        //      board outline). Knock the mask back to laminate there. (Exposed copper beneath such an
-        //      opening is shown as laminate — a v1 simplification.)
+        //      marks where mask is removed (e.g. the clearance ring Altium draws around the board outline).
+        //      The exposed surface shows the plated finish where copper lies beneath, else bare laminate —
+        //      so a mask pullback over a ground pour reads as plated metal, not laminate.
         if (_style.ShowSolderMask)
         {
-            foreach (var t in collected.Tracks) if (t.Layer == solderLayer) DrawTrack(context, t, substrateArgb);
-            foreach (var a in collected.Arcs) if (a.Layer == solderLayer) DrawArc(context, a, substrateArgb);
-            foreach (var f in collected.Fills) if (f.Layer == solderLayer) DrawFill(context, f, substrateArgb);
-            foreach (var r in collected.Regions) if (r.Layer == solderLayer) DrawRegion(context, r, substrateArgb);
+            var copper = BuildCopperShapes(collected, copperLayer);
+            foreach (var t in collected.Tracks) if (t.Layer == solderLayer)
+                DrawTrack(context, t, OpeningColor(copper, SampleTrack(t), plateArgb, substrateArgb));
+            foreach (var a in collected.Arcs) if (a.Layer == solderLayer)
+                DrawArc(context, a, OpeningColor(copper, SampleArc(a), plateArgb, substrateArgb));
+            foreach (var f in collected.Fills) if (f.Layer == solderLayer)
+                DrawFill(context, f, OpeningColor(copper, SampleFill(f), plateArgb, substrateArgb));
+            foreach (var r in collected.Regions) if (r.Layer == solderLayer)
+                DrawRegion(context, r, OpeningColor(copper, SampleRegion(r), plateArgb, substrateArgb));
         }
 
-        // 4 ── Mask openings + plating: each non-tented pad/via exposes bare laminate (the expansion ring)
-        //      with the plated metal (finish, or bare copper) on top. Tented pads/vias stay under the mask.
-        uint plateArgb = _style.ShowSurfaceFinish ? finishArgb : copperArgb;
+        // 4 ── Pad/via mask openings + plating: each non-tented pad/via exposes bare laminate (the expansion
+        //      ring) with the plated metal (finish, or bare copper) on top. Tented pads/vias stay masked.
         foreach (var m in metal)
         {
             if (!m.HasOpening) continue;
@@ -464,6 +471,142 @@ public sealed class PcbRealisticRenderer
         var (cx, cy) = _transform.WorldToScreen(via.Location.X, via.Location.Y);
         var holeR = _transform.ScaleValue(via.HoleSize) / 2.0;
         if (holeR > 0.5) context.FillEllipse(cx, cy, holeR, holeR, holeColor);
+    }
+
+    // ── Copper-beneath hit test (decides solder-mask-opening colour) ─
+
+    // World-space (raw) copper geometry, used to decide whether a solder-mask-layer opening exposes plated
+    // copper (→ finish colour) or bare laminate (→ substrate colour).
+    private sealed class CopperShapes
+    {
+        public readonly List<(double[] X, double[] Y)> Polys = new();              // regions, fills, pad rects
+        public readonly List<(double Cx, double Cy, double R)> Circles = new();    // vias
+        public readonly List<(double X1, double Y1, double X2, double Y2, double Half)> Segments = new(); // tracks
+
+        public bool Covers(double x, double y)
+        {
+            foreach (var (cx, cy, r) in Circles)
+            {
+                var dx = x - cx; var dy = y - cy;
+                if (dx * dx + dy * dy <= r * r) return true;
+            }
+            foreach (var (x1, y1, x2, y2, half) in Segments)
+                if (DistSqToSegment(x, y, x1, y1, x2, y2) <= half * half) return true;
+            foreach (var (xs, ys) in Polys)
+                if (PointInPolygon(x, y, xs, ys)) return true;
+            return false;
+        }
+    }
+
+    // Gathers this side's copper (pours/fills/tracks + pad/via metal) as world-space shapes.
+    private static CopperShapes BuildCopperShapes(Collected c, int copperLayer)
+    {
+        var s = new CopperShapes();
+        foreach (var r in c.Regions)
+            if (r.Layer == copperLayer && r.Outline.Count >= 3) s.Polys.Add(WorldPoly(r.Outline));
+        foreach (var f in c.Fills)
+            if (f.Layer == copperLayer)
+                s.Polys.Add(WorldRect(
+                    (f.Corner1.X.ToRaw() + f.Corner2.X.ToRaw()) / 2.0, (f.Corner1.Y.ToRaw() + f.Corner2.Y.ToRaw()) / 2.0,
+                    Math.Abs(f.Corner2.X.ToRaw() - f.Corner1.X.ToRaw()) / 2.0,
+                    Math.Abs(f.Corner2.Y.ToRaw() - f.Corner1.Y.ToRaw()) / 2.0, f.Rotation));
+        foreach (var t in c.Tracks)
+            if (t.Layer == copperLayer)
+                s.Segments.Add((t.Start.X.ToRaw(), t.Start.Y.ToRaw(), t.End.X.ToRaw(), t.End.Y.ToRaw(), t.Width.ToRaw() / 2.0));
+        // Pads/vias are copper too — a mask opening over a connector pad reads as plated metal.
+        foreach (var p in c.Pads)
+            s.Polys.Add(WorldRect(p.Location.X.ToRaw(), p.Location.Y.ToRaw(),
+                p.SizeTop.X.ToRaw() / 2.0, p.SizeTop.Y.ToRaw() / 2.0, p.Rotation));
+        foreach (var v in c.Vias)
+            s.Circles.Add((v.Location.X.ToRaw(), v.Location.Y.ToRaw(), v.Diameter.ToRaw() / 2.0));
+        return s;
+    }
+
+    // Majority vote: if at least half the sampled points sit over copper, the opening exposes plated metal.
+    private static uint OpeningColor(CopperShapes copper, IEnumerable<(double X, double Y)> samples,
+        uint plate, uint substrate)
+    {
+        int total = 0, over = 0;
+        foreach (var (x, y) in samples) { total++; if (copper.Covers(x, y)) over++; }
+        return total > 0 && over * 2 >= total ? plate : substrate;
+    }
+
+    private static IEnumerable<(double X, double Y)> SampleTrack(PcbTrack t)
+    {
+        double x1 = t.Start.X.ToRaw(), y1 = t.Start.Y.ToRaw(), x2 = t.End.X.ToRaw(), y2 = t.End.Y.ToRaw();
+        for (int i = 0; i <= 8; i++) { double f = i / 8.0; yield return (x1 + (x2 - x1) * f, y1 + (y2 - y1) * f); }
+    }
+
+    private static IEnumerable<(double X, double Y)> SampleArc(PcbArc a)
+    {
+        double cx = a.Center.X.ToRaw(), cy = a.Center.Y.ToRaw(), r = a.Radius.ToRaw();
+        double start = Finite(a.StartAngle), sweep = Finite(a.EndAngle) - Finite(a.StartAngle);
+        if (sweep <= 0) sweep += 360;
+        for (int i = 0; i <= 8; i++)
+        {
+            double ang = (start + sweep * i / 8.0) * Math.PI / 180.0;
+            yield return (cx + r * Math.Cos(ang), cy + r * Math.Sin(ang));
+        }
+    }
+
+    private static IEnumerable<(double X, double Y)> SampleFill(PcbFill f)
+    {
+        yield return ((f.Corner1.X.ToRaw() + f.Corner2.X.ToRaw()) / 2.0, (f.Corner1.Y.ToRaw() + f.Corner2.Y.ToRaw()) / 2.0);
+        yield return (f.Corner1.X.ToRaw(), f.Corner1.Y.ToRaw());
+        yield return (f.Corner2.X.ToRaw(), f.Corner2.Y.ToRaw());
+        yield return (f.Corner1.X.ToRaw(), f.Corner2.Y.ToRaw());
+        yield return (f.Corner2.X.ToRaw(), f.Corner1.Y.ToRaw());
+    }
+
+    private static IEnumerable<(double X, double Y)> SampleRegion(PcbRegion r)
+    {
+        var o = r.Outline;
+        if (o.Count == 0) yield break;
+        double cx = 0, cy = 0;
+        foreach (var p in o) { cx += p.X.ToRaw(); cy += p.Y.ToRaw(); }
+        yield return (cx / o.Count, cy / o.Count); // approximate centroid
+        int step = Math.Max(1, o.Count / 16);
+        for (int i = 0; i < o.Count; i += step) yield return (o[i].X.ToRaw(), o[i].Y.ToRaw());
+    }
+
+    private static (double[] X, double[] Y) WorldPoly(IReadOnlyList<CoordPoint> pts)
+    {
+        var xs = new double[pts.Count];
+        var ys = new double[pts.Count];
+        for (int i = 0; i < pts.Count; i++) { xs[i] = pts[i].X.ToRaw(); ys[i] = pts[i].Y.ToRaw(); }
+        return (xs, ys);
+    }
+
+    private static (double[] X, double[] Y) WorldRect(double cx, double cy, double hw, double hh, double rotationDeg)
+    {
+        double a = Finite(rotationDeg) * Math.PI / 180.0;
+        double cos = Math.Cos(a), sin = Math.Sin(a);
+        double[] lx = { -hw, hw, hw, -hw }, ly = { -hh, -hh, hh, hh };
+        var xs = new double[4];
+        var ys = new double[4];
+        for (int i = 0; i < 4; i++) { xs[i] = cx + lx[i] * cos - ly[i] * sin; ys[i] = cy + lx[i] * sin + ly[i] * cos; }
+        return (xs, ys);
+    }
+
+    private static bool PointInPolygon(double px, double py, double[] xs, double[] ys)
+    {
+        bool inside = false;
+        int n = xs.Length;
+        for (int i = 0, j = n - 1; i < n; j = i++)
+            if (((ys[i] > py) != (ys[j] > py)) &&
+                (px < (xs[j] - xs[i]) * (py - ys[i]) / (ys[j] - ys[i]) + xs[i]))
+                inside = !inside;
+        return inside;
+    }
+
+    private static double DistSqToSegment(double px, double py, double x1, double y1, double x2, double y2)
+    {
+        double dx = x2 - x1, dy = y2 - y1;
+        double len2 = dx * dx + dy * dy;
+        double t = len2 > 0 ? ((px - x1) * dx + (py - y1) * dy) / len2 : 0;
+        t = Math.Clamp(t, 0, 1);
+        double ex = px - (x1 + t * dx), ey = py - (y1 + t * dy);
+        return ex * ex + ey * ey;
     }
 
     // ── Geometry helpers ────────────────────────────────────────────

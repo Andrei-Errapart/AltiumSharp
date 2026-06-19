@@ -176,26 +176,49 @@ public sealed class PhotorealisticRenderingTests
     }
 
     [Fact]
-    public async Task SolderMaskLayer_Geometry_KnocksMaskBackToSubstrate()
+    public async Task SolderMaskLayer_OverLaminate_ShowsSubstrate()
     {
-        // Geometry on the Top Solder layer (37) is a negative: it marks where mask is removed (e.g. the
-        // bare-laminate clearance ring Altium draws around the board outline). It should paint in the
-        // substrate colour, knocking the green mask back.
+        // Geometry on the Top Solder layer (37) is a negative: it marks where mask is removed. Over bare
+        // laminate (no copper beneath) the exposed surface is the substrate colour. The track here runs
+        // along the top edge (y=2mm), away from any copper, so it knocks the mask back to laminate.
         var board = BuildBoard();
         board.AddTrack(PcbTrack.Create().From(Coord.FromMm(2), Coord.FromMm(2))
             .To(Coord.FromMm(38), Coord.FromMm(2)).Width(Coord.FromMm(0.3)).Layer(37).Build());
 
+        var doc = await RenderRealisticSvg(board);
+
+        // Default substrate colour (0xC8,0xB9,0x8C) -> rgb(200,185,140).
+        Assert.Contains(doc.Descendants(SvgNs + "line"),
+            l => (string?)l.Attribute("stroke") == "rgb(200,185,140)");
+    }
+
+    [Fact]
+    public async Task SolderMaskLayer_OverCopper_ShowsPlatingFinish()
+    {
+        // A solder-mask opening over copper (here a region covering SMD pad "1" at 8,8mm) exposes plated
+        // copper, so it must paint in the finish colour, not the substrate colour.
+        var board = BuildBoard();
+        board.AddRegion(PcbRegion.Create().OnLayer(37)
+            .AddPoint(Coord.FromMm(7), Coord.FromMm(7))
+            .AddPoint(Coord.FromMm(9), Coord.FromMm(7))
+            .AddPoint(Coord.FromMm(9), Coord.FromMm(9))
+            .AddPoint(Coord.FromMm(7), Coord.FromMm(9))
+            .Build());
+
+        var doc = await RenderRealisticSvg(board);
+
+        // Default ENIG finish colour (0xD9,0xB5,0x49) -> rgb(217,181,73).
+        Assert.Contains(doc.Descendants(SvgNs + "polygon"),
+            p => (string?)p.Attribute("fill") == "rgb(217,181,73)");
+    }
+
+    private static async Task<XDocument> RenderRealisticSvg(PcbDocument board)
+    {
         var renderer = new SvgRenderer();
         using var ms = new MemoryStream();
         await renderer.RenderRealisticAsync(board, ms, new RenderOptions { Width = 400, Height = 300 });
         ms.Position = 0;
-        var doc = XDocument.Load(ms);
-
-        // The default substrate colour is (0xC8,0xB9,0x8C) -> rgb(200,185,140); the layer-37 track is
-        // drawn as a line in that colour.
-        var substrateStroke = doc.Descendants(SvgNs + "line")
-            .Any(l => (string?)l.Attribute("stroke") == "rgb(200,185,140)");
-        Assert.True(substrateStroke, "Expected the solder-mask-layer track painted in the substrate colour");
+        return XDocument.Load(ms);
     }
 
     [Fact]
