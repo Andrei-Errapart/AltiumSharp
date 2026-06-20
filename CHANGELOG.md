@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Fluent builder API for constructing components and primitives programmatically.
 - `PcbBinaryConstants` class with named flag constants and a `DecodeFlags` helper.
 - `WriterUtilities` shared between `PcbLibWriter` and `SchLibWriter`.
+- Data Matrix (ECC200) barcode rendering: a PCB `Text` whose `BarCodeType` is `PcbBarCodeKind.DataMatrix` is now encoded (ASCII encodation, Reed-Solomon error correction, ISO/IEC 16022 module placement) and drawn as its module pattern in both the Altium-style and photorealistic renderers, instead of falling back to the source text. On the solder-mask layer the symbol is rendered as mask openings (honoring `BarCodeInverted`, the box size and quiet-zone margins), so an inverted symbol over a copper fill reads as a gold field with green data modules. New public `DataMatrixEncoder` / `DataMatrixSymbol` API in `OriginalCircuit.Altium.Barcodes` and a `PcbBarCodeKind` enum (`Code39`, `Code128`, `QrCode`, `DataMatrix`).
 
 ### Changed
 

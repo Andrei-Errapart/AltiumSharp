@@ -21,6 +21,26 @@ public enum PcbStrokeFont
 }
 
 /// <summary>
+/// The barcode symbology of a PCB text whose <see cref="PcbText.TextKind"/> is
+/// <see cref="OriginalCircuit.Eda.Enums.PcbTextKind.BarCode"/>. Values match Altium's
+/// <c>TBarcodeKind</c> ordinals exactly (verified against the AD25 <c>Advpcb.dll</c> RTTI:
+/// <c>eBarcode39=0, eBarCode128=1, eBarCode_QrCode=2, eBarCode_DataMatrix=3</c>). The underlying
+/// storage is the raw byte in <see cref="PcbText.BarCodeKind"/>, so out-of-range values round-trip
+/// via that field even though they have no named member here.
+/// </summary>
+public enum PcbBarCodeKind
+{
+    /// <summary>Code 39 (1-D, alphanumeric).</summary>
+    Code39 = 0,
+    /// <summary>Code 128 (1-D, full ASCII).</summary>
+    Code128 = 1,
+    /// <summary>QR Code (2-D).</summary>
+    QrCode = 2,
+    /// <summary>Data Matrix / ECC200 (2-D).</summary>
+    DataMatrix = 3
+}
+
+/// <summary>
 /// Anchor / justification of PCB text inside its frame (the "inverted rectangle" / text-box
 /// justification byte). Values match Altium's <c>TTextAutoposition</c> encoding exactly (column-major,
 /// 1-based, with <see cref="Manual"/> = 0). NOTE: this is a different ordering from the schematic
@@ -246,9 +266,21 @@ public sealed class PcbText : IPcbText
     public Coord TtfTextWidth { get; set; }
 
     /// <summary>
-    /// Barcode kind (Code39, Code128, QR, etc.).
+    /// Barcode symbology as the raw Altium <c>TBarcodeKind</c> ordinal (0=Code39, 1=Code128, 2=QR,
+    /// 3=Data Matrix). Stored as an <see cref="int"/> for byte-exact round-tripping of any value; use
+    /// <see cref="BarCodeType"/> for the typed view.
     /// </summary>
     public int BarCodeKind { get; set; }
+
+    /// <summary>
+    /// Typed view of <see cref="BarCodeKind"/> as a <see cref="PcbBarCodeKind"/>. Reads/writes the raw
+    /// <see cref="BarCodeKind"/> ordinal directly, so unknown values round-trip faithfully.
+    /// </summary>
+    public PcbBarCodeKind BarCodeType
+    {
+        get => (PcbBarCodeKind)BarCodeKind;
+        set => BarCodeKind = (int)value;
+    }
 
     /// <summary>
     /// Barcode bit pattern.

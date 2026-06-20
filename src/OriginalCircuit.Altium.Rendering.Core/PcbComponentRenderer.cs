@@ -517,6 +517,14 @@ public sealed class PcbComponentRenderer
         var (x, y) = _transform.WorldToScreen(text.Location.X, text.Location.Y);
         var color = LayerColors.GetColor(text.Layer);
 
+        // Data Matrix (2-D) barcode: draw the encoded module geometry in the layer colour, not the source text.
+        var dataMatrix = PcbDataMatrixGeometry.TryBuild(text);
+        if (dataMatrix is not null)
+        {
+            FillWorldQuads(context, dataMatrix.Foreground, color);
+            return;
+        }
+
         var height = _transform.ScaleValue(text.Height);
         if (height < 1) height = 1;
 
@@ -578,6 +586,19 @@ public sealed class PcbComponentRenderer
         else
         {
             context.DrawText(text.Text, x, y, fontSize, color, options);
+        }
+    }
+
+    // Fills a set of world-space quads (e.g. Data Matrix dark modules) in a single colour.
+    private void FillWorldQuads(IRenderContext context, IReadOnlyList<CoordPoint[]> quads, uint color)
+    {
+        foreach (var quad in quads)
+        {
+            var xs = new double[quad.Length];
+            var ys = new double[quad.Length];
+            for (int i = 0; i < quad.Length; i++)
+                (xs[i], ys[i]) = _transform.WorldToScreen(quad[i].X, quad[i].Y);
+            context.FillPolygon(xs, ys, color);
         }
     }
 
