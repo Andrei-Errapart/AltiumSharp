@@ -310,11 +310,12 @@ public sealed class PhotorealisticRenderingTests
     public async Task Svg_InvertedText_RendersFilledBoxWithKnockoutGlyphs()
     {
         // Inverted (negative) text: a filled silk rectangle with the glyphs knocked out to the board colour.
+        // TrueType so the knockout glyphs render as a <text> run (stroke-font knockout would emit <line>s).
         var board = BuildBoard();
         board.AddText(new PcbText
         {
             Text = "INV", Location = new CoordPoint(Coord.FromMm(20), Coord.FromMm(15)),
-            Height = Coord.FromMm(2), Layer = 33, UseInvertedRectangle = true,
+            Height = Coord.FromMm(2), Layer = 33, UseInvertedRectangle = true, IsTrueType = true, FontName = "Arial",
             InvertedRectWidth = Coord.FromMm(8), InvertedRectHeight = Coord.FromMm(3),
             InvertedRectJustification = PcbTextJustification.CenterCenter,
         });
@@ -327,6 +328,37 @@ public sealed class PhotorealisticRenderingTests
         // The glyphs knocked out to the opaque mask colour rgb(27,110,60).
         Assert.Contains(silk.Descendants(SvgNs + "text"),
             t => t.Value == "INV" && (string?)t.Attribute("fill") == "rgb(27,110,60)");
+    }
+
+    [Fact]
+    public async Task Svg_MultiLineText_RendersOneTextElementPerLine()
+    {
+        // A text whose string carries an embedded newline must render as separate stacked lines, not a
+        // single run with a literal newline. (Regression: the SPI Isolator "SPI | CAN | UART\r\nISOLATOR"
+        // frame title rendered as one line.)
+        var board = BuildBoard();
+        board.AddText(new PcbText
+        {
+            Text = "SPI | CAN | UART\r\nISOLATOR",
+            Location = new CoordPoint(Coord.FromMm(20), Coord.FromMm(15)),
+            Height = Coord.FromMm(2), Layer = 33, IsTrueType = true, FontName = "Arial",
+            IsFrame = true,
+            InvertedRectWidth = Coord.FromMm(20), InvertedRectHeight = Coord.FromMm(5),
+            InvertedRectJustification = PcbTextJustification.CenterBottom,
+        });
+
+        var doc = await RenderRealisticSvg(board);
+        var silk = doc.Descendants(SvgNs + "g").First(g => (string?)g.Attribute("id") == "silkscreen");
+        var titleLines = silk.Descendants(SvgNs + "text")
+            .Where(t => t.Value is "SPI | CAN | UART" or "ISOLATOR").ToList();
+
+        // Both lines present, as distinct elements, and neither carries the embedded newline verbatim.
+        Assert.Equal(2, titleLines.Count);
+        Assert.DoesNotContain(silk.Descendants(SvgNs + "text"), t => t.Value.Contains('\n'));
+
+        // The two lines sit at different vertical positions (stacked).
+        double Y(XElement e) => double.Parse(e.Attribute("y")!.Value, System.Globalization.CultureInfo.InvariantCulture);
+        Assert.NotEqual(Y(titleLines[0]), Y(titleLines[1]), 1);
     }
 
     [Fact]

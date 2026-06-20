@@ -537,48 +537,85 @@ public sealed class PcbRealisticRenderer
         context.FillContours(contours, color);
     }
 
-    // Draws a text primitive in <paramref name="color"/>. <paramref name="knockoutColor"/> is shown
+    private static readonly string[] NewlineSeparators = { "\r\n", "\n", "\r" };
+
+    // Draws a text primitive in <paramref name="color"/>, honouring embedded newlines (multi-line text),
+    // a frame / inverted-rectangle box, and justification. <paramref name="knockoutColor"/> is shown
     // through the cut-out glyphs of inverted (negative) text, revealing what lies beneath the ink.
     private void DrawText(IRenderContext context, PcbText text, uint color, uint knockoutColor)
     {
         if (string.IsNullOrEmpty(text.Text)) return;
+        var lines = text.Text.Split(NewlineSeparators, StringSplitOptions.None);
 
         var (x, y) = _transform.WorldToScreen(text.Location.X, text.Location.Y);
         var height = Math.Max(1, _transform.ScaleValue(text.Height));
         double rotation = Finite(text.Rotation);
 
-        // Inverted text: a rectangle filled in the ink colour with the glyphs knocked out (revealing the
-        // board beneath), positioned within the rectangle per its justification.
-        if (text.UseInvertedRectangle && text.InvertedRectWidth > Coord.Zero && text.InvertedRectHeight > Coord.Zero)
-        {
-            DrawInvertedText(context, text, x, y, height, rotation, color, knockoutColor);
-            return;
-        }
-
-        var (ha, va) = MapJustification(text.Justification.ToString());
-        bool stroke = text.TextKind == PcbTextKind.Stroke && !text.IsTrueType;
+        bool inverted = text.UseInvertedRectangle && text.InvertedRectWidth > Coord.Zero && text.InvertedRectHeight > Coord.Zero;
+        bool framed = inverted || (text.IsFrame && text.InvertedRectWidth > Coord.Zero && text.InvertedRectHeight > Coord.Zero);
 
         context.SaveState();
         context.Translate(x, y);
         if (rotation != 0) context.Rotate(-rotation);
         if (text.IsMirrored) context.Scale(-1, 1);
 
-        if (stroke)
+        if (framed)
         {
-            var segments = AltiumStrokeFont.Layout(
-                text.Text, AltiumStrokeFont.FromStrokeFont(text.StrokeFont), out var advance);
-            if (segments.Count > 0)
+            // The text box is anchored bottom-left at Location; screen Y is down so it spans y ∈ [-h, 0].
+            // Lines are stacked and justified within the box per InvertedRectJustification.
+            double w = _transform.ScaleValue(text.InvertedRectWidth);
+            double h = _transform.ScaleValue(text.InvertedRectHeight);
+            if (w >= 1 && h >= 1)
             {
-                var strokeWidth = Math.Max(1, _transform.ScaleValue(text.StrokeWidth));
-                // Stroke text is laid out from the bottom-left; shift so the justified anchor of its box
-                // (width x height) sits at Location. Screen Y is down, so the box spans y ∈ [-height, 0].
-                double width = advance * height;
-                double offX = ha == TextHAlign.Right ? -width : ha == TextHAlign.Center ? -width / 2.0 : 0;
-                double offY = va == TextVAlign.Top ? height : va == TextVAlign.Middle ? height / 2.0 : 0;
-                foreach (var s in segments)
-                    context.DrawLine(s.X1 * height + offX, -s.Y1 * height + offY,
-                        s.X2 * height + offX, -s.Y2 * height + offY, color, strokeWidth);
+                if (inverted) context.FillRectangle(0, -h, w, h, color); // ink box; glyphs are knocked out
+                var glyphColor = inverted ? knockoutColor : color;
+                var (ha, va) = MapPcbJustification(text.InvertedRectJustification);
+                double margin = Math.Min(w, h) * 0.08;
+                double lineH = Math.Max(1, Math.Min(height * 1.15, (h - 2 * margin) / lines.Length));
+                double glyphH = Math.Max(1, Math.Min(height, lineH * 0.82));
+                double blockH = lineH * lines.Length;
+                double ax = ha == TextHAlign.Right ? w - margin : ha == TextHAlign.Center ? w / 2.0 : margin;
+                double blockTop = va == TextVAlign.Top ? -h + margin
+                                : va == TextVAlign.Bottom ? -margin - blockH
+                                : -h / 2.0 - blockH / 2.0;
+                for (int i = 0; i < lines.Length; i++)
+                    DrawTextLine(context, lines[i], text, ax, blockTop + lineH * (i + 0.5) + glyphH / 2.0, glyphH, glyphColor, ha);
             }
+        }
+        else
+        {
+            var (ha, va) = MapJustification(text.Justification.ToString());
+            double lineH = height * 1.2;
+            int n = lines.Length;
+            for (int i = 0; i < n; i++)
+            {
+                // i=0 is the top line. Bottom-justified text puts the bottom line's baseline at Location.
+                double baseline = va == TextVAlign.Bottom ? -(n - 1 - i) * lineH
+                                : va == TextVAlign.Top ? height + i * lineH
+                                : (i - (n - 1) / 2.0) * lineH + height / 2.0;
+                DrawTextLine(context, lines[i], text, 0, baseline, height, color, ha);
+            }
+        }
+        context.RestoreState();
+    }
+
+    // Draws one line of text with its baseline at (ax, baseline) in the current (already translated/rotated)
+    // frame, horizontally aligned per ha. Stroke text is drawn as glyph segments; TrueType via the backend.
+    private void DrawTextLine(IRenderContext context, string line, PcbText text, double ax, double baseline,
+        double glyphHeight, uint color, TextHAlign ha)
+    {
+        if (string.IsNullOrEmpty(line)) return;
+        if (text.TextKind == PcbTextKind.Stroke && !text.IsTrueType)
+        {
+            var segments = AltiumStrokeFont.Layout(line, AltiumStrokeFont.FromStrokeFont(text.StrokeFont), out var advance);
+            if (segments.Count == 0) return;
+            var strokeWidth = Math.Max(1, _transform.ScaleValue(text.StrokeWidth));
+            double width = advance * glyphHeight;
+            double offX = ax + (ha == TextHAlign.Right ? -width : ha == TextHAlign.Center ? -width / 2.0 : 0);
+            // Stroke glyphs are laid out from the baseline (y=0), ascending to -glyphHeight.
+            foreach (var s in segments)
+                context.DrawLine(s.X1 * glyphHeight + offX, -s.Y1 * glyphHeight + baseline,
+                    s.X2 * glyphHeight + offX, -s.Y2 * glyphHeight + baseline, color, strokeWidth);
         }
         else
         {
@@ -588,45 +625,10 @@ public sealed class PcbRealisticRenderer
                 Bold = text.FontBold,
                 Italic = text.FontItalic,
                 HorizontalAlignment = ha,
-                VerticalAlignment = va,
+                VerticalAlignment = TextVAlign.Baseline,
             };
-            context.DrawText(text.Text, 0, 0, height, color, options);
+            context.DrawText(line, ax, baseline, glyphHeight, color, options);
         }
-        context.RestoreState();
-    }
-
-    // Inverted (negative) text: a filled rectangle anchored bottom-left at Location, with the glyphs cut
-    // out (drawn in the knockout colour so the board shows through), placed per InvertedRectJustification.
-    private void DrawInvertedText(IRenderContext context, PcbText text, double sx, double sy, double height,
-        double rotation, uint inkColor, uint knockoutColor)
-    {
-        double w = _transform.ScaleValue(text.InvertedRectWidth);
-        double h = _transform.ScaleValue(text.InvertedRectHeight);
-        if (w < 1 || h < 1) return;
-
-        context.SaveState();
-        context.Translate(sx, sy);
-        if (rotation != 0) context.Rotate(-rotation);
-        if (text.IsMirrored) context.Scale(-1, 1);
-
-        // Local frame is glyph-space Y-up; screen Y is down, so the rectangle spans y ∈ [-h, 0].
-        context.FillRectangle(0, -h, w, h, inkColor);
-
-        var (ha, va) = MapPcbJustification(text.InvertedRectJustification);
-        double margin = Math.Min(w, h) * 0.12;
-        double tx = ha == TextHAlign.Right ? w - margin : ha == TextHAlign.Center ? w / 2.0 : margin;
-        double ty = va == TextVAlign.Top ? -h + margin : va == TextVAlign.Bottom ? -margin : -h / 2.0;
-        var glyphHeight = Math.Min(height, h * 0.86);
-        var options = new TextRenderOptions
-        {
-            FontFamily = text.FontName ?? "Arial",
-            Bold = text.FontBold,
-            Italic = text.FontItalic,
-            HorizontalAlignment = ha,
-            VerticalAlignment = va,
-        };
-        context.DrawText(text.Text, tx, ty, glyphHeight, knockoutColor, options);
-        context.RestoreState();
     }
 
     // Maps a schematic-style justification name (e.g. "BottomLeft", "CenterCenter") to alignment.
