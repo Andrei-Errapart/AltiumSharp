@@ -187,7 +187,8 @@ public sealed class RasterRenderer : IRenderer, IPcbLibRenderer
             if (options.AutoZoom)
                 transform.AutoZoom(bounds, margin);
 
-            new PcbRealisticRenderer(transform, style).Render(document, context);
+            new PcbRealisticRenderer(transform, style, ColorHelper.EdaColorToArgb(options.BackgroundColor))
+                .Render(document, context);
         }
 
         SKBitmap finalBitmap = bitmap;

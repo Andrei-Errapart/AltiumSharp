@@ -306,6 +306,71 @@ public sealed class PhotorealisticRenderingTests
             .SelectMany(cp => cp.Descendants(SvgNs + "path"))
             .Sum(p => (p.Attribute("d")?.Value ?? "").Count(ch => ch == 'M'));
 
+    [Fact]
+    public async Task Svg_InvertedText_RendersFilledBoxWithKnockoutGlyphs()
+    {
+        // Inverted (negative) text: a filled silk rectangle with the glyphs knocked out to the board colour.
+        var board = BuildBoard();
+        board.AddText(new PcbText
+        {
+            Text = "INV", Location = new CoordPoint(Coord.FromMm(20), Coord.FromMm(15)),
+            Height = Coord.FromMm(2), Layer = 33, UseInvertedRectangle = true,
+            InvertedRectWidth = Coord.FromMm(8), InvertedRectHeight = Coord.FromMm(3),
+            InvertedRectJustification = PcbTextJustification.CenterCenter,
+        });
+
+        var doc = await RenderRealisticSvg(board);
+        var silk = doc.Descendants(SvgNs + "g").First(g => (string?)g.Attribute("id") == "silkscreen");
+
+        // The silk box, in the silkscreen colour rgb(242,242,242).
+        Assert.Contains(silk.Descendants(SvgNs + "rect"), r => (string?)r.Attribute("fill") == "rgb(242,242,242)");
+        // The glyphs knocked out to the opaque mask colour rgb(27,110,60).
+        Assert.Contains(silk.Descendants(SvgNs + "text"),
+            t => t.Value == "INV" && (string?)t.Attribute("fill") == "rgb(27,110,60)");
+    }
+
+    [Fact]
+    public async Task Svg_TextOnCopperLayer_RendersInCopperGroup()
+    {
+        var board = BuildBoard();
+        board.AddText(new PcbText
+        {
+            Text = "GND", Location = new CoordPoint(Coord.FromMm(10), Coord.FromMm(20)),
+            Height = Coord.FromMm(1.5), Layer = 1, IsTrueType = true, FontName = "Arial",
+        });
+
+        var doc = await RenderRealisticSvg(board);
+        var copper = doc.Descendants(SvgNs + "g").First(g => (string?)g.Attribute("id") == "copper");
+        Assert.Contains(copper.Descendants(SvgNs + "text"),
+            t => t.Value == "GND" && (string?)t.Attribute("fill") == "rgb(190,144,66)");
+    }
+
+    [Fact]
+    public async Task Svg_MillingLayerGeometry_RendersAsCutout()
+    {
+        // Geometry on a mechanical layer marked RouteToolPath is milled out (painted in the page background).
+        var board = BuildBoard();
+        board.BoardParameters!["LAYER64MECHKIND"] = "RouteToolPath";
+        board.AddRegion(PcbRegion.Create().OnLayer(64)
+            .AddPoint(Coord.FromMm(18), Coord.FromMm(13)).AddPoint(Coord.FromMm(22), Coord.FromMm(13))
+            .AddPoint(Coord.FromMm(22), Coord.FromMm(17)).AddPoint(Coord.FromMm(18), Coord.FromMm(17))
+            .Build());
+
+        var doc = await RenderRealisticSvg(board);
+        var cutouts = doc.Descendants(SvgNs + "g").FirstOrDefault(g => (string?)g.Attribute("id") == "cutouts");
+        Assert.NotNull(cutouts);
+        // Default page background is white -> rgb(255,255,255).
+        Assert.Contains(cutouts!.Descendants(SvgNs + "polygon"), p => (string?)p.Attribute("fill") == "rgb(255,255,255)");
+    }
+
+    [Fact]
+    public void MapPcbJustification_Via_EffectiveExpansion_StillResolvesByMode()
+    {
+        // Sanity: manual mode uses the object's value; rule mode falls back to the supplied default.
+        Assert.Equal(Coord.FromMils(6), PcbRealisticRenderer.EffectiveSolderMaskExpansion(2, Coord.FromMils(6), Coord.FromMils(2)));
+        Assert.Equal(Coord.FromMils(2), PcbRealisticRenderer.EffectiveSolderMaskExpansion(1, Coord.FromMils(6), Coord.FromMils(2)));
+    }
+
     private static async Task<XDocument> RenderRealisticSvg(PcbDocument board)
     {
         var renderer = new SvgRenderer();

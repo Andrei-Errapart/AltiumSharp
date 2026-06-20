@@ -95,12 +95,13 @@ public sealed class SvgRenderer : IRenderer
         var (outW, outH, margin) = PcbRealisticRenderer.FitOutput(
             bounds, options.Width, options.Height, s.CropToBoardBounds && options.AutoZoom);
 
+        var bgArgb = ColorHelper.EdaColorToArgb(options.BackgroundColor);
         var ctx = new SvgRenderContext(outW, outH);
-        ctx.Clear(ColorHelper.EdaColorToArgb(options.BackgroundColor));
+        ctx.Clear(bgArgb);
         var transform = new CoordTransform { ScreenWidth = outW, ScreenHeight = outH, Scale = options.Scale };
         if (options.AutoZoom)
             transform.AutoZoom(bounds, margin);
-        new PcbRealisticRenderer(transform, s).Render(document, ctx);
+        new PcbRealisticRenderer(transform, s, bgArgb).Render(document, ctx);
 
         using var buffer = new MemoryStream();
         ctx.WriteTo(buffer);

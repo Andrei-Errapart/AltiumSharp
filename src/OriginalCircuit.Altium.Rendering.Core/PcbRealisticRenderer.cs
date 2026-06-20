@@ -29,16 +29,22 @@ public sealed class PcbRealisticRenderer
 {
     private readonly CoordTransform _transform;
     private readonly PcbRealisticStyle _style;
+    private readonly uint _backgroundArgb;
 
     // Per-corner samples when tessellating rounded shapes into fill contours.
     private const int ArcSteps = 8;
     private const int CircleSteps = 40;
 
-    /// <summary>Creates a renderer that maps world coordinates with <paramref name="transform"/> and paints with <paramref name="style"/>.</summary>
-    public PcbRealisticRenderer(CoordTransform transform, PcbRealisticStyle style)
+    /// <summary>
+    /// Creates a renderer that maps world coordinates with <paramref name="transform"/> and paints with
+    /// <paramref name="style"/>. <paramref name="backgroundArgb"/> is the page background, painted into
+    /// milled cut-outs (mechanical "RouteToolPath" geometry) so they read as removed board.
+    /// </summary>
+    public PcbRealisticRenderer(CoordTransform transform, PcbRealisticStyle style, uint backgroundArgb = 0xFF000000)
     {
         _transform = transform ?? throw new ArgumentNullException(nameof(transform));
         _style = style ?? throw new ArgumentNullException(nameof(style));
+        _backgroundArgb = backgroundArgb;
     }
 
     /// <summary>
@@ -82,6 +88,26 @@ public sealed class PcbRealisticRenderer
         _ => defaultExpansion,
     };
 
+    // Resolves the From-Rule solder-mask expansion for a pad/via from the document's SolderMaskExpansion
+    // design rules. A via prefers a via-scoped rule (e.g. SCOPE1=IsVia); a pad uses the most general
+    // non-via rule. Falls back to the style's default when no rule is present.
+    private Coord ResolveSolderMaskRuleExpansion(PcbDocument document, bool forVia)
+    {
+        var rules = document.Rules.OfType<PcbSolderMaskExpansionRule>().Where(r => r.Enabled).ToList();
+        if (rules.Count == 0) return _style.DefaultSolderMaskExpansion;
+
+        static bool MentionsVia(PcbSolderMaskExpansionRule r) =>
+            (r.Scope1Expression?.Contains("Via", StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (r.Scope2Expression?.Contains("Via", StringComparison.OrdinalIgnoreCase) ?? false);
+
+        PcbSolderMaskExpansionRule? pick = forVia
+            ? rules.Where(MentionsVia).OrderBy(r => r.Priority).FirstOrDefault()
+            : null;
+        pick ??= rules.Where(r => !MentionsVia(r)).OrderBy(r => r.Priority).FirstOrDefault();
+        pick ??= rules.OrderBy(r => r.Priority).FirstOrDefault();
+        return pick?.Expansion ?? _style.DefaultSolderMaskExpansion;
+    }
+
     /// <summary>Renders the board into <paramref name="context"/> using the configured style.</summary>
     public void Render(PcbDocument document, IRenderContext context)
     {
@@ -97,6 +123,7 @@ public sealed class PcbRealisticRenderer
         var substrateArgb = ColorHelper.EdaColorToArgb(_style.SubstrateColor);
         var copperArgb = ColorHelper.EdaColorToArgb(_style.CopperColor);
         var maskArgb = ColorHelper.EdaColorToArgb(_style.SolderMaskColor);
+        var maskOpaqueArgb = maskArgb | 0xFF000000u; // knockout colour for inverted silk text (the board shows through)
         var silkArgb = ColorHelper.EdaColorToArgb(_style.SilkscreenColor);
         var finishArgb = ColorHelper.EdaColorToArgb(_style.FinishColor);
         var holeArgb = ColorHelper.EdaColorToArgb(_style.HoleColor);
@@ -106,7 +133,10 @@ public sealed class PcbRealisticRenderer
 
         var collected = Collect(document);
         var outline = MapOutline(document.GetBoardOutline());
-        var metal = CollectMetal(collected, bottom, sideSignalLayer);
+        var padRuleExp = ResolveSolderMaskRuleExpansion(document, forVia: false);
+        var viaRuleExp = ResolveSolderMaskRuleExpansion(document, forVia: true);
+        var metal = CollectMetal(collected, bottom, sideSignalLayer, padRuleExp, viaRuleExp);
+        var millingLayers = MillingLayers(document);
 
         // Plated-copper colour: exposed copper reads as the surface finish (or bare copper when finish is
         // disabled). The whole copper layer is drawn in this colour; the mask then tints whatever it covers.
@@ -124,7 +154,7 @@ public sealed class PcbRealisticRenderer
         // Layer 2 ── Copper (plated). Every copper feature on this side. Where the mask doesn't cover it,
         //            it shows as exposed plating; where the mask covers it, the translucent mask tints it.
         context.BeginGroup("copper");
-        DrawCopperLayer(context, collected, metal, copperLayer, copperShownArgb);
+        DrawCopperLayer(context, collected, metal, copperLayer, copperShownArgb, substrateArgb);
         context.EndGroup();
 
         // Layer 3 ── Solder mask: a SOLID translucent sheet over the whole board, then the openings are
@@ -146,7 +176,7 @@ public sealed class PcbRealisticRenderer
                 context.SaveState();
                 context.SetClipPath(openings);                                            // union of openings
                 RenderSubstrate(context, outline, substrateArgb);                         // exposed laminate
-                DrawCopperLayer(context, collected, metal, copperLayer, copperShownArgb); // exposed plating
+                DrawCopperLayer(context, collected, metal, copperLayer, copperShownArgb, substrateArgb); // exposed plating
                 context.RestoreState();
             }
             context.EndGroup();
@@ -161,7 +191,7 @@ public sealed class PcbRealisticRenderer
             foreach (var f in collected.Fills) if (f.Layer == silkLayer) DrawFill(context, f, silkArgb);
             foreach (var r in collected.Regions) if (r.Layer == silkLayer) DrawRegion(context, r, silkArgb);
             foreach (var (text, owner) in collected.Texts)
-                if (text.Layer == silkLayer && IsTextVisible(text, owner)) DrawText(context, text, silkArgb);
+                if (text.Layer == silkLayer && IsTextVisible(text, owner)) DrawText(context, text, silkArgb, maskOpaqueArgb);
             context.EndGroup();
         }
 
@@ -174,18 +204,52 @@ public sealed class PcbRealisticRenderer
             context.EndGroup();
         }
 
+        // Layer 6 ── Milled cut-outs / slots: geometry on a mechanical "RouteToolPath" layer removes board
+        //            material, so paint it in the page background to read as a hole through the board.
+        if (millingLayers.Count > 0)
+        {
+            context.BeginGroup("cutouts");
+            foreach (var t in collected.Tracks) if (millingLayers.Contains(t.Layer)) DrawTrack(context, t, _backgroundArgb);
+            foreach (var a in collected.Arcs) if (millingLayers.Contains(a.Layer)) DrawArc(context, a, _backgroundArgb);
+            foreach (var f in collected.Fills) if (millingLayers.Contains(f.Layer)) DrawFill(context, f, _backgroundArgb);
+            foreach (var r in collected.Regions) if (millingLayers.Contains(r.Layer)) DrawRegion(context, r, _backgroundArgb);
+            context.EndGroup();
+        }
+
         if (bottom) context.RestoreState();
     }
 
-    // Draws every copper feature on the side (tracks/arcs/fills/regions + pad/via metal) in one colour.
-    // Used for the copper layer and, clipped to the openings, to re-veal exposed copper through the mask.
+    // Mechanical layer ids designated for milling/routing (Board6 "LAYER{id}MECHKIND = RouteToolPath" or a
+    // milling/rout kind). Geometry on these layers cuts through the board.
+    private static HashSet<int> MillingLayers(PcbDocument document)
+    {
+        var layers = new HashSet<int>();
+        if (document.BoardParameters is not { } bp) return layers;
+        foreach (var (key, value) in bp)
+        {
+            if (!key.EndsWith("MECHKIND", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!(value.Contains("Rout", StringComparison.OrdinalIgnoreCase) ||
+                  value.Contains("Mill", StringComparison.OrdinalIgnoreCase))) continue;
+            // key forms like "LAYER64MECHKIND"; pull the plain layer id (the one matching primitive.Layer).
+            var m = System.Text.RegularExpressions.Regex.Match(key, @"^LAYER(\d+)MECHKIND$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (m.Success && int.TryParse(m.Groups[1].Value, out var id)) layers.Add(id);
+        }
+        return layers;
+    }
+
+    // Draws every copper feature on the side (tracks/arcs/fills/regions + text + pad/via metal) in one
+    // colour. Used for the copper layer and, clipped to the openings, to re-veal exposed copper through
+    // the mask. <paramref name="knockoutColor"/> shows through inverted copper text (bare laminate).
     private void DrawCopperLayer(IRenderContext context, Collected collected, List<MetalFeature> metal,
-        int copperLayer, uint color)
+        int copperLayer, uint color, uint knockoutColor)
     {
         foreach (var t in collected.Tracks) if (t.Layer == copperLayer) DrawTrack(context, t, color);
         foreach (var a in collected.Arcs) if (a.Layer == copperLayer) DrawArc(context, a, color);
         foreach (var f in collected.Fills) if (f.Layer == copperLayer) DrawFill(context, f, color);
         foreach (var r in collected.Regions) if (r.Layer == copperLayer) DrawRegion(context, r, color);
+        foreach (var (text, owner) in collected.Texts)
+            if (text.Layer == copperLayer && IsTextVisible(text, owner)) DrawText(context, text, color, knockoutColor);
         foreach (var m in metal) context.FillPolygon(m.CopperXs, m.CopperYs, color);
     }
 
@@ -320,7 +384,8 @@ public sealed class PcbRealisticRenderer
     // Builds the bare-copper and (when not tented) mask-opening contour for every pad/via that has copper
     // on the rendered side. SMD pads appear only on their own layer; through-hole pads and spanning vias
     // appear on both sides.
-    private List<MetalFeature> CollectMetal(Collected collected, bool bottom, int sideSignalLayer)
+    private List<MetalFeature> CollectMetal(Collected collected, bool bottom, int sideSignalLayer,
+        Coord padRuleExp, Coord viaRuleExp)
     {
         var features = new List<MetalFeature>(collected.Pads.Count + collected.Vias.Count);
 
@@ -340,8 +405,9 @@ public sealed class PcbRealisticRenderer
             double[] ox = Array.Empty<double>(), oy = Array.Empty<double>();
             if (!tented)
             {
+                // From-Rule pads use the resolved design-rule expansion; manual pads use their own value.
                 var expansion = EffectiveSolderMaskExpansion(
-                    pad.SolderMaskExpansionMode, pad.SolderMaskExpansion, _style.DefaultSolderMaskExpansion);
+                    pad.SolderMaskExpansionMode, pad.SolderMaskExpansion, padRuleExp);
                 (ox, oy) = PadContour(pad.Location, size.X, size.Y, shape, pad.CornerRadiusPercentage,
                     expansion, pad.Rotation);
             }
@@ -363,7 +429,7 @@ public sealed class PcbRealisticRenderer
             if (!tented)
             {
                 var expansion = EffectiveSolderMaskExpansion(
-                    via.SolderMaskExpansionMode, via.SolderMaskExpansion, _style.DefaultSolderMaskExpansion);
+                    via.SolderMaskExpansionMode, via.SolderMaskExpansion, viaRuleExp);
                 var opening = CircleContour(cx, cy, r + _transform.ScaleValue(expansion));
                 ox = opening.X; oy = opening.Y;
             }
@@ -468,7 +534,9 @@ public sealed class PcbRealisticRenderer
         context.FillContours(contours, color);
     }
 
-    private void DrawText(IRenderContext context, PcbText text, uint color)
+    // Draws a text primitive in <paramref name="color"/>. <paramref name="knockoutColor"/> is shown
+    // through the cut-out glyphs of inverted (negative) text, revealing what lies beneath the ink.
+    private void DrawText(IRenderContext context, PcbText text, uint color, uint knockoutColor)
     {
         if (string.IsNullOrEmpty(text.Text)) return;
 
@@ -476,45 +544,108 @@ public sealed class PcbRealisticRenderer
         var height = Math.Max(1, _transform.ScaleValue(text.Height));
         double rotation = Finite(text.Rotation);
 
-        if (text.TextKind == PcbTextKind.Stroke && !text.IsTrueType)
+        // Inverted text: a rectangle filled in the ink colour with the glyphs knocked out (revealing the
+        // board beneath), positioned within the rectangle per its justification.
+        if (text.UseInvertedRectangle && text.InvertedRectWidth > Coord.Zero && text.InvertedRectHeight > Coord.Zero)
         {
-            var segments = AltiumStrokeFont.Layout(
-                text.Text, AltiumStrokeFont.FromStrokeFont(text.StrokeFont), out _);
-            if (segments.Count == 0) return;
-
-            var strokeWidth = Math.Max(1, _transform.ScaleValue(text.StrokeWidth));
-            context.SaveState();
-            context.Translate(x, y);
-            if (rotation != 0) context.Rotate(-rotation);
-            if (text.IsMirrored) context.Scale(-1, 1);
-            foreach (var s in segments)
-                context.DrawLine(s.X1 * height, -s.Y1 * height, s.X2 * height, -s.Y2 * height, color, strokeWidth);
-            context.RestoreState();
+            DrawInvertedText(context, text, x, y, height, rotation, color, knockoutColor);
             return;
         }
 
+        var (ha, va) = MapJustification(text.Justification.ToString());
+        bool stroke = text.TextKind == PcbTextKind.Stroke && !text.IsTrueType;
+
+        context.SaveState();
+        context.Translate(x, y);
+        if (rotation != 0) context.Rotate(-rotation);
+        if (text.IsMirrored) context.Scale(-1, 1);
+
+        if (stroke)
+        {
+            var segments = AltiumStrokeFont.Layout(
+                text.Text, AltiumStrokeFont.FromStrokeFont(text.StrokeFont), out var advance);
+            if (segments.Count > 0)
+            {
+                var strokeWidth = Math.Max(1, _transform.ScaleValue(text.StrokeWidth));
+                // Stroke text is laid out from the bottom-left; shift so the justified anchor of its box
+                // (width x height) sits at Location. Screen Y is down, so the box spans y ∈ [-height, 0].
+                double width = advance * height;
+                double offX = ha == TextHAlign.Right ? -width : ha == TextHAlign.Center ? -width / 2.0 : 0;
+                double offY = va == TextVAlign.Top ? height : va == TextVAlign.Middle ? height / 2.0 : 0;
+                foreach (var s in segments)
+                    context.DrawLine(s.X1 * height + offX, -s.Y1 * height + offY,
+                        s.X2 * height + offX, -s.Y2 * height + offY, color, strokeWidth);
+            }
+        }
+        else
+        {
+            var options = new TextRenderOptions
+            {
+                FontFamily = text.FontName ?? "Arial",
+                Bold = text.FontBold,
+                Italic = text.FontItalic,
+                HorizontalAlignment = ha,
+                VerticalAlignment = va,
+            };
+            context.DrawText(text.Text, 0, 0, height, color, options);
+        }
+        context.RestoreState();
+    }
+
+    // Inverted (negative) text: a filled rectangle anchored bottom-left at Location, with the glyphs cut
+    // out (drawn in the knockout colour so the board shows through), placed per InvertedRectJustification.
+    private void DrawInvertedText(IRenderContext context, PcbText text, double sx, double sy, double height,
+        double rotation, uint inkColor, uint knockoutColor)
+    {
+        double w = _transform.ScaleValue(text.InvertedRectWidth);
+        double h = _transform.ScaleValue(text.InvertedRectHeight);
+        if (w < 1 || h < 1) return;
+
+        context.SaveState();
+        context.Translate(sx, sy);
+        if (rotation != 0) context.Rotate(-rotation);
+        if (text.IsMirrored) context.Scale(-1, 1);
+
+        // Local frame is glyph-space Y-up; screen Y is down, so the rectangle spans y ∈ [-h, 0].
+        context.FillRectangle(0, -h, w, h, inkColor);
+
+        var (ha, va) = MapPcbJustification(text.InvertedRectJustification);
+        double margin = Math.Min(w, h) * 0.12;
+        double tx = ha == TextHAlign.Right ? w - margin : ha == TextHAlign.Center ? w / 2.0 : margin;
+        double ty = va == TextVAlign.Top ? -h + margin : va == TextVAlign.Bottom ? -margin : -h / 2.0;
+        var glyphHeight = Math.Min(height, h * 0.86);
         var options = new TextRenderOptions
         {
             FontFamily = text.FontName ?? "Arial",
             Bold = text.FontBold,
             Italic = text.FontItalic,
-            HorizontalAlignment = TextHAlign.Left,
-            VerticalAlignment = TextVAlign.Baseline,
+            HorizontalAlignment = ha,
+            VerticalAlignment = va,
         };
+        context.DrawText(text.Text, tx, ty, glyphHeight, knockoutColor, options);
+        context.RestoreState();
+    }
 
-        if (rotation != 0 || text.IsMirrored)
-        {
-            context.SaveState();
-            context.Translate(x, y);
-            if (rotation != 0) context.Rotate(-rotation);
-            if (text.IsMirrored) context.Scale(-1, 1);
-            context.DrawText(text.Text, 0, 0, height, color, options);
-            context.RestoreState();
-        }
-        else
-        {
-            context.DrawText(text.Text, x, y, height, color, options);
-        }
+    // Maps a schematic-style justification name (e.g. "BottomLeft", "CenterCenter") to alignment.
+    private static (TextHAlign H, TextVAlign V) MapJustification(string name)
+    {
+        var h = name.Contains("Right", StringComparison.OrdinalIgnoreCase) ? TextHAlign.Right
+              : name.Contains("Left", StringComparison.OrdinalIgnoreCase) ? TextHAlign.Left
+              : TextHAlign.Center;
+        var v = name.Contains("Top", StringComparison.OrdinalIgnoreCase) ? TextVAlign.Top
+              : name.Contains("Bottom", StringComparison.OrdinalIgnoreCase) ? TextVAlign.Bottom
+              : TextVAlign.Middle;
+        return (h, v);
+    }
+
+    // Maps the Altium PCB inverted-rect justification (column-major 1..9, Manual=0) to alignment.
+    private static (TextHAlign H, TextVAlign V) MapPcbJustification(PcbTextJustification j)
+    {
+        int v = (int)j;
+        if (v is < 1 or > 9) return (TextHAlign.Center, TextVAlign.Middle); // Manual / unknown
+        var h = ((v - 1) / 3) switch { 0 => TextHAlign.Left, 1 => TextHAlign.Center, _ => TextHAlign.Right };
+        var va = ((v - 1) % 3) switch { 0 => TextVAlign.Top, 1 => TextVAlign.Middle, _ => TextVAlign.Bottom };
+        return (h, va);
     }
 
     // A component's designator/comment text shows only when the component enables that field
@@ -539,7 +670,11 @@ public sealed class PcbRealisticRenderer
 
         context.SaveState();
         context.Translate(cx, cy);
+        // The hole lives in the pad's frame: apply the pad rotation, then any hole-specific rotation, so
+        // a square/slot hole follows the pad's orientation (matching how the pad shape itself is drawn).
+        double padRotation = Finite(pad.Rotation);
         double holeRotation = Finite(pad.HoleRotation);
+        if (padRotation != 0) context.Rotate(-padRotation);
         if (holeRotation != 0) context.Rotate(-holeRotation);
 
         if (pad.HoleType == PadHoleType.Square)
