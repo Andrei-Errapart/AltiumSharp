@@ -8,16 +8,17 @@ using OriginalCircuit.Eda.Primitives;
 namespace OriginalCircuit.Altium.Rendering;
 
 /// <summary>
-/// Turns a PCB <see cref="PcbText"/> that is a Data Matrix barcode into world-space geometry the renderers
-/// can draw. Altium stores only the barcode's source text — never the module pattern — so the symbol is
-/// (re-)encoded with <see cref="DataMatrixEncoder"/> on demand and laid out at the text's location/size.
+/// Turns a PCB <see cref="PcbText"/> that is a 2-D barcode (Data Matrix or QR Code) into world-space geometry
+/// the renderers can draw. Altium stores only the barcode's source text — never the module pattern — so the
+/// symbol is (re-)encoded on demand (<see cref="DataMatrixEncoder"/> / <see cref="QrCodeEncoder"/>) and laid
+/// out at the text's location/size.
 /// </summary>
 /// <remarks>
-/// Sizing follows Altium's barcode "Size Mode": the square symbol fits inside a box (<see cref="Layout.Box"/>)
-/// whose side comes from the text-box width/height fields (where Altium stores a 2-D barcode's full size —
-/// e.g. 7.5&#160;mm on the Coherent Digitiser), inset on all sides by the X/Y margin (the quiet zone). The box's
-/// bottom-left corner is anchored at <see cref="PcbText.Location"/> and the box extends right (+X) / up (+Y)
-/// before the text rotation and mirror are applied — matching the copper backing fill that shares that origin.
+/// Sizing follows Altium's barcode "Size Mode": the square symbol fits inside a box whose side comes from the
+/// text-box width/height fields (where Altium stores a 2-D barcode's full size — e.g. 7.5&#160;mm on the Coherent
+/// Digitiser), inset on all sides by the X/Y margin (the quiet zone). The box's bottom-left corner is anchored
+/// at <see cref="PcbText.Location"/> and extends right (+X) / up (+Y) before the text rotation and mirror are
+/// applied — matching the copper backing fill that shares that origin.
 ///
 /// The renderable region depends on <see cref="PcbText.BarCodeInverted"/>:
 /// <list type="bullet">
@@ -26,10 +27,13 @@ namespace OriginalCircuit.Altium.Rendering;
 /// the light modules — so the symbol reads light-on-dark. On the solder-mask layer that foreground is a mask
 /// opening revealing the copper/finish (a gold field with the data modules left masked / green).</item>
 /// </list>
+///
+/// QR Code symbols use error-correction level M (Altium's fixed level) and the standard penalty-based data
+/// mask, which reproduces Altium's symbol.
 /// </remarks>
-internal static class PcbDataMatrixGeometry
+internal static class PcbBarcodeGeometry
 {
-    /// <summary>The laid-out geometry of a Data Matrix barcode in world coordinates.</summary>
+    /// <summary>The laid-out geometry of a 2-D barcode in world coordinates.</summary>
     public sealed class Layout
     {
         /// <summary>The quads to render as the barcode's foreground (dark modules, or — when inverted — the
@@ -41,19 +45,26 @@ internal static class PcbDataMatrixGeometry
     }
 
     /// <summary>
-    /// Builds the world-space geometry for a Data Matrix barcode text, or returns null if <paramref name="text"/>
-    /// is not a renderable Data Matrix barcode.
+    /// Builds the world-space geometry for a 2-D barcode text, or returns null if <paramref name="text"/> is not
+    /// a renderable Data Matrix or QR Code barcode.
     /// </summary>
     public static Layout? TryBuild(PcbText text)
     {
-        if (text.TextKind != PcbTextKind.BarCode || text.BarCodeType != PcbBarCodeKind.DataMatrix)
-            return null;
+        if (text.TextKind != PcbTextKind.BarCode) return null;
 
         var payload = !string.IsNullOrEmpty(text.ConvertedString) ? text.ConvertedString! : text.Text;
         if (string.IsNullOrEmpty(payload)) return null;
-        if (!DataMatrixEncoder.TryEncode(payload, out var symbol) || symbol is null) return null;
 
-        int n = symbol.Rows; // square symbol: Rows == Columns
+        bool[,]? grid = text.BarCodeType switch
+        {
+            PcbBarCodeKind.DataMatrix => DataMatrixEncoder.TryEncode(payload, out var dm) ? dm!.ToArray() : null,
+            PcbBarCodeKind.QrCode => QrCodeEncoder.TryEncode(payload, QrErrorCorrection.Medium, out var qr) ? qr!.ToArray() : null,
+            _ => null,
+        };
+        if (grid is null) return null;
+
+        int rows = grid.GetLength(0), nCols = grid.GetLength(1);
+        int n = rows; // both symbologies are square
 
         // Box (full barcode extent) and quiet-zone margins, in raw world units.
         double boxW = BoxExtent(text.InvertedRectWidth, text.BarCodeFullWidth, n, text.BarCodeMinWidth, text.Height);
@@ -101,9 +112,9 @@ internal static class PcbDataMatrixGeometry
 
         if (!inverted)
         {
-            for (int r = 0; r < n; r++)
-                for (int c = 0; c < symbol.Columns; c++)
-                    if (symbol[r, c]) foreground.Add(Cell(r, c));
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < nCols; c++)
+                    if (grid[r, c]) foreground.Add(Cell(r, c));
         }
         else
         {
@@ -113,9 +124,9 @@ internal static class PcbDataMatrixGeometry
             foreground.Add(Rect(fr, 0, boxW, boxH));           // right margin strip
             foreground.Add(Rect(fieldX, 0, fr, fieldY));       // bottom margin strip
             foreground.Add(Rect(fieldX, ft, fr, boxH));        // top margin strip
-            for (int r = 0; r < n; r++)
-                for (int c = 0; c < symbol.Columns; c++)
-                    if (!symbol[r, c]) foreground.Add(Cell(r, c));
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < nCols; c++)
+                    if (!grid[r, c]) foreground.Add(Cell(r, c));
         }
 
         return new Layout { Foreground = foreground, Inverted = inverted };

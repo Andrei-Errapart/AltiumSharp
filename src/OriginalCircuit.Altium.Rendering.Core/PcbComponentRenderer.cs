@@ -517,11 +517,11 @@ public sealed class PcbComponentRenderer
         var (x, y) = _transform.WorldToScreen(text.Location.X, text.Location.Y);
         var color = LayerColors.GetColor(text.Layer);
 
-        // Data Matrix (2-D) barcode: draw the encoded module geometry in the layer colour, not the source text.
-        var dataMatrix = PcbDataMatrixGeometry.TryBuild(text);
-        if (dataMatrix is not null)
+        // 2-D barcode (Data Matrix / QR): draw the encoded module geometry in the layer colour, not the text.
+        var barcode = PcbBarcodeGeometry.TryBuild(text);
+        if (barcode is not null)
         {
-            FillWorldQuads(context, dataMatrix.Foreground, color);
+            FillWorldQuads(context, barcode.Foreground, color);
             return;
         }
 

@@ -305,15 +305,15 @@ public sealed class PcbRealisticRenderer
         foreach (var r in c.Regions)
             if (r.Layer == solderLayer && r.Outline.Count >= 3)
                 contours.Add(MapContour(r.Outline));
-        // A Data Matrix barcode on the solder-mask layer removes mask over its foreground region, revealing
-        // the copper/finish beneath. For an inverted symbol (the Coherent Digitiser's) the foreground is the
-        // field around the dark modules, so the opening is a gold square with the data modules left masked.
+        // A 2-D barcode (Data Matrix / QR) on the solder-mask layer removes mask over its foreground region,
+        // revealing the copper/finish beneath. For an inverted symbol (the Coherent Digitiser's) the foreground
+        // is the field around the dark modules, so the opening is a gold square with the data modules left masked.
         foreach (var (text, _) in c.Texts)
             if (text.Layer == solderLayer)
             {
-                var dataMatrix = PcbDataMatrixGeometry.TryBuild(text);
-                if (dataMatrix is not null)
-                    foreach (var quad in dataMatrix.Foreground)
+                var barcode = PcbBarcodeGeometry.TryBuild(text);
+                if (barcode is not null)
+                    foreach (var quad in barcode.Foreground)
                         contours.Add(MapContour(quad));
             }
     }
@@ -557,12 +557,12 @@ public sealed class PcbRealisticRenderer
     {
         if (string.IsNullOrEmpty(text.Text)) return;
 
-        // Data Matrix (2-D) barcode on an ink layer (silk/copper): paint the encoded geometry in the ink
+        // 2-D barcode (Data Matrix / QR) on an ink layer (silk/copper): paint the encoded geometry in the ink
         // colour. On the solder-mask layer the modules are handled as mask openings (AddSolderLayerOpenings).
-        var dataMatrix = PcbDataMatrixGeometry.TryBuild(text);
-        if (dataMatrix is not null)
+        var barcode = PcbBarcodeGeometry.TryBuild(text);
+        if (barcode is not null)
         {
-            foreach (var quad in dataMatrix.Foreground)
+            foreach (var quad in barcode.Foreground)
             {
                 var (mx, my) = MapContour(quad);
                 context.FillPolygon(mx, my, color);
