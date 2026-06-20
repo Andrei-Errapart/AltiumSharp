@@ -364,6 +364,30 @@ public sealed class PhotorealisticRenderingTests
     }
 
     [Fact]
+    public async Task Svg_KeepoutRegionOnCopper_NotDrawnAsCopper()
+    {
+        // A keepout (or cutout) region on the copper layer marks the ABSENCE of copper — e.g. the keepout
+        // around a fiducial. It must not be filled as copper, so laminate shows through the mask opening.
+        static PcbDocument WithRegion(bool keepout)
+        {
+            var board = BuildBoard();
+            var region = PcbRegion.Create().OnLayer(1)
+                .AddPoint(Coord.FromMm(26), Coord.FromMm(20)).AddPoint(Coord.FromMm(30), Coord.FromMm(20))
+                .AddPoint(Coord.FromMm(30), Coord.FromMm(24)).AddPoint(Coord.FromMm(26), Coord.FromMm(24)).Build();
+            region.IsKeepout = keepout;
+            board.AddRegion(region);
+            return board;
+        }
+        static int CopperFinishFills(XDocument doc) =>
+            doc.Descendants(SvgNs + "g").First(g => (string?)g.Attribute("id") == "copper")
+               .Descendants(SvgNs + "polygon").Count(p => (string?)p.Attribute("fill") == "rgb(190,144,66)");
+
+        var keepout = CopperFinishFills(await RenderRealisticSvg(WithRegion(keepout: true)));
+        var copper = CopperFinishFills(await RenderRealisticSvg(WithRegion(keepout: false)));
+        Assert.True(copper > keepout, "a keepout copper region should not add a copper fill");
+    }
+
+    [Fact]
     public void MapPcbJustification_Via_EffectiveExpansion_StillResolvesByMode()
     {
         // Sanity: manual mode uses the object's value; rule mode falls back to the supplied default.

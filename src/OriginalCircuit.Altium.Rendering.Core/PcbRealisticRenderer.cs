@@ -247,7 +247,10 @@ public sealed class PcbRealisticRenderer
         foreach (var t in collected.Tracks) if (t.Layer == copperLayer) DrawTrack(context, t, color);
         foreach (var a in collected.Arcs) if (a.Layer == copperLayer) DrawArc(context, a, color);
         foreach (var f in collected.Fills) if (f.Layer == copperLayer) DrawFill(context, f, color);
-        foreach (var r in collected.Regions) if (r.Layer == copperLayer) DrawRegion(context, r, color);
+        // Skip keepout/cutout regions: they mark the ABSENCE of copper (e.g. the keepout around a fiducial
+        // pad). Drawing them as copper would fill the area — leaving laminate to show through instead.
+        foreach (var r in collected.Regions)
+            if (r.Layer == copperLayer && !r.IsKeepout && r.Kind != 1) DrawRegion(context, r, color);
         foreach (var (text, owner) in collected.Texts)
             if (text.Layer == copperLayer && IsTextVisible(text, owner)) DrawText(context, text, color, knockoutColor);
         foreach (var m in metal) context.FillPolygon(m.CopperXs, m.CopperYs, color);
