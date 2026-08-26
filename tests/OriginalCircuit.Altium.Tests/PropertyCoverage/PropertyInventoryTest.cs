@@ -412,8 +412,9 @@ public class PropertyInventoryTest
         report.AppendLine($"| **Coverage** | **{(totalProps > 0 ? (implementedProps + partialProps) * 100.0 / totalProps : 0):F1}%** |");
         report.AppendLine();
 
-        // Write to file
-        var outputPath = GetDataPath("plans", "property-coverage-checklist.md");
+        // Write to the temp directory, not the repository, so a plain test run leaves the
+        // working tree clean.
+        var outputPath = Path.Combine(Path.GetTempPath(), "OriginalCircuit.Altium.Tests", "property-coverage-checklist.md");
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         File.WriteAllText(outputPath, report.ToString());
 
