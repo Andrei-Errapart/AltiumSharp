@@ -58,11 +58,40 @@ public sealed class PcbModel
     /// </summary>
     public int Checksum { get; set; }
 
+    private byte[] _stepBytes = Array.Empty<byte>();
+    private string? _stepText;
+
     /// <summary>
-    /// The STEP model text data (ISO-10303-21 format).
-    /// Stored compressed (zlib) in the file; decompressed here for direct access.
+    /// The model payload exactly as the file holds it, decompressed. Usually ISO-10303-21 STEP
+    /// text, but Altium embeds whatever file the designer attached — a SolidWorks part, for one,
+    /// is binary — so this, not <see cref="StepData"/>, is what a round-trip must carry.
     /// </summary>
-    public string StepData { get; set; } = string.Empty;
+    public byte[] StepBytes
+    {
+        get => _stepBytes;
+        set
+        {
+            _stepBytes = value ?? Array.Empty<byte>();
+            _stepText = null;
+        }
+    }
+
+    /// <summary>
+    /// The payload read as text (ISO-10303-21 STEP), which is what the STEP parsers and the
+    /// renderers want. Decoded from <see cref="StepBytes"/> as UTF-8 and cached; a payload that
+    /// is not UTF-8 text comes back with replacement characters, so use
+    /// <see cref="StepBytes"/> whenever the bytes themselves matter. Assigning replaces
+    /// <see cref="StepBytes"/> with the UTF-8 encoding of the text.
+    /// </summary>
+    public string StepData
+    {
+        get => _stepText ??= Encoding.UTF8.GetString(_stepBytes);
+        set
+        {
+            _stepText = value ?? string.Empty;
+            _stepBytes = Encoding.UTF8.GetBytes(_stepText);
+        }
+    }
 
     /// <summary>
     /// Parses a PCB "Models" storage into <see cref="PcbModel"/> instances. Model metadata comes
@@ -87,11 +116,11 @@ public sealed class PcbModel
     }
 
     /// <summary>
-    /// Recomputes <see cref="Checksum"/> from the current <see cref="StepData"/> (UTF-8 encoded).
-    /// Call after setting <see cref="StepData"/> on a model authored from scratch.
+    /// Recomputes <see cref="Checksum"/> from the current <see cref="StepBytes"/>.
+    /// Call after setting the payload on a model authored from scratch.
     /// </summary>
     public void RecomputeChecksum()
-        => Checksum = unchecked((int)ComputeChecksum(Encoding.UTF8.GetBytes(StepData)));
+        => Checksum = unchecked((int)ComputeChecksum(StepBytes));
 
     /// <param name="dataStreamBytes">Raw bytes of the <c>Data</c> metadata stream, or null/empty if absent.</param>
     /// <param name="getModelStreamBytes">Returns the bytes of numbered payload stream <paramref name="getModelStreamBytes"/>(i), or null to stop.</param>
@@ -155,7 +184,7 @@ public sealed class PcbModel
                 using var zs = new ZLibStream(ms, CompressionMode.Decompress);
                 using var outMs = new MemoryStream();
                 zs.CopyTo(outMs);
-                model.StepData = Encoding.UTF8.GetString(outMs.ToArray());
+                model.StepBytes = outMs.ToArray();
             }
 
             models.Add(model);
