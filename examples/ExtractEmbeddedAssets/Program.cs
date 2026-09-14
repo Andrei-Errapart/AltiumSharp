@@ -15,7 +15,7 @@
 // ────────────────────
 //   3D models - PcbLibrary.Models is a list of PcbModel. Each has Name (the
 //               original .step filename), Id (the GUID component bodies reference),
-//               and StepData (the decompressed STEP text). Cast the IPcbLibrary
+//               and StepBytes (the decompressed payload). Cast the IPcbLibrary
 //               returned by the reader to the concrete PcbLibrary to reach Models.
 //   Images    - A schematic image is an ISchImage exposing ImageData (raw bytes).
 //               Document-level images live on SchDocument.Images (cast the
@@ -96,7 +96,7 @@ static async Task ExtractModels(string path, string outDir)
     Console.WriteLine($"=== 3D models in {Path.GetFileName(path)} ===");
 
     await using var lib = (PcbLibrary)await AltiumLibrary.OpenPcbLibAsync(path);
-    var models = lib.Models.Where(m => !string.IsNullOrEmpty(m.StepData)).ToList();
+    var models = lib.Models.Where(m => m.StepBytes.Length > 0).ToList();
     if (models.Count == 0)
     {
         Console.WriteLine("  (no embedded STEP models)\n");
@@ -111,8 +111,10 @@ static async Task ExtractModels(string path, string outDir)
         if (!name.EndsWith(".step", StringComparison.OrdinalIgnoreCase) &&
             !name.EndsWith(".stp", StringComparison.OrdinalIgnoreCase))
             name += ".step";
-        await File.WriteAllTextAsync(Path.Combine(dir, name), m.StepData);
-        Console.WriteLine($"  {name}  ({m.StepData.Length:N0} chars)");
+        // Written as bytes: most payloads are STEP text, but Altium embeds whatever file
+        // the designer attached, and a binary one does not survive a text round-trip.
+        await File.WriteAllBytesAsync(Path.Combine(dir, name), m.StepBytes);
+        Console.WriteLine($"  {name}  ({m.StepBytes.Length:N0} bytes)");
     }
     Console.WriteLine($"  -> {models.Count} model(s) written to {dir}\n");
 }
