@@ -20,9 +20,25 @@ public sealed class SchPort : ISchPort
     public int IoType { get; set; }
 
     /// <summary>
-    /// Port style (visual appearance).
+    /// Port style: 0=None, 1=Left, 2=Right, 3=Left &amp; Right, 4=Top, 5=Bottom, 6=Top &amp; Bottom.
+    /// The first four lay the port out along X, the last three along Y (see <see cref="IsVertical"/>).
     /// </summary>
     public int Style { get; set; }
+
+    /// <summary>
+    /// True when the port body runs along Y rather than X — Altium's Top, Bottom and
+    /// Top &amp; Bottom styles. <see cref="Width"/> is the body's length along whichever axis
+    /// it uses, so a vertical port is <see cref="Width"/> tall, not wide.
+    /// </summary>
+    public bool IsVertical => Style is >= 4 and <= 6;
+
+    /// <summary>
+    /// The end of the port body opposite <see cref="Location"/>: one <see cref="Width"/> along
+    /// the port's own axis. Both ends are electrical connection points.
+    /// </summary>
+    public CoordPoint FarEnd => IsVertical
+        ? new CoordPoint(Location.X, Location.Y + Width)
+        : new CoordPoint(Location.X + Width, Location.Y);
 
     /// <summary>
     /// Text alignment within the port.

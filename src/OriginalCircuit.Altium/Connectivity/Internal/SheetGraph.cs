@@ -208,17 +208,20 @@ internal sealed class SheetGraph
 
     private static IEnumerable<CoordPoint> PortConnectionPoints(SchPort port)
     {
-        // Per the renderer, Location IS the wire connection point at the body's vertical centre; the
-        // body extends right by Width on the same centre line. ConnectedEnd selects the wired end.
-        var left = port.Location;
-        var right = new CoordPoint(port.Location.X + port.Width, port.Location.Y);
+        // Location IS a wire connection point, at the centre of the body's near end; the body runs
+        // from there by Width along its own axis, which is Y for Altium's Top/Bottom port styles and
+        // X otherwise. Reading a vertical port as a horizontal one puts its far end Width to the
+        // east instead of Width to the north, where it silently adopts whatever wire ends there.
+        // ConnectedEnd selects the wired end when the file names one.
+        var near = port.Location;
+        var far = port.FarEnd;
         switch (port.ConnectedEnd)
         {
-            case 1: yield return left; break;
-            case 2: yield return right; break;
+            case 1: yield return near; break;
+            case 2: yield return far; break;
             default:
-                yield return left;
-                yield return right;
+                yield return near;
+                yield return far;
                 break;
         }
     }
