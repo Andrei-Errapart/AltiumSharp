@@ -282,6 +282,71 @@ public class SchematicNetlistTests
         Assert.DoesNotContain(nl.Nets, n => n.Name.Contains('[')); // ranged label is not a net name
     }
 
+    // ---- port orientation -----------------------------------------------------------------------
+
+    // A port drawn along Y: Altium's Top/Bottom/Top&Bottom styles (4-6). Width is its length
+    // along that axis, so its far end is Width NORTH of Location, not Width east of it.
+    private static SchPort VerticalPort(string name, int x, int y, int length) => new()
+    {
+        Name = name,
+        Style = 4,
+        Location = new CoordPoint(Coord.FromMils(x), Coord.FromMils(y)),
+        Width = Coord.FromMils(length),
+        Height = Coord.FromMils(100),
+    };
+
+    [Fact]
+    public void Vertical_Port_Connects_Along_Y_Not_X()
+    {
+        // The port stands at (1000,1000) and reaches up to (1000,1600). One wire arrives at its
+        // foot; a second, unrelated wire ends where a horizontal reading would put its far end.
+        var port = VerticalPort("SIG", 1000, 1000, 600);
+        var mine = Wire((1000, 500), (1000, 1000));
+        var other = Wire((1600, 500), (1600, 1000));
+        var a = Comp("A", ("1", 1000, 500));
+        var b = Comp("B", ("1", 1600, 500));
+
+        var nl = Solve(port, mine, other, a, b);
+
+        Assert.NotEqual(nl.NetForPin("A", "1"), nl.NetForPin("B", "1"));
+    }
+
+    [Fact]
+    public void Vertical_Port_Joins_A_Wire_At_Its_Far_End()
+    {
+        var port = VerticalPort("SIG", 1000, 1000, 600);
+        var foot = Wire((1000, 500), (1000, 1000));
+        var head = Wire((1000, 1600), (1000, 2100));
+        var a = Comp("A", ("1", 1000, 500));
+        var b = Comp("B", ("1", 1000, 2100));
+
+        var nl = Solve(port, foot, head, a, b);
+
+        Assert.Equal(nl.NetForPin("A", "1"), nl.NetForPin("B", "1"));
+    }
+
+    [Fact]
+    public void Horizontal_Port_Still_Connects_At_Both_Ends()
+    {
+        // Style 0-3 lay the port out along X; the wide-port-as-jumper-bar drawings rely on it.
+        var port = new SchPort
+        {
+            Name = "SIG",
+            Style = 0,
+            Location = new CoordPoint(Coord.FromMils(1000), Coord.FromMils(1000)),
+            Width = Coord.FromMils(600),
+            Height = Coord.FromMils(100),
+        };
+        var left = Wire((500, 1000), (1000, 1000));
+        var right = Wire((1600, 1000), (2100, 1000));
+        var a = Comp("A", ("1", 500, 1000));
+        var b = Comp("B", ("1", 2100, 1000));
+
+        var nl = Solve(port, left, right, a, b);
+
+        Assert.Equal(nl.NetForPin("A", "1"), nl.NetForPin("B", "1"));
+    }
+
     // ---- harness bundles ------------------------------------------------------------------------
 
     private static (SchHarnessConnector Conn, SchSignalHarness Sh, SchPort Port, SchWire Wire) HarnessBreakout(
