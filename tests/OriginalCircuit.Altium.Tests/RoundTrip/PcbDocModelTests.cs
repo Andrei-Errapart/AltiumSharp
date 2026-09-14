@@ -44,6 +44,50 @@ public sealed class PcbDocModelTests
         Assert.Equal(stepText, m.StepData);
     }
 
+    /// <summary>
+    /// Altium embeds whatever model file the designer attached, and not all of them are STEP
+    /// text — a SolidWorks part is binary. The payload must therefore round-trip as bytes:
+    /// carrying it through a string replaces every byte that is not valid UTF-8 with U+FFFD,
+    /// which silently destroys the model both on read and on the next save.
+    /// </summary>
+    [Fact]
+    public void Models_BinaryPayload_RoundTripsByteForByte()
+    {
+        // 0xFF and a lone 0x80 continuation byte never appear in valid UTF-8.
+        var payload = new byte[] { 0xFF, 0xFE, 0x80, 0x00, 0x01, 0x7A, 0xC3, 0x28, 0x00, 0xBD };
+
+        var doc = new PcbDocument();
+        var model = new PcbModel { Id = "{GUID-1}", Name = "part.SLDPRT", StepBytes = payload };
+        model.RecomputeChecksum();
+        doc.Models.Add(model);
+
+        using var ms = new MemoryStream();
+        new PcbDocWriter().Write(doc, ms);
+        ms.Position = 0;
+        var rt = new PcbDocReader().Read(ms);
+
+        var read = Assert.Single(rt.Models);
+        Assert.Equal(payload, read.StepBytes);
+        Assert.Equal(model.Checksum, read.Checksum);
+        Assert.Equal(unchecked((int)PcbModel.ComputeChecksum(read.StepBytes)), read.Checksum);
+    }
+
+    /// <summary>
+    /// <see cref="PcbModel.StepData"/> stays a text view over the same payload: assigning text
+    /// fills the bytes, and reading text back decodes them.
+    /// </summary>
+    [Fact]
+    public void Models_StepDataIsATextViewOverTheBytes()
+    {
+        const string stepText = "ISO-10303-21;\nEND-ISO-10303-21;";
+
+        var model = new PcbModel { StepData = stepText };
+        Assert.Equal(System.Text.Encoding.UTF8.GetBytes(stepText), model.StepBytes);
+
+        model.StepBytes = System.Text.Encoding.UTF8.GetBytes("OTHER;");
+        Assert.Equal("OTHER;", model.StepData);
+    }
+
     [Fact]
     public void Models_EmptyWhenNoModelStorage()
     {
@@ -79,7 +123,15 @@ public sealed class PcbDocModelTests
             Assert.Equal(doc.Models[i].Id, rt.Models[i].Id);
             Assert.Equal(doc.Models[i].Name, rt.Models[i].Name);
             Assert.Equal(doc.Models[i].Checksum, rt.Models[i].Checksum);
-            Assert.Equal(doc.Models[i].StepData, rt.Models[i].StepData);
+            Assert.Equal(doc.Models[i].StepBytes, rt.Models[i].StepBytes);
+
+            // Altium's own checksum over the payload is the oracle for a lossless read.
+            if (doc.Models[i].Checksum != 0)
+            {
+                Assert.Equal(
+                    unchecked((int)PcbModel.ComputeChecksum(doc.Models[i].StepBytes)),
+                    doc.Models[i].Checksum);
+            }
         }
     }
 }

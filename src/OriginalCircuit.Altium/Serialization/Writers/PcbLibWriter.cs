@@ -1267,9 +1267,9 @@ public sealed class PcbLibWriter
         {
             var model = models[i];
             byte[] compressedData;
-            if (!string.IsNullOrEmpty(model.StepData))
+            if (model.StepBytes.Length > 0)
             {
-                var stepBytes = System.Text.Encoding.UTF8.GetBytes(model.StepData);
+                var stepBytes = model.StepBytes;
                 using var outMs = new MemoryStream();
                 using (var zs = new System.IO.Compression.ZLibStream(outMs, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
                 {
