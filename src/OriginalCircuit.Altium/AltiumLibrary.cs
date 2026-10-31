@@ -51,6 +51,7 @@ public static class AltiumLibrary
     /// <summary>
     /// Opens a PCB footprint library from a stream.
     /// </summary>
+    /// <remarks>The stream must be seekable. It is only read, never written to (even when writable), and is left open.</remarks>
     public static ValueTask<IPcbLibrary> OpenPcbLibAsync(
         Stream stream,
         CancellationToken cancellationToken = default)
@@ -73,6 +74,7 @@ public static class AltiumLibrary
     /// <summary>
     /// Opens a schematic symbol library from a stream.
     /// </summary>
+    /// <remarks>The stream must be seekable. It is only read, never written to (even when writable), and is left open.</remarks>
     public static ValueTask<ISchLibrary> OpenSchLibAsync(
         Stream stream,
         CancellationToken cancellationToken = default)
@@ -95,6 +97,7 @@ public static class AltiumLibrary
     /// <summary>
     /// Opens a schematic document from a stream.
     /// </summary>
+    /// <remarks>The stream must be seekable. It is only read, never written to (even when writable), and is left open.</remarks>
     public static ValueTask<ISchDocument> OpenSchDocAsync(
         Stream stream,
         CancellationToken cancellationToken = default)
@@ -120,6 +123,7 @@ public static class AltiumLibrary
     /// <summary>
     /// Opens a PCB document from a stream.
     /// </summary>
+    /// <remarks>The stream must be seekable. It is only read, never written to (even when writable), and is left open.</remarks>
     public static ValueTask<IPcbDocument> OpenPcbDocAsync(
         Stream stream,
         CancellationToken cancellationToken = default)

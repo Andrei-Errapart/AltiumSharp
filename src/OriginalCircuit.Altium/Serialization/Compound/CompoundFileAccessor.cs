@@ -68,10 +68,22 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
     }
 
     /// <summary>
-    /// Opens a compound file from a stream.
+    /// Opens a compound file from a seekable stream, read-only: the stream is never written to,
+    /// even when it is writable.
     /// </summary>
     public static CompoundFileAccessor Open(Stream stream, bool leaveOpen = false)
     {
+        // OpenMcdf opens a writer whenever the stream can write, and on dispose flushes it: it walks
+        // and rewrites the FAT and header and trims the stream to its last used sector. That fails on
+        // a fixed-size MemoryStream ("Memory stream is not expandable") or on a FAT that runs past the
+        // end, and otherwise silently changes the caller's data. A read-only view prevents all of it;
+        // the view owns the caller's stream exactly as this accessor would.
+        if (stream.CanWrite)
+        {
+            stream = new ReadOnlyStreamView(stream, leaveInnerOpen: leaveOpen);
+            leaveOpen = false;
+        }
+
         // A compound file's length must be a whole number of sectors. A board whose final sector is
         // truncated — a "faulty"/not-fully-written file — makes OpenMcdf throw "...beyond the end of
         // the stream" when it can address the backing buffer directly, e.g. the growable MemoryStream

@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - `SchComponent` now reads `COMPONENTKINDVERSION2` (new `ComponentKindVersion2` property) in SchDocs and SchLibs, and the writer emits it. Newer Altium versions keep the legacy `COMPONENTKIND` at 0 and store the real kind there, so "Standard (No BOM)" parts such as test points and fiducials previously read as Standard.
 - `SchComponent.Comment` read from a SchDoc is now the component's `Comment` parameter, as it already was for a SchLib. It was previously filled with the Design Item ID.
+- Reading a SchDoc, SchLib, PcbDoc or PcbLib from a writable stream no longer writes to it. OpenMcdf flushed the stream on dispose, which trimmed and rewrote the caller's data, and threw on a fixed-size `MemoryStream` ("Memory stream is not expandable") or on a FAT that ran past the end. Any seekable stream now works.
 
 ## [2.0.0-alpha.1] - Unreleased
 
