@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Changed
 
 - `ProjectNetlistBuilder` now walks the hierarchy with `ProjectHierarchy` (the internal walker is gone). Sibling sheet symbols are visited in sheet-position order rather than record order, so per-parent channel numbers follow Altium's.
+- The `LICENSE` file is now the MIT license, matching the README and the package metadata; it previously held the Apache License 2.0. The copyright line reads 2019-2026 Original Circuit Limited in both the file and the package.
 
 ### Fixed
 
