@@ -146,7 +146,9 @@ public static class AltiumLibrary
 
     /// <summary>
     /// Opens an Altium project from a stream of .PrjPcb text. The sibling .PrjPcbStructure
-    /// hierarchy file cannot be located from a stream, so it is not loaded.
+    /// hierarchy file cannot be located from a stream, so it is not loaded: supply it with
+    /// <see cref="OpenProjectAsync(Stream, Stream?, CancellationToken)"/>, or set
+    /// <see cref="AltiumProject.Structure"/> with <see cref="ProjectStructure.Parse(Stream)"/>.
     /// </summary>
     public static ValueTask<AltiumProject> OpenProjectAsync(
         Stream stream,
@@ -154,6 +156,21 @@ public static class AltiumLibrary
     {
         var reader = new PrjPcbReader();
         return new ValueTask<AltiumProject>(reader.Read(stream));
+    }
+
+    /// <summary>
+    /// Opens an Altium project from a stream of .PrjPcb text together with a stream of its
+    /// .PrjPcbStructure file (the compiled sheet hierarchy), for projects that are not on disk,
+    /// such as an uploaded zip. <paramref name="structureStream"/> may be <c>null</c> when the
+    /// structure file is not available. Neither stream is closed.
+    /// </summary>
+    public static ValueTask<AltiumProject> OpenProjectAsync(
+        Stream stream,
+        Stream? structureStream,
+        CancellationToken cancellationToken = default)
+    {
+        var reader = new PrjPcbReader();
+        return new ValueTask<AltiumProject>(reader.Read(stream, structureStream));
     }
 
     /// <summary>

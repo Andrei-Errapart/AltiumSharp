@@ -368,6 +368,46 @@ public sealed class ProjectFileTests
     }
 
     [Fact]
+    public async Task OpenProjectAsync_FromStreams_LoadsTheSuppliedStructure()
+    {
+        using var prj = new MemoryStream(WithBom(SampleProject), writable: false);
+        using var structure = new MemoryStream(WithBom(SampleStructure), writable: false);
+
+        var project = await AltiumLibrary.OpenProjectAsync(prj, structure);
+
+        Assert.Equal(2, project.Documents.Count);
+        Assert.NotNull(project.Structure);
+        Assert.Equal("Board.SchDoc", project.Structure!.TopLevelDocument);
+        Assert.Equal(4, project.Structure.Records.Count);
+        Assert.Equal("Record", project.Structure.Records[0].Fields[0].Key); // the BOM is not part of the first key
+        Assert.True(structure.CanRead); // left open
+    }
+
+    [Fact]
+    public async Task OpenProjectAsync_FromStream_WithoutStructure_HasNone()
+    {
+        using var prj = new MemoryStream(WithBom(SampleProject), writable: false);
+
+        Assert.Null((await AltiumLibrary.OpenProjectAsync(prj)).Structure);
+
+        prj.Position = 0;
+        Assert.Null((await AltiumLibrary.OpenProjectAsync(prj, structureStream: null)).Structure);
+    }
+
+    [Fact]
+    public void Structure_Parse_IgnoresByteOrderMark_InStreamAndText()
+    {
+        using var stream = new MemoryStream(WithBom(SampleStructure));
+        var fromStream = ProjectStructure.Parse(stream);
+        var fromText = ProjectStructure.Parse('﻿' + SampleStructure);
+
+        Assert.Equal("Board.SchDoc", fromStream.TopLevelDocument);
+        Assert.Equal("Board.SchDoc", fromText.TopLevelDocument);
+        Assert.Equal(SampleStructure, fromStream.Serialize());
+        Assert.Equal(SampleStructure, fromText.Serialize());
+    }
+
+    [Fact]
     public async Task OpenAsync_OnProject_ThrowsWithHelpfulMessage()
     {
         var dir = Path.Combine(Path.GetTempPath(), "PrjOpenAsyncTest_" + Guid.NewGuid().ToString("N"));

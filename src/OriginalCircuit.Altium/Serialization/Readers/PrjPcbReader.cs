@@ -47,13 +47,31 @@ public sealed class PrjPcbReader
         return project;
     }
 
-    /// <summary>Reads a project from a stream containing <c>.PrjPcb</c> text. The structure file is not loaded.</summary>
-    public AltiumProject Read(Stream stream)
+    /// <summary>
+    /// Reads a project from a stream containing <c>.PrjPcb</c> text. A stream has no sibling files,
+    /// so the <c>.PrjPcbStructure</c> is not loaded; use <see cref="Read(Stream, Stream?)"/> to supply it.
+    /// </summary>
+    public AltiumProject Read(Stream stream) => Read(stream, structureStream: null);
+
+    /// <summary>
+    /// Reads a project from a stream containing <c>.PrjPcb</c> text, together with the text of its
+    /// <c>.PrjPcbStructure</c> file (the compiled sheet hierarchy) when <paramref name="structureStream"/>
+    /// is not <c>null</c>. Neither stream is closed.
+    /// </summary>
+    public AltiumProject Read(Stream stream, Stream? structureStream)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        var project = ReadBytes(ReadAllBytes(stream));
+        if (structureStream is not null)
+            project.Structure = ProjectStructure.Parse(structureStream);
+        return project;
+    }
+
+    private static byte[] ReadAllBytes(Stream stream)
+    {
         using var ms = new MemoryStream();
         stream.CopyTo(ms);
-        return ReadBytes(ms.ToArray());
+        return ms.ToArray();
     }
 
     /// <summary>Parses already-decoded <c>.PrjPcb</c> text. A leading UTF-8/UTF-16 BOM character is honoured.</summary>

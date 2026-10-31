@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - `ComponentType` enum (Altium's component "Type": Standard, Mechanical, Graphical, Net Tie (In BOM), Net Tie, Standard (No BOM), Jumper) with `IsInBom()`. `SchComponent.ComponentType` and `PcbComponent.ComponentType` give the effective type.
 - `SchComponent.Designator` (the `Designator` parameter), `FindParameter`, `GetParameterValue`, `GetResolvedParameterValue`, `GetResolvedComment` and `ResolveParameterText`, plus the `ParameterReference` helper. They resolve Altium's `=Name` parameter references (such as a Comment of `=Value` or `=Part Number`) against the component's parameters, then the sheet's, then the project's.
+- `AltiumLibrary.OpenProjectAsync(Stream, Stream? structureStream)` and `PrjPcbReader.Read(Stream, Stream?)` load a project together with its `.PrjPcbStructure` when neither is on disk. `ProjectStructure.Parse(Stream)` reads a structure file's bytes, and `Parse(string)` now ignores a leading byte-order mark.
 
 ### Fixed
 

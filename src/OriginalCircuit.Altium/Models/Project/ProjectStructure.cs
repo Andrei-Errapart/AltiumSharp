@@ -174,14 +174,31 @@ public sealed class ProjectStructure
     }
 
     /// <summary>
+    /// Reads a <c>.PrjPcbStructure</c> file from a stream of its bytes (UTF-8, with or without a
+    /// byte-order mark). The stream is read to the end and not closed. Use this, or
+    /// <see cref="OriginalCircuit.Altium.AltiumLibrary.OpenProjectAsync(Stream, Stream?, CancellationToken)"/>,
+    /// to give a project opened from a stream its structure:
+    /// <c>project.Structure = ProjectStructure.Parse(structureStream)</c>.
+    /// </summary>
+    public static ProjectStructure Parse(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
+        return Parse(reader.ReadToEnd());
+    }
+
+    /// <summary>
     /// Parses the text of a <c>.PrjPcbStructure</c> file into a <see cref="ProjectStructure"/>.
-    /// Blank lines are ignored; each non-blank line is one pipe-delimited record.
+    /// A leading byte-order mark is ignored, blank lines are ignored, and each other line is one
+    /// pipe-delimited record.
     /// </summary>
     public static ProjectStructure Parse(string text)
     {
         var structure = new ProjectStructure();
         if (string.IsNullOrEmpty(text))
             return structure;
+        if (text[0] == '﻿')
+            text = text[1..];
 
         foreach (var rawLine in text.Split('\n'))
         {
