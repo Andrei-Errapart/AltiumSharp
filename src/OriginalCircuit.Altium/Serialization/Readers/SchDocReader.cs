@@ -335,6 +335,11 @@ public sealed class SchDocReader
                 document.AddPrimitive(primitive);
             }
         }
+
+        // A placed component's comment is its "Comment" child parameter, as in a SchLib. It is
+        // usually a reference such as "=Value", resolved by SchComponent.GetResolvedComment.
+        foreach (var component in components.Values)
+            component.Comment = component.GetParameterValue("Comment");
     }
 
     private static SchComponent CreateComponent(Dictionary<string, string> parameters)
@@ -346,7 +351,6 @@ public sealed class SchDocReader
         {
             Name = dto.LibReference ?? dto.DesignItemId ?? string.Empty,
             Description = dto.ComponentDescription,
-            Comment = dto.DesignItemId,
             PartCount = Math.Max(0, dto.PartCount - 1),
             UniqueId = dto.UniqueId,
             Location = new CoordPoint(CoordFromDxp(dto.LocationX, dto.LocationXFrac), CoordFromDxp(dto.LocationY, dto.LocationYFrac)),

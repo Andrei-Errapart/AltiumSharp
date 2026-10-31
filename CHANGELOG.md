@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-alpha.2] - Unreleased
+
+### Added
+
+- `ComponentType` enum (Altium's component "Type": Standard, Mechanical, Graphical, Net Tie (In BOM), Net Tie, Standard (No BOM), Jumper) with `IsInBom()`. `SchComponent.ComponentType` and `PcbComponent.ComponentType` give the effective type.
+- `SchComponent.Designator` (the `Designator` parameter), `FindParameter`, `GetParameterValue`, `GetResolvedParameterValue`, `GetResolvedComment` and `ResolveParameterText`, plus the `ParameterReference` helper. They resolve Altium's `=Name` parameter references (such as a Comment of `=Value` or `=Part Number`) against the component's parameters, then the sheet's, then the project's.
+
+### Fixed
+
+- `SchComponent` now reads `COMPONENTKINDVERSION2` (new `ComponentKindVersion2` property) in SchDocs and SchLibs, and the writer emits it. Newer Altium versions keep the legacy `COMPONENTKIND` at 0 and store the real kind there, so "Standard (No BOM)" parts such as test points and fiducials previously read as Standard.
+- `SchComponent.Comment` read from a SchDoc is now the component's `Comment` parameter, as it already was for a SchLib. It was previously filled with the Design Item ID.
+
 ## [2.0.0-alpha.1] - Unreleased
 
 ### Added

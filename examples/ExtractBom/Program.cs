@@ -13,12 +13,14 @@
 // A schematic component is an ISchComponent; cast it to the concrete SchComponent
 // to reach the fields a BOM needs:
 //
-//   Designator  - NOT a dedicated property. Altium stores the reference designator
-//                 as a *parameter* named "Designator" on the component. We read it
-//                 from SchComponent.Parameters. Components with no designator
-//                 (power ports, net ties, graphics) are skipped.
-//   Value       - SchComponent.Comment is Altium's "Value" field (e.g. "10k",
-//                 "100nF"). We fall back to a "Value" parameter if Comment is blank.
+//   Designator  - Altium stores the reference designator as a *parameter* named
+//                 "Designator"; SchComponent.Designator reads it. Components with no
+//                 designator (graphics) and types Altium leaves out of a BOM
+//                 (ComponentType.IsInBom(): test points, fiducials, net ties) are
+//                 skipped.
+//   Value       - The "Comment" parameter, which is usually a reference such as
+//                 "=Value" or "=Part Number". SchComponent.GetResolvedComment()
+//                 resolves it (e.g. to "10k"). We fall back to a "Value" parameter.
 //   Footprint   - The active PCB implementation link (SchComponent.Implementations
 //                 where ModelType == "PCBLIB"). We fall back to a "Footprint"
 //                 parameter.
@@ -41,6 +43,7 @@
 // ============================================================================
 
 using OriginalCircuit.Altium;
+using OriginalCircuit.Altium.Models;
 using OriginalCircuit.Altium.Models.Sch;
 using OriginalCircuit.Eda.Primitives;
 
@@ -63,12 +66,13 @@ foreach (var component in doc.Components)
 {
     var sc = (SchComponent)component;
 
-    var designator = GetParameter(sc, "Designator");
-    if (string.IsNullOrWhiteSpace(designator))
-        continue;   // power port, net tie, graphic, etc. - not a purchasable part
+    var designator = sc.Designator;
+    if (string.IsNullOrWhiteSpace(designator) || !sc.ComponentType.IsInBom())
+        continue;   // graphic, test point, fiducial, net tie, etc. - not a purchasable part
 
-    var value = !string.IsNullOrWhiteSpace(sc.Comment)
-        ? sc.Comment!.Trim()
+    var comment = sc.GetResolvedComment((SchDocument)doc);
+    var value = !string.IsNullOrWhiteSpace(comment)
+        ? comment!.Trim()
         : (GetParameter(sc, "Value") ?? "");
 
     var footprint = GetFootprint(sc) ?? GetParameter(sc, "Footprint") ?? "";

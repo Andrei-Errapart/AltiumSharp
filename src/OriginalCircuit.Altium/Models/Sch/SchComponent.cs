@@ -52,8 +52,19 @@ public sealed class SchComponent : ISchComponent
     /// <inheritdoc />
     public string? Description { get; set; }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// The component's comment: on read, the raw text of its <c>Comment</c> parameter. Altium
+    /// usually stores a reference here, such as <c>=Value</c> or <c>=Part Number</c>; use
+    /// <see cref="GetResolvedComment"/> for the text Altium displays.
+    /// </summary>
     public string? Comment { get; set; }
+
+    /// <summary>
+    /// The reference designator: the value of the <c>Designator</c> parameter (for example
+    /// <c>"R1"</c>, or <c>"R?"</c> before annotation), or <c>null</c> when there is none. In a
+    /// multi-channel design this is the logical designator shared by every channel.
+    /// </summary>
+    public string? Designator => GetParameterValue("Designator") is { Length: > 0 } designator ? designator : null;
 
     /// <inheritdoc />
     public string? DesignatorPrefix { get; set; }
@@ -680,6 +691,72 @@ public sealed class SchComponent : ISchComponent
     }
 
     bool ISchComponent.RemoveParameter(ISchParameter parameter) => parameter is SchParameter p && _parameters.Remove(p);
+
+    /// <summary>
+    /// Returns the first parameter with the given name (compared case-insensitively, as Altium
+    /// does), or <c>null</c>.
+    /// </summary>
+    public SchParameter? FindParameter(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        foreach (var parameter in _parameters)
+        {
+            if (string.Equals(parameter.Name, name, StringComparison.OrdinalIgnoreCase))
+                return parameter;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the raw value of the first parameter with the given name (case-insensitive), or
+    /// <c>null</c> when the component has no such parameter.
+    /// </summary>
+    public string? GetParameterValue(string name) => FindParameter(name)?.Value;
+
+    /// <summary>
+    /// Returns a parameter's value with any parameter reference resolved (see
+    /// <see cref="ResolveParameterText"/>), or <c>null</c> when the component has no such parameter.
+    /// </summary>
+    /// <param name="name">The parameter name (case-insensitive).</param>
+    /// <param name="sheet">The sheet the component is placed on; its parameters are the second lookup scope.</param>
+    /// <param name="project">The project; its parameters are the third lookup scope.</param>
+    public string? GetResolvedParameterValue(string name, SchDocument? sheet = null, Project.AltiumProject? project = null) =>
+        ResolveParameterText(GetParameterValue(name), sheet, project);
+
+    /// <summary>
+    /// Returns <see cref="Comment"/> (or, when it is unset, the <c>Comment</c> parameter) with its
+    /// parameter reference resolved: a comment of <c>=Value</c> becomes the value of the
+    /// component's <c>Value</c> parameter.
+    /// </summary>
+    /// <param name="sheet">The sheet the component is placed on; its parameters are the second lookup scope.</param>
+    /// <param name="project">The project; its parameters are the third lookup scope.</param>
+    public string? GetResolvedComment(SchDocument? sheet = null, Project.AltiumProject? project = null) =>
+        ResolveParameterText(Comment ?? GetParameterValue("Comment"), sheet, project);
+
+    /// <summary>
+    /// Resolves an Altium parameter reference. A text of the form <c>=Name</c> stands for the value
+    /// of the parameter called <c>Name</c>, looked up on this component, then among the
+    /// <paramref name="sheet"/>'s parameters, then among the <paramref name="project"/>'s parameters
+    /// (each case-insensitively). A referenced value that is itself a reference is followed. Any
+    /// other text, or a reference that cannot be resolved, is returned unchanged.
+    /// </summary>
+    public string? ResolveParameterText(string? text, SchDocument? sheet = null, Project.AltiumProject? project = null) =>
+        ParameterReference.Resolve(text, name =>
+            GetParameterValue(name)
+            ?? FindValue(sheet?.Parameters, name)
+            ?? project?.Parameters.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))?.Value);
+
+    private static string? FindValue(IReadOnlyList<ISchParameter>? parameters, string name)
+    {
+        if (parameters is null)
+            return null;
+        foreach (var parameter in parameters)
+        {
+            if (string.Equals(parameter.Name, name, StringComparison.OrdinalIgnoreCase))
+                return parameter.Value;
+        }
+        return null;
+    }
 
     /// <summary>
     /// Creates a fluent builder for a new component.
