@@ -9,7 +9,8 @@ namespace OriginalCircuit.Altium.Models.Project;
 public sealed class ProjectHierarchyOptions
 {
     private readonly int _maxDepth = 64;
-    private readonly int _maxSheetInstances = 100_000;
+    private readonly int _maxSheetInstances = 10_000;
+    private readonly int _maxComponentParts = 200_000;
 
     /// <summary>The default limits.</summary>
     public static ProjectHierarchyOptions Default { get; } = new();
@@ -28,7 +29,7 @@ public sealed class ProjectHierarchyOptions
         }
     }
 
-    /// <summary>The most sheet instances created; the walk stops there. Default 100,000.</summary>
+    /// <summary>The most sheet instances created; the walk stops there. Default 10,000.</summary>
     public int MaxSheetInstances
     {
         get => _maxSheetInstances;
@@ -36,6 +37,21 @@ public sealed class ProjectHierarchyOptions
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
             _maxSheetInstances = value;
+        }
+    }
+
+    /// <summary>
+    /// The most placed component parts (<see cref="ProjectHierarchy.Parts"/>); the walk stops before a
+    /// sheet instance that would exceed it. A small <c>Repeat(...)</c> over a large sheet otherwise
+    /// produces millions of parts. Default 200,000.
+    /// </summary>
+    public int MaxComponentParts
+    {
+        get => _maxComponentParts;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            _maxComponentParts = value;
         }
     }
 }

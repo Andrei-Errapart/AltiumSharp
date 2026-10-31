@@ -442,10 +442,49 @@ public sealed class ProjectHierarchyTests
     }
 
     [Fact]
+    public void RepeatOverALargeSheet_StopsAtThePartLimit()
+    {
+        // Repeat(CH,1,9999) over a 300-part sheet would place about 3 million parts.
+        var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,1,9999)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Enumerable.Range(1, 300).Select(i => (object)Part($"R{i}", $"RES{i:D5}")).ToArray());
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var hierarchy = ProjectHierarchy.Build(null, new[] { top, channel });
+
+        Assert.True(hierarchy.IsTruncated);
+        Assert.Equal(666 * 300, hierarchy.Parts.Count); // whole channels up to the default 200,000
+        Assert.Equal(667, hierarchy.Sheets.Count);
+        Assert.Contains(hierarchy.Diagnostics, d => d.Severity == DiagnosticSeverity.Error &&
+            d.Message.Contains("MaxComponentParts", StringComparison.Ordinal));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(30), $"took {watch.Elapsed}");
+    }
+
+    [Fact]
+    public void Limits_CanBeSetByTheCaller()
+    {
+        var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,1,100000)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"), Part("R2", "RESISTR2"));
+
+        var byDefault = ProjectHierarchy.Build(null, new[] { top, Sheet("Channel.SchDoc") });
+        Assert.Equal(10_000, byDefault.Sheets.Count);
+        Assert.True(byDefault.IsTruncated);
+
+        var byParts = ProjectHierarchy.Build(null, new[] { top, channel }, new ProjectHierarchyOptions { MaxComponentParts = 5 });
+        Assert.Equal(4, byParts.Parts.Count);
+        Assert.True(byParts.IsTruncated);
+
+        var small = Sheet("Small.SchDoc", Symbol("Repeat(CH,1,3)", "Channel.SchDoc", "SYMCHANL"));
+        var withinLimits = ProjectHierarchy.Build(null, new[] { small, channel }, new ProjectHierarchyOptions { MaxComponentParts = 6 });
+        Assert.False(withinLimits.IsTruncated);
+        Assert.Equal(6, withinLimits.Parts.Count);
+    }
+
+    [Fact]
     public void Options_RejectInvalidLimits()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new ProjectHierarchyOptions { MaxDepth = -1 });
         Assert.Throws<ArgumentOutOfRangeException>(() => new ProjectHierarchyOptions { MaxSheetInstances = 0 });
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ProjectHierarchyOptions { MaxComponentParts = -1 });
     }
 
     [Fact]

@@ -51,6 +51,8 @@ public sealed class ProjectHierarchy
     private readonly Dictionary<string, PhysicalComponentPart> _partByUniqueIdPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<PhysicalComponentPart>> _partsByComponentUid = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HierarchySheetInstance> _sheetByUniqueIdPath = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<SchDocument, int> _designatedCounts = new(ReferenceEqualityComparer.Instance);
+    private long _plannedParts;
     private bool _stopped;
 
     private ProjectHierarchy(AltiumProject? project, Dictionary<string, SchDocument> documents,
@@ -447,14 +449,36 @@ public sealed class ProjectHierarchy
                  "the walk stopped there.");
             return null;
         }
+        var document = _documents[fileName];
+        var parts = DesignatedComponentCount(document);
+        if (_plannedParts + parts > _options.MaxComponentParts)
+        {
+            Stop($"The design places more than {_options.MaxComponentParts} component parts (ProjectHierarchyOptions.MaxComponentParts); " +
+                 "the walk stopped there.");
+            return null;
+        }
+        _plannedParts += parts;
 
-        var instance = new HierarchySheetInstance(_sheets.Count, _documents[fileName], fileName, parent, symbol, repeatIndex, symbolUniqueIds);
+        var instance = new HierarchySheetInstance(_sheets.Count, document, fileName, parent, symbol, repeatIndex, symbolUniqueIds);
         _sheets.Add(instance);
         parent?.AddChild(instance);
         if (instance.UniqueIdPath.Length > 0)
             _sheetByUniqueIdPath.TryAdd(instance.UniqueIdPath, instance);
         return instance;
     }
+
+    // The number of parts CollectParts takes from one instance of the document.
+    private int DesignatedComponentCount(SchDocument document)
+    {
+        if (!_designatedCounts.TryGetValue(document, out var count))
+        {
+            count = document.Components.OfType<SchComponent>().Count(c => HasDesignator(c));
+            _designatedCounts[document] = count;
+        }
+        return count;
+    }
+
+    private static bool HasDesignator(SchComponent component) => !string.IsNullOrWhiteSpace(component.Designator);
 
     private void Stop(string message)
     {
