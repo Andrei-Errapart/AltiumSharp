@@ -117,9 +117,24 @@ public sealed class SchComponent : ISchComponent
     public string? DesignItemId { get; set; }
 
     /// <summary>
-    /// Component kind (0=Standard, 1=Mechanical, etc.).
+    /// The legacy component kind (the <c>COMPONENTKIND</c> key; 0=Standard, 1=Mechanical, etc.).
+    /// Newer Altium versions leave this at 0 and store the real kind in
+    /// <see cref="ComponentKindVersion2"/>; read <see cref="ComponentType"/> for the effective value.
     /// </summary>
     public int ComponentKind { get; set; }
+
+    /// <summary>
+    /// The component kind from the <c>COMPONENTKINDVERSION2</c> key, or <c>null</c> when the record
+    /// has none. Altium writes it for kinds the legacy key cannot hold, such as
+    /// <see cref="Models.ComponentType.StandardNoBom"/>.
+    /// </summary>
+    public int? ComponentKindVersion2 { get; set; }
+
+    /// <summary>
+    /// The effective component type: <see cref="ComponentKindVersion2"/> when present, otherwise
+    /// <see cref="ComponentKind"/>. Use <see cref="ComponentTypeExtensions.IsInBom"/> to decide BOM inclusion.
+    /// </summary>
+    public ComponentType ComponentType => (ComponentType)(ComponentKindVersion2 ?? ComponentKind);
 
     /// <summary>
     /// Whether colors are overridden.

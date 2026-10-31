@@ -782,6 +782,7 @@ public sealed class SchLibReader
         component.LibReference = dto.LibReference;
         component.DesignItemId = dto.DesignItemId;
         component.ComponentKind = dto.ComponentKind;
+        component.ComponentKindVersion2 = ReadComponentKindVersion2(parameters);
         component.OverrideColors = dto.OverrideColors;
         component.Color = dto.Color;
         component.AreaColor = dto.AreaColor;
@@ -1178,6 +1179,15 @@ public sealed class SchLibReader
         }
         return ParameterCollection.Parse(sb.ToString());
     }
+
+    /// <summary>
+    /// Reads a component record's optional <c>COMPONENTKINDVERSION2</c> key, or <c>null</c> when absent.
+    /// Read here rather than through the DTO because the generator maps a missing int to 0, and
+    /// absence must stay distinguishable so the writer can leave the key out.
+    /// </summary>
+    internal static int? ReadComponentKindVersion2(Dictionary<string, string> parameters) =>
+        parameters.TryGetValue("COMPONENTKINDVERSION2", out var value) &&
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var kind) ? kind : null;
 
     private static SchPin CreatePin(Dictionary<string, string> parameters)
     {

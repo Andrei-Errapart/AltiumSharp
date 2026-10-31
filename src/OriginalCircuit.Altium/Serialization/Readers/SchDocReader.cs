@@ -361,6 +361,7 @@ public sealed class SchDocReader
             LibReference = dto.LibReference,
             DesignItemId = dto.DesignItemId,
             ComponentKind = dto.ComponentKind,
+            ComponentKindVersion2 = SchLibReader.ReadComponentKindVersion2(parameters),
             OverrideColors = dto.OverrideColors,
             Color = dto.Color,
             AreaColor = dto.AreaColor,

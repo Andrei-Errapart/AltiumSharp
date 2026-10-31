@@ -478,6 +478,9 @@ public sealed class SchLibWriter
                 AddCoordParam(parameters, "Location.X", schComp.Location.X);
                 AddCoordParam(parameters, "Location.Y", schComp.Location.Y);
             }
+            // Altium writes ComponentKindVersion2 as the record's last key.
+            if (schComp.ComponentKindVersion2 is { } kindVersion2)
+                parameters["ComponentKindVersion2"] = kindVersion2.ToString(CultureInfo.InvariantCulture);
         }
 
         writer.WriteCStringParameterBlock(parameters);

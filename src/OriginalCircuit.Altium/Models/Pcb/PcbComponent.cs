@@ -58,6 +58,12 @@ public sealed class PcbComponent : IPcbComponent
     /// <summary>Second component-kind enum (the optional <c>COMPONENTKINDVERSION2</c> key); null when absent.</summary>
     public int? ComponentKindVersion2 { get; set; }
 
+    /// <summary>
+    /// The effective component type: <see cref="ComponentKindVersion2"/> when present, otherwise
+    /// <see cref="ComponentKind"/>, otherwise <see cref="Models.ComponentType.Standard"/>.
+    /// </summary>
+    public ComponentType ComponentType => (ComponentType)(ComponentKindVersion2 ?? ComponentKind ?? 0);
+
     /// <summary>Selection flag (transient; FALSE on disk).</summary>
     public bool Selection { get; set; }
 
