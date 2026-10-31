@@ -39,10 +39,7 @@ public sealed class ProjectHierarchy
     /// <summary>Altium's default <c>ChannelDesignatorFormatString</c>.</summary>
     public const string DefaultDesignatorFormat = "$Component_$RoomName";
 
-    // Repeat() allows up to 100k channels per symbol and symbols nest, so bound the walk for
-    // untrusted input.
-    private const int MaxSheetInstances = 100_000;
-
+    private readonly ProjectHierarchyOptions _options;
     private readonly Dictionary<string, SchDocument> _documents;
     private readonly List<HierarchySheetInstance> _roots = new();
     private readonly List<HierarchySheetInstance> _sheets = new();
@@ -54,13 +51,15 @@ public sealed class ProjectHierarchy
     private readonly Dictionary<string, PhysicalComponentPart> _partByUniqueIdPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<PhysicalComponentPart>> _partsByComponentUid = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HierarchySheetInstance> _sheetByUniqueIdPath = new(StringComparer.OrdinalIgnoreCase);
-    private bool _truncated;
+    private bool _stopped;
 
-    private ProjectHierarchy(AltiumProject? project, Dictionary<string, SchDocument> documents, List<AltiumDiagnostic> diagnostics)
+    private ProjectHierarchy(AltiumProject? project, Dictionary<string, SchDocument> documents,
+        List<AltiumDiagnostic> diagnostics, ProjectHierarchyOptions options)
     {
         Project = project;
         _documents = documents;
         _diagnostics = diagnostics;
+        _options = options;
         var design = project?.GetSection("Design");
         DesignatorFormat = design?.Get("ChannelDesignatorFormatString") is { Length: > 0 } format ? format : DefaultDesignatorFormat;
         RoomNamingStyle = design?.Get("ChannelRoomNamingStyle") is { Length: > 0 } style ? style : "0";
@@ -96,6 +95,13 @@ public sealed class ProjectHierarchy
 
     /// <summary>Problems found while building: missing sheets, duplicate designators and the like.</summary>
     public IReadOnlyList<AltiumDiagnostic> Diagnostics => _diagnostics;
+
+    /// <summary>
+    /// Whether a <see cref="ProjectHierarchyOptions"/> limit was reached, so part of the design is
+    /// missing from <see cref="Sheets"/>, <see cref="Parts"/> and <see cref="Components"/>. An
+    /// error in <see cref="Diagnostics"/> says which limit.
+    /// </summary>
+    public bool IsTruncated { get; private set; }
 
     /// <summary>Returns the physical component with the given physical designator (case-insensitive), or <c>null</c>.</summary>
     public PhysicalComponent? FindComponent(string designator)
@@ -149,10 +155,11 @@ public sealed class ProjectHierarchy
     /// </summary>
     /// <param name="project">The project, for its structure file and channel settings; may be <c>null</c>.</param>
     /// <param name="sheets">The project's schematic documents, in project order.</param>
-    public static ProjectHierarchy Build(AltiumProject? project, IEnumerable<SchDocument> sheets)
+    /// <param name="options">Limits on the walk; <see cref="ProjectHierarchyOptions.Default"/> when <c>null</c>.</param>
+    public static ProjectHierarchy Build(AltiumProject? project, IEnumerable<SchDocument> sheets, ProjectHierarchyOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(sheets);
-        return Build(project, sheets, new List<AltiumDiagnostic>());
+        return Build(project, sheets, new List<AltiumDiagnostic>(), options ?? ProjectHierarchyOptions.Default);
     }
 
     /// <summary>
@@ -164,7 +171,8 @@ public sealed class ProjectHierarchy
     /// </summary>
     /// <exception cref="AltiumCorruptFileException">A supplied document is not a readable SchDoc.</exception>
     public static async ValueTask<ProjectHierarchy> LoadAsync(
-        AltiumProject project, Func<ProjectDocument, Stream?> openDocument, CancellationToken cancellationToken = default)
+        AltiumProject project, Func<ProjectDocument, Stream?> openDocument,
+        ProjectHierarchyOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(openDocument);
@@ -205,7 +213,7 @@ public sealed class ProjectHierarchy
             sheets.Add(sheet);
         }
 
-        return Build(project, sheets, diagnostics);
+        return Build(project, sheets, diagnostics, options ?? ProjectHierarchyOptions.Default);
     }
 
     /// <summary>
@@ -213,7 +221,8 @@ public sealed class ProjectHierarchy
     /// (<see cref="AltiumProject.FilePath"/> must be set), and builds the hierarchy. Documents that
     /// are not found are reported in <see cref="Diagnostics"/>.
     /// </summary>
-    public static async ValueTask<ProjectHierarchy> LoadAsync(AltiumProject project, CancellationToken cancellationToken = default)
+    public static async ValueTask<ProjectHierarchy> LoadAsync(
+        AltiumProject project, ProjectHierarchyOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(project);
 
@@ -234,10 +243,11 @@ public sealed class ProjectHierarchy
             sheets.Add(sheet);
         }
 
-        return Build(project, sheets, diagnostics);
+        return Build(project, sheets, diagnostics, options ?? ProjectHierarchyOptions.Default);
     }
 
-    private static ProjectHierarchy Build(AltiumProject? project, IEnumerable<SchDocument> sheets, List<AltiumDiagnostic> diagnostics)
+    private static ProjectHierarchy Build(AltiumProject? project, IEnumerable<SchDocument> sheets,
+        List<AltiumDiagnostic> diagnostics, ProjectHierarchyOptions options)
     {
         var documents = new Dictionary<string, SchDocument>(StringComparer.OrdinalIgnoreCase);
         var order = new List<string>();
@@ -261,7 +271,7 @@ public sealed class ProjectHierarchy
             order.Add(name);
         }
 
-        var hierarchy = new ProjectHierarchy(project, documents, diagnostics);
+        var hierarchy = new ProjectHierarchy(project, documents, diagnostics, options);
         hierarchy.Compile(order);
         return hierarchy;
     }
@@ -279,8 +289,9 @@ public sealed class ProjectHierarchy
 
         foreach (var root in DetermineRoots(documentOrder))
         {
-            var ancestors = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { root };
-            _roots.Add(WalkSheet(root, parent: null, symbol: null, repeatIndex: null, Array.Empty<string>(), ancestors));
+            if (_stopped)
+                break;
+            Walk(root);
         }
 
         var instantiated = new HashSet<string>(_sheets.Select(s => s.FileName), StringComparer.OrdinalIgnoreCase);
@@ -322,19 +333,70 @@ public sealed class ProjectHierarchy
         return roots;
     }
 
-    private HierarchySheetInstance WalkSheet(string fileName, HierarchySheetInstance? parent, SchSheetSymbol? symbol,
-        int? repeatIndex, IReadOnlyList<string> symbolUniqueIds, HashSet<string> ancestors)
+    // A sheet instance whose sheet symbols are being expanded. The walk keeps these on an explicit
+    // stack rather than recursing, so a crafted chain of thousands of sheets cannot overflow the
+    // call stack (which would end the process).
+    private sealed class WalkFrame(HierarchySheetInstance instance, List<SchSheetSymbol> symbols)
     {
-        var document = _documents[fileName];
-        var instance = new HierarchySheetInstance(_sheets.Count, document, fileName, parent, symbol, repeatIndex, symbolUniqueIds);
-        _sheets.Add(instance);
-        parent?.AddChild(instance);
-        if (instance.UniqueIdPath.Length > 0)
-            _sheetByUniqueIdPath.TryAdd(instance.UniqueIdPath, instance);
+        public HierarchySheetInstance Instance { get; } = instance;
+        public List<SchSheetSymbol> Symbols { get; } = symbols;
+        public int NextSymbol { get; set; }
+        public SchSheetSymbol? Symbol { get; set; }
+        public string ChildName { get; set; } = string.Empty;
+        public string SymbolUid { get; set; } = string.Empty;
+        public RepeatInfo Repeat { get; set; }
+        public int NextIndex { get; set; }
+    }
 
-        foreach (var child in OrderSiblings(document.SheetSymbols))
+    // Depth-first, each instance before its children and siblings in OrderSiblings order.
+    private void Walk(string rootName)
+    {
+        var root = Enter(rootName, parent: null, symbol: null, repeatIndex: null, Array.Empty<string>());
+        if (root is null)
+            return;
+        _roots.Add(root);
+
+        var ancestors = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rootName };
+        var stack = new Stack<WalkFrame>();
+        stack.Push(new WalkFrame(root, OrderSiblings(root.Document.SheetSymbols).ToList()));
+        while (stack.Count > 0 && !_stopped)
         {
-            var childName = NormalizeFileName(child.FileName);
+            var frame = stack.Peek();
+            if (frame.Symbol is null && !StartNextSymbol(frame, ancestors))
+            {
+                stack.Pop();
+                if (frame.Instance.Parent is not null)
+                    ancestors.Remove(frame.Instance.FileName);
+                continue;
+            }
+
+            var repeat = frame.Repeat;
+            var k = frame.NextIndex++;
+            if (k > repeat.LastInstance)
+            {
+                frame.Symbol = null;
+                continue;
+            }
+
+            // Altium names a Repeat channel by its index followed by the symbol's unique id ("5ABCDEFGH").
+            var segment = repeat.IsRepeated ? k.ToString(CultureInfo.InvariantCulture) + frame.SymbolUid : frame.SymbolUid;
+            var child = Enter(frame.ChildName, frame.Instance, frame.Symbol, repeat.IsRepeated ? k : null,
+                Append(frame.Instance.SymbolUniqueIds, segment));
+            if (child is null)
+                break;
+            ancestors.Add(child.FileName);
+            stack.Push(new WalkFrame(child, OrderSiblings(child.Document.SheetSymbols).ToList()));
+        }
+    }
+
+    // Moves the frame to its next sheet symbol that can be followed, reporting those that cannot.
+    private bool StartNextSymbol(WalkFrame frame, HashSet<string> ancestors)
+    {
+        var fileName = frame.Instance.FileName;
+        while (frame.NextSymbol < frame.Symbols.Count)
+        {
+            var symbol = frame.Symbols[frame.NextSymbol++];
+            var childName = NormalizeFileName(symbol.FileName);
             if (childName is null)
             {
                 Report(DiagnosticSeverity.Warning, $"A sheet symbol on '{fileName}' names no sheet file.");
@@ -342,7 +404,7 @@ public sealed class ProjectHierarchy
             }
             if (!_documents.ContainsKey(childName))
             {
-                Report(DiagnosticSeverity.Warning, $"Sheet '{fileName}' uses sub-sheet '{child.FileName}', which was not supplied.");
+                Report(DiagnosticSeverity.Warning, $"Sheet '{fileName}' uses sub-sheet '{symbol.FileName}', which was not supplied.");
                 continue;
             }
             if (ancestors.Contains(childName))
@@ -350,31 +412,55 @@ public sealed class ProjectHierarchy
                 Report(DiagnosticSeverity.Warning, $"Sheet '{fileName}' uses '{childName}', which is one of its own parents; the cycle was skipped.");
                 continue;
             }
-
-            var repeat = child.Repeat;
-            if (!repeat.IsRepeated && RepeatInfo.MentionsRepeat(child.NameLabel?.Text ?? child.SheetName))
-                Report(DiagnosticSeverity.Warning,
-                    $"Sheet symbol '{child.NameLabel?.Text ?? child.SheetName}' on '{fileName}' has a Repeat(...) that cannot be read " +
-                    "(it needs a name and two whole numbers at most 100,000 apart); it is treated as one instance.");
-            var uid = string.IsNullOrEmpty(child.UniqueId) ? (child.SheetName ?? childName) : child.UniqueId;
-            ancestors.Add(childName);
-            for (var k = repeat.FirstInstance; k <= repeat.LastInstance; k++)
+            if (frame.Instance.Depth >= _options.MaxDepth)
             {
-                if (_sheets.Count >= MaxSheetInstances)
-                {
-                    if (!_truncated)
-                        Report(DiagnosticSeverity.Error, $"The hierarchy has more than {MaxSheetInstances} sheet instances; the rest were left out.");
-                    _truncated = true;
-                    break;
-                }
-                // Altium names a Repeat channel by its index followed by the symbol's unique id ("5ABCDEFGH").
-                var segment = repeat.IsRepeated ? k.ToString(CultureInfo.InvariantCulture) + uid : uid;
-                WalkSheet(childName, instance, child, repeat.IsRepeated ? k : null, Append(symbolUniqueIds, segment), ancestors);
+                IsTruncated = true;
+                Report(DiagnosticSeverity.Error,
+                    $"The hierarchy is deeper than {_options.MaxDepth} levels (ProjectHierarchyOptions.MaxDepth); sheets below that depth were left out.");
+                continue;
             }
-            ancestors.Remove(childName);
+
+            var designator = symbol.NameLabel?.Text ?? symbol.SheetName;
+            var repeat = symbol.Repeat;
+            if (!repeat.IsRepeated && RepeatInfo.MentionsRepeat(designator))
+                Report(DiagnosticSeverity.Warning,
+                    $"Sheet symbol '{designator}' on '{fileName}' has a Repeat(...) that cannot be read " +
+                    "(it needs a name and two whole numbers at most 100,000 apart); it is treated as one instance.");
+
+            frame.Symbol = symbol;
+            frame.ChildName = childName;
+            frame.SymbolUid = string.IsNullOrEmpty(symbol.UniqueId) ? (symbol.SheetName ?? childName) : symbol.UniqueId;
+            frame.Repeat = repeat;
+            frame.NextIndex = repeat.FirstInstance;
+            return true;
+        }
+        return false;
+    }
+
+    // Creates a sheet instance, or stops the walk (returning null) once a limit is reached.
+    private HierarchySheetInstance? Enter(string fileName, HierarchySheetInstance? parent, SchSheetSymbol? symbol,
+        int? repeatIndex, IReadOnlyList<string> symbolUniqueIds)
+    {
+        if (_sheets.Count >= _options.MaxSheetInstances)
+        {
+            Stop($"The hierarchy has more than {_options.MaxSheetInstances} sheet instances (ProjectHierarchyOptions.MaxSheetInstances); " +
+                 "the walk stopped there.");
+            return null;
         }
 
+        var instance = new HierarchySheetInstance(_sheets.Count, _documents[fileName], fileName, parent, symbol, repeatIndex, symbolUniqueIds);
+        _sheets.Add(instance);
+        parent?.AddChild(instance);
+        if (instance.UniqueIdPath.Length > 0)
+            _sheetByUniqueIdPath.TryAdd(instance.UniqueIdPath, instance);
         return instance;
+    }
+
+    private void Stop(string message)
+    {
+        _stopped = true;
+        IsTruncated = true;
+        Report(DiagnosticSeverity.Error, message);
     }
 
     // Altium numbers channels by where their sheet symbols sit, not by record order: bottom to top
@@ -395,14 +481,20 @@ public sealed class ProjectHierarchy
         foreach (var sheet in _sheets)
         {
             instancesPerFile[sheet.FileName] = instancesPerFile.GetValueOrDefault(sheet.FileName) + 1;
-            if (sheet.SheetSymbol is not { } symbol)
+            if (sheet.Parent is null || sheet.SheetSymbol is not { } symbol)
+            {
+                sheet.HierarchicalPath = Path.GetFileNameWithoutExtension(sheet.FileName);
                 continue;
+            }
             var designator = sheet.SymbolDesignator?.Trim();
             sheet.ChannelName = sheet.RepeatIndex is null
                 ? (string.IsNullOrEmpty(designator) ? Path.GetFileNameWithoutExtension(sheet.FileName) : designator)
                 : symbol.Repeat.ChannelName;
             if (sheet.RepeatIndex is null)
                 namedCount[sheet.ChannelName!] = namedCount.GetValueOrDefault(sheet.ChannelName!) + 1;
+            // Parents precede children in _sheets, so the parent's path is already set.
+            sheet.HierarchicalPath = sheet.Parent.HierarchicalPath + "\\" + sheet.ChannelName
+                + (sheet.RepeatIndex is { } k ? k.ToString(CultureInfo.InvariantCulture) : string.Empty);
         }
 
         var numbered = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);

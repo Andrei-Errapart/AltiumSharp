@@ -104,10 +104,7 @@ public sealed class HierarchySheetInstance
     /// <c>SourceHierarchicalPath</c>. Unlike <see cref="RoomName"/> it does not number duplicated
     /// symbols, so it does not by itself tell their instances apart.
     /// </summary>
-    public string HierarchicalPath => Parent is null
-        ? System.IO.Path.GetFileNameWithoutExtension(FileName)
-        : Parent.HierarchicalPath + "\\" + ChannelName
-          + (RepeatIndex is { } k ? k.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty);
+    public string HierarchicalPath { get; internal set; } = string.Empty;
 
     /// <summary>The component parts placed on this instance, in document order.</summary>
     public IReadOnlyList<PhysicalComponentPart> Parts => _parts;

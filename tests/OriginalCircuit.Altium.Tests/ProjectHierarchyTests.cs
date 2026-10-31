@@ -389,6 +389,65 @@ public sealed class ProjectHierarchyTests
             d.Message.Contains("cannot be read", StringComparison.Ordinal));
     }
 
+    // A chain Sheet0 -> Sheet1 -> ... -> Sheet{n-1}, one resistor on each.
+    private static SchDocument[] Chain(int levels) =>
+        Enumerable.Range(0, levels).Select(i =>
+        {
+            var content = new List<object> { Part($"R{i}", $"RES{i:D5}") };
+            if (i + 1 < levels)
+                content.Add(Symbol($"U_Level{i + 1}", $"Sheet{i + 1}.SchDoc", $"SYM{i + 1:D5}"));
+            return Sheet($"Sheet{i}.SchDoc", content.ToArray());
+        }).ToArray();
+
+    [Fact]
+    public void DeepHierarchy_IsWalkedWithoutRecursion()
+    {
+        const int levels = 2000;
+
+        var hierarchy = ProjectHierarchy.Build(null, Chain(levels), new ProjectHierarchyOptions { MaxDepth = levels });
+
+        Assert.False(hierarchy.IsTruncated);
+        Assert.Equal(levels, hierarchy.Sheets.Count);
+        Assert.Equal(Enumerable.Range(0, levels), hierarchy.Sheets.Select(s => s.Depth));
+        Assert.Equal(levels, hierarchy.Components.Count);
+        var deepest = hierarchy.Sheets[^1];
+        Assert.Equal(levels - 1, deepest.SymbolUniqueIds.Count);
+        Assert.EndsWith("\\U_Level1999", deepest.HierarchicalPath, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DepthBeyondTheLimit_IsLeftOut_AndReported()
+    {
+        var hierarchy = ProjectHierarchy.Build(null, Chain(100));
+
+        Assert.True(hierarchy.IsTruncated);
+        Assert.Equal(65, hierarchy.Sheets.Count); // depths 0..64
+        Assert.Equal(64, hierarchy.Sheets.Max(s => s.Depth));
+        Assert.Contains(hierarchy.Diagnostics, d => d.Severity == DiagnosticSeverity.Error &&
+            d.Message.Contains("MaxDepth", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SheetInstanceLimit_StopsTheWalk_AndIsReported()
+    {
+        var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,1,50)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"));
+
+        var hierarchy = ProjectHierarchy.Build(null, new[] { top, channel }, new ProjectHierarchyOptions { MaxSheetInstances = 10 });
+
+        Assert.True(hierarchy.IsTruncated);
+        Assert.Equal(10, hierarchy.Sheets.Count);
+        Assert.Equal(9, hierarchy.Components.Count);
+        Assert.Single(hierarchy.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void Options_RejectInvalidLimits()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ProjectHierarchyOptions { MaxDepth = -1 });
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ProjectHierarchyOptions { MaxSheetInstances = 0 });
+    }
+
     [Fact]
     public void DocumentsWithoutAFileName_AreSkipped()
     {

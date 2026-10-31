@@ -22,13 +22,13 @@ public static class ProjectNetlistBuilder
         AltiumProject project, NetlistOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(project);
-        var hierarchy = await ProjectHierarchy.LoadAsync(project, cancellationToken).ConfigureAwait(false);
+        var hierarchy = await ProjectHierarchy.LoadAsync(project, cancellationToken: cancellationToken).ConfigureAwait(false);
         return Build(hierarchy, options, cancellationToken);
     }
 
     /// <summary>
     /// Builds the merged netlist for a hierarchy whose documents are already in memory, for example
-    /// one from <see cref="ProjectHierarchy.LoadAsync(AltiumProject, Func{ProjectDocument, Stream}, CancellationToken)"/>.
+    /// one that <see cref="ProjectHierarchy"/> loaded through a document callback.
     /// </summary>
     /// <param name="hierarchy">The project's compiled sheet hierarchy.</param>
     /// <param name="options">Solver options; defaults are used when <see langword="null"/>.</param>
