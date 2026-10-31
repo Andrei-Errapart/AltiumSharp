@@ -55,8 +55,9 @@ is reported once and not re-expanded.
 
 ## Notes
 
-- There is **no project-file (`.PrjScr`) reader**, so child file names are resolved
-  relative to the parent sheet's folder. Adapt the resolution if your project stores
-  sheets elsewhere.
+- This example starts from a single sheet, so child file names are resolved relative to the
+  parent sheet's folder. To walk a whole project, including sheets in other folders, open the
+  `.PrjPcb` and use `ProjectHierarchy.LoadAsync(project)`: it creates one instance per channel
+  (duplicate sheet symbols and `Repeat(...)`) with Altium's room names and physical designators.
 
 See the [guides index](../../guides/README.md) for the full set of examples.

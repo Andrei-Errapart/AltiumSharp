@@ -72,8 +72,10 @@ For installation, the quick-start, and the coordinate system, see the top-level
 
 ## A note on scope
 
-The library reads and writes the four document/library types; there is **no project-file
-(`.PrjPcb`/`.PrjScr`) reader**, and the schematic model is geometric (no built-in
-pin-to-net connectivity). Guides call out these boundaries where they matter rather than
-implying capabilities that aren't there. The PCB side *does* model net membership (by
-`NetIndex`), which is what the [nets guide](../examples/NetReport/) uses.
+The library reads and writes the four document/library types and `.PrjPcb` projects. The
+schematic model itself is geometric; project-wide views are computed on demand:
+`ProjectHierarchy` compiles the sheet hierarchy (channels, physical designators, multi-part
+components) and `ProjectNetlistBuilder` solves connectivity. Guides call out the remaining
+boundaries where they matter rather than implying capabilities that aren't there. The PCB side
+models net membership directly (by `NetIndex`), which is what the
+[nets guide](../examples/NetReport/) uses.

@@ -17,6 +17,7 @@
   - [High-Level API (AltiumLibrary)](#high-level-api-altiumlibrary)
   - [Low-Level Readers](#low-level-readers)
   - [Loading from Streams](#loading-from-streams)
+- [Projects, Hierarchy and BOM Data](#projects-hierarchy-and-bom-data)
 - [Modifying Files](#modifying-files)
 - [Rendering](#rendering)
   - [Raster (PNG and JPEG)](#raster-png-and-jpeg)
@@ -624,6 +625,9 @@ using var memStream = new MemoryStream(fileBytes);
 var lib = await AltiumLibrary.OpenPcbLibAsync(memStream);
 ```
 
+The stream overloads need a seekable stream. They only read it, never write to it (even
+when it is writable), and leave it open.
+
 ### Inspecting Loaded Data
 
 ```csharp
@@ -662,6 +666,78 @@ Console.WriteLine($"Rules: {pcbDoc.Rules.Count}");
 // Check diagnostics
 foreach (var diag in pcbDoc.Diagnostics)
     Console.WriteLine($"[{diag.Severity}] {diag.Message}");
+```
+
+---
+
+## Projects, Hierarchy and BOM Data
+
+### Opening a Project
+
+```csharp
+using OriginalCircuit.Altium.Models.Project;
+
+// From disk: also loads the sibling .PrjPcbStructure (the compiled sheet hierarchy)
+var project = await AltiumLibrary.OpenProjectAsync("Board.PrjPcb");
+
+// From streams (e.g. an uploaded zip): pass the structure file's stream, or null
+var uploaded = await AltiumLibrary.OpenProjectAsync(prjStream, structureStreamOrNull);
+// equivalently: uploaded.Structure = ProjectStructure.Parse(structureStream);
+```
+
+### Compiling the Sheet Hierarchy
+
+`ProjectHierarchy` compiles the schematic sheets the way Altium does: one sheet instance per
+sheet-symbol use and per `Repeat(name, first, last)` channel, Altium's room names, physical
+designators and multi-part merging. It works from documents in memory.
+
+```csharp
+// Sheets from a callback (return null when a document is missing; streams need not be seekable)
+var hierarchy = await ProjectHierarchy.LoadAsync(uploaded,
+    doc => zip.GetEntry(doc.DocumentPath!.Replace('\\', '/'))?.Open());
+
+// Or from disk next to the project file, or from SchDocuments already open (set FileName)
+var fromDisk = await ProjectHierarchy.LoadAsync(project);
+var fromOpen = ProjectHierarchy.Build(project, new[] { topSheet, channelSheet });
+
+foreach (var c in hierarchy.Components.Where(c => c.IsInBom))
+{
+    // c.Designator        physical, e.g. "R2_CH3" ($Component_$RoomName); else the logical one
+    // c.LogicalDesignator as drawn, e.g. "R2"
+    // c.Comment           the Comment parameter with "=Value" / "=Part Number" resolved
+    // c.Parts             every placed part (U1A, U1B, ...), possibly on different sheets
+    // c.ComponentType     Standard, StandardNoBom (test points, fiducials), ...
+    // c.GetParameterValue("Manufacturer"), c.Component (the SchComponent)
+}
+
+// Match PCB components and variant entries by their unique-id path
+var placed = hierarchy.FindComponentByUniqueIdPath(pcbComponent.SourceUniqueId!);
+
+foreach (var d in hierarchy.Diagnostics)   // missing sheets, duplicate designators, ...
+    Console.WriteLine($"[{d.Severity}] {d.Message}");
+```
+
+| Type | Key members |
+|------|-------------|
+| `ProjectHierarchy` | `Roots`, `Sheets`, `Parts`, `Components`, `DesignatorFormat`, `Diagnostics`, `FindComponent`, `FindComponentByUniqueIdPath`, `FindSheetByUniqueIdPath`, `FormatDesignator` |
+| `HierarchySheetInstance` | `Document`, `FileName`, `Parent`, `Children`, `SheetSymbol`, `RepeatIndex`, `ChannelName`, `RoomName`, `ChannelIndex`, `IsMultiChannel`, `UniqueIdPath`, `HierarchicalPath`, `Parts` |
+| `PhysicalComponent` | `Designator`, `LogicalDesignator`, `Parts`, `Component`, `Sheet`, `ComponentType`, `IsInBom`, `Comment`, `UniqueIdPaths`, `GetParameterValue` |
+| `PhysicalComponentPart` | `Component`, `Sheet`, `LogicalDesignator`, `PhysicalDesignator`, `PartId`, `UniqueIdPath`, `Owner` |
+
+Room names follow Altium's "flat numbered" style (`ChannelRoomNamingStyle=0`): a `Repeat`
+channel is its name plus index (`CH3`); any other instance is its symbol designator, numbered
+1..n across the whole design (bottom to top, then left to right) when several instances share
+it. Components on a sheet that is used once keep their logical designators.
+`ProjectNetlistBuilder.Build(hierarchy)` builds a netlist from the same in-memory hierarchy.
+
+### Component Data on a Single Sheet
+
+```csharp
+var component = (SchComponent)schDoc.Components[0];
+var designator = component.Designator;                        // the "Designator" parameter
+var comment = component.GetResolvedComment((SchDocument)schDoc, project); // "=Value" -> "10k"
+var mpn = component.GetResolvedParameterValue("Part Number");
+var inBom = component.ComponentType.IsInBom();                // reads COMPONENTKINDVERSION2
 ```
 
 ---

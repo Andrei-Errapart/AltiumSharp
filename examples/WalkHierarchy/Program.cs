@@ -13,9 +13,10 @@
 // returns). Each SchSheetSymbol has FileName (the child .SchDoc it references),
 // SheetName (its label) and Entries (the SchSheetEntry ports, each with a Name).
 //
-// SCOPE NOTE: there is no project-file (.PrjScr) reader, so the child file name is
-// resolved relative to the parent sheet's folder. A real project may keep sheets in
-// other directories; adapt the resolution if yours does.
+// SCOPE NOTE: this example starts from one sheet, so the child file name is resolved
+// relative to the parent sheet's folder. For a whole project (sheets in any folder, one
+// instance per channel, physical designators), open the .PrjPcb and use
+// ProjectHierarchy.LoadAsync(project) instead.
 //
 // RUNNING
 // ───────
