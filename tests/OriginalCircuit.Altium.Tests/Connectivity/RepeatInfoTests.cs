@@ -33,4 +33,30 @@ public class RepeatInfoTests
         Assert.False(r.IsRepeated);
         Assert.Equal(1, r.InstanceCount);
     }
+
+    [Theory]
+    [InlineData("Repeat(CH,1,99999999999)")]      // overflows int
+    [InlineData("Repeat(CH,١,٤)")]       // Arabic-Indic digits
+    [InlineData("Repeat(CH,１,４)")]       // full-width digits
+    [InlineData("Repeat(CH,-1,4)")]
+    [InlineData("Repeat(CH,1,+4)")]
+    [InlineData("Repeat(CH,1 000,2)")]
+    [InlineData("Repeat( ,1,4)")]
+    [InlineData("Repeat(CH,1,200000)")]            // more than 100,000 channels
+    public void Parse_Unreadable_Repeat_Is_Not_Repeated_And_Does_Not_Throw(string text)
+    {
+        var r = RepeatInfo.Parse(text);
+        Assert.False(r.IsRepeated);
+        Assert.Equal(text.Trim(), r.ChannelName);
+        Assert.Equal(1, r.InstanceCount);
+    }
+
+    [Fact]
+    public void Parse_Long_Input_Stays_Fast()
+    {
+        var text = "Repeat(" + new string(' ', 200_000) + "x";
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.False(RepeatInfo.Parse(text).IsRepeated);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), $"took {watch.Elapsed}");
+    }
 }

@@ -239,28 +239,51 @@ public readonly partial struct RepeatInfo
     /// <summary>The number of channel instances (<c>Last - First + 1</c>; 1 when not repeated).</summary>
     public int InstanceCount => Math.Max(1, LastInstance - FirstInstance + 1);
 
+    // Each argument is matched as "anything but , ( )" and validated afterwards, so the pattern stays
+    // linear on long input and an unreadable number cannot throw.
     [System.Text.RegularExpressions.GeneratedRegex(
-        @"Repeat\s*\(\s*([^,()]+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)",
+        @"Repeat\s*\(([^,()]*),([^,()]*),([^,()]*)\)",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
     private static partial System.Text.RegularExpressions.Regex RepeatRegex();
 
-    /// <summary>Parses a sheet-symbol designator, tolerating any non-<c>Repeat</c> text.</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @"Repeat\s*\(",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex RepeatMentionRegex();
+
+    /// <summary>
+    /// Parses a sheet-symbol designator, tolerating any non-<c>Repeat</c> text. Never throws: a
+    /// <c>Repeat(...)</c> whose name is empty or whose bounds are not plain ASCII integers within range
+    /// (or span more than 100,000 channels) is treated as not repeated.
+    /// </summary>
     public static RepeatInfo Parse(string? designator)
     {
         if (string.IsNullOrWhiteSpace(designator))
             return new RepeatInfo(false, designator, 1, 1);
 
+        var plain = new RepeatInfo(false, designator.Trim(), 1, 1);
         var m = RepeatRegex().Match(designator);
         if (!m.Success)
-            return new RepeatInfo(false, designator.Trim(), 1, 1);
+            return plain;
 
-        var first = int.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
-        var last = int.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+        var name = m.Groups[1].Value.Trim();
+        if (name.Length == 0 || !TryParseIndex(m.Groups[2].Value, out var first) || !TryParseIndex(m.Groups[3].Value, out var last))
+            return plain;
         if (last < first)
             (first, last) = (last, first);
         // Guard against absurd counts.
         if (last - first > 100_000)
-            return new RepeatInfo(false, designator.Trim(), 1, 1);
-        return new RepeatInfo(true, m.Groups[1].Value.Trim(), first, last);
+            return plain;
+        return new RepeatInfo(true, name, first, last);
     }
+
+    /// <summary>Whether <paramref name="designator"/> contains <c>Repeat(</c>, readable or not.</summary>
+    internal static bool MentionsRepeat(string? designator) =>
+        designator is not null && RepeatMentionRegex().IsMatch(designator);
+
+    // ASCII digits only: NumberStyles.None allows no sign, separators or whitespace, and int.TryParse
+    // accepts no other digit characters.
+    private static bool TryParseIndex(string text, out int value) =>
+        int.TryParse(text.AsSpan().Trim(), System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture, out value);
 }

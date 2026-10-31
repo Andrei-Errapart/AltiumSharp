@@ -373,6 +373,22 @@ public sealed class ProjectHierarchyTests
         Assert.Contains(hierarchy.Diagnostics, d => d.Message.Contains("one of its own parents", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("Repeat(CH,1,99999999999)")]
+    [InlineData("Repeat(CH,١,٤)")]
+    public void UnreadableRepeat_IsOneInstance_AndReported(string designator)
+    {
+        var top = Sheet("Top.SchDoc", Symbol(designator, "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"));
+
+        var hierarchy = ProjectHierarchy.Build(null, new[] { top, channel });
+
+        Assert.Equal(2, hierarchy.Sheets.Count);
+        Assert.Equal(new[] { "R1" }, Designators(hierarchy));
+        Assert.Contains(hierarchy.Diagnostics, d => d.Severity == DiagnosticSeverity.Warning &&
+            d.Message.Contains("cannot be read", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void DocumentsWithoutAFileName_AreSkipped()
     {

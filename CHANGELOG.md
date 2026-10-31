@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - `SchComponent.Comment` read from a SchDoc is now the component's `Comment` parameter, as it already was for a SchLib. It was previously filled with the Design Item ID.
 - Reading a SchDoc, SchLib, PcbDoc or PcbLib from a writable stream no longer writes to it. OpenMcdf flushed the stream on dispose, which trimmed and rewrote the caller's data, and threw on a fixed-size `MemoryStream` ("Memory stream is not expandable") or on a FAT that ran past the end. Any seekable stream now works.
 - `ProjectSheetInstance.SymbolUidPath` for a `Repeat()` channel is now `{index}{symbolUid}`, as Altium writes it, instead of `{symbolUid}~{index}`, so `ProjectNetlist.FindInstanceByUidPath` matches PCB `SourceUniqueId`s on Repeat designs.
+- `RepeatInfo.Parse` (and so `SchSheetSymbol.Repeat`) no longer throws: a `Repeat(...)` whose bounds overflow `int` or use non-ASCII digits threw `OverflowException` or `FormatException`. Such a directive, or one with an empty name, signs or separators, is now read as not repeated, and `ProjectHierarchy` reports it as a warning. The pattern also no longer backtracks quadratically on long designators.
 
 ## [2.0.0-alpha.1] - Unreleased
 

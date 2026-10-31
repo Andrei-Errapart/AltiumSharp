@@ -352,6 +352,10 @@ public sealed class ProjectHierarchy
             }
 
             var repeat = child.Repeat;
+            if (!repeat.IsRepeated && RepeatInfo.MentionsRepeat(child.NameLabel?.Text ?? child.SheetName))
+                Report(DiagnosticSeverity.Warning,
+                    $"Sheet symbol '{child.NameLabel?.Text ?? child.SheetName}' on '{fileName}' has a Repeat(...) that cannot be read " +
+                    "(it needs a name and two whole numbers at most 100,000 apart); it is treated as one instance.");
             var uid = string.IsNullOrEmpty(child.UniqueId) ? (child.SheetName ?? childName) : child.UniqueId;
             ancestors.Add(childName);
             for (var k = repeat.FirstInstance; k <= repeat.LastInstance; k++)
