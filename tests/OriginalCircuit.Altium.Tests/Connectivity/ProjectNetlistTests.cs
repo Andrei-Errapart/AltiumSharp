@@ -219,4 +219,72 @@ public class ProjectNetlistTests : IDisposable
         Assert.All(nets, n => Assert.NotNull(n));
         Assert.Equal(3, nets.Distinct().Count());
     }
+
+    [Fact]
+    public async Task Repeat_Channel_UidPath_Matches_Altiums_Pcb_SourceUniqueId()
+    {
+        await WriteDoc("rchild.SchDoc", doc => doc.AddComponent(Comp("X1", "1", 0, 0)));
+        await WriteDoc("rparent.SchDoc", doc => doc.AddPrimitive(new SchSheetSymbol
+        {
+            Location = new CoordPoint(Coord.FromMils(1000), Coord.FromMils(2000)),
+            XSize = Coord.FromMils(500),
+            YSize = Coord.FromMils(400),
+            FileName = "rchild.SchDoc",
+            SheetName = "Repeat(CH,1,3)",
+            UniqueId = "SYMREPTA",
+        }));
+
+        var project = await Project("rparent.SchDoc", "rchild.SchDoc");
+        var pnl = await ProjectNetlistBuilder.BuildAsync(project);
+
+        // Altium's PCB names channel k of a Repeat symbol "{k}{symbolUid}", e.g. \2SYMREPTA\<component uid>.
+        var channel2 = pnl.FindInstanceByUidPath(new[] { "2SYMREPTA" });
+        Assert.NotNull(channel2);
+        Assert.Equal(2, channel2!.ChannelIndex);
+        Assert.Equal(new[] { "2SYMREPTA" }, channel2.SymbolUidPath);
+    }
+
+    [Fact]
+    public async Task Build_FromInMemoryHierarchy_MatchesBuildAsync()
+    {
+        SchDocument parent = null!, child = null!;
+        await WriteDoc("parent.SchDoc", doc =>
+        {
+            var sym = new SchSheetSymbol
+            {
+                Location = new CoordPoint(Coord.FromMils(1000), Coord.FromMils(2000)),
+                XSize = Coord.FromMils(500),
+                YSize = Coord.FromMils(400),
+                FileName = "child.SchDoc",
+                SheetName = "U_CHILD",
+            };
+            sym.AddEntry(new SchSheetEntry { Side = 1, DistanceFromTop = Coord.FromMils(100), Name = "NETX" });
+            doc.AddPrimitive(sym);
+            doc.AddPrimitive(Wire(1500, 1900, 2000, 1900));
+            doc.AddComponent(Comp("P1", "1", 2000, 1900));
+            parent = doc;
+        });
+        await WriteDoc("child.SchDoc", doc =>
+        {
+            doc.AddPrimitive(new SchPort
+            {
+                Name = "NETX",
+                Location = new CoordPoint(Coord.FromMils(500), Coord.FromMils(500)),
+                Width = Coord.FromMils(200),
+                ConnectedEnd = 1,
+            });
+            doc.AddPrimitive(Wire(500, 500, 1000, 500));
+            doc.AddComponent(Comp("C1", "1", 1000, 500));
+            child = doc;
+        });
+        parent.FileName = "parent.SchDoc";
+        child.FileName = "child.SchDoc";
+
+        var project = await Project("parent.SchDoc", "child.SchDoc");
+        var pnl = ProjectNetlistBuilder.Build(ProjectHierarchy.Build(project, new[] { parent, child }));
+
+        Assert.NotNull(pnl.NetForPin("P1", "1"));
+        Assert.Equal(pnl.NetForPin("P1", "1"), pnl.NetForPin("C1", "1"));
+        Assert.Equal(2, pnl.Sheets.Count);
+    }
 }

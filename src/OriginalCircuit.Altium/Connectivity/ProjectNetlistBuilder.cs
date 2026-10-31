@@ -22,28 +22,26 @@ public static class ProjectNetlistBuilder
         AltiumProject project, NetlistOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(project);
+        var hierarchy = await ProjectHierarchy.LoadAsync(project, cancellationToken).ConfigureAwait(false);
+        return Build(hierarchy, options, cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds the merged netlist for a hierarchy whose documents are already in memory, for example
+    /// one from <see cref="ProjectHierarchy.LoadAsync(AltiumProject, Func{ProjectDocument, Stream}, CancellationToken)"/>.
+    /// </summary>
+    /// <param name="hierarchy">The project's compiled sheet hierarchy.</param>
+    /// <param name="options">Solver options; defaults are used when <see langword="null"/>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public static ProjectNetlist Build(
+        ProjectHierarchy hierarchy, NetlistOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(hierarchy);
         options ??= NetlistOptions.Default;
-        var diagnostics = new List<AltiumDiagnostic>();
+        var diagnostics = new List<AltiumDiagnostic>(hierarchy.Diagnostics);
         var tolRaw = options.Tolerance.ToRaw();
 
-        // --- Load every schematic document, keyed by file name ---
-        var docsByName = new Dictionary<string, SchDocument>(StringComparer.OrdinalIgnoreCase);
-        foreach (var pd in project.SchematicDocuments)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var path = project.ResolveDocumentPath(pd);
-            if (path is null || !File.Exists(path))
-            {
-                diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
-                    $"Schematic document not found: {pd.DocumentPath}"));
-                continue;
-            }
-            var doc = (SchDocument)await AltiumLibrary.OpenSchDocAsync(path, cancellationToken).ConfigureAwait(false);
-            doc.FileName ??= Path.GetFileName(path);
-            docsByName[Path.GetFileName(path)] = doc;
-        }
-
-        if (docsByName.Count == 0)
+        if (hierarchy.Documents.Count == 0)
         {
             diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Error, "Project has no readable schematic documents."));
             return new ProjectNetlist(Array.Empty<SchematicNet>(), Array.Empty<NetPin>(),
@@ -51,15 +49,14 @@ public static class ProjectNetlistBuilder
         }
 
         // --- Determine scope ---
-        var rawScope = options.ScopeIsExplicit ? options.Scope : NetIdentifierScopeReader.Read(project);
-        var hasSheetSymbols = docsByName.Values.Any(d => d.SheetSymbols.Count > 0);
+        var rawScope = options.ScopeIsExplicit || hierarchy.Project is null
+            ? options.Scope
+            : NetIdentifierScopeReader.Read(hierarchy.Project);
+        var hasSheetSymbols = hierarchy.Documents.Values.Any(d => d.SheetSymbols.Count > 0);
         var scope = NetIdentifierScopeReader.Resolve(rawScope, hasSheetSymbols);
 
-        // --- Walk the hierarchy into sheet instances ---
-        var walker = new HierarchyWalker(docsByName, diagnostics);
-        walker.Walk(project);
-
-        var instances = walker.Instances;
+        // --- Sheet instances and the parent -> child boundaries ---
+        var (instances, boundaries) = ToSolverInstances(hierarchy);
         if (instances.Count == 0)
         {
             diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Error, "Could not determine a root schematic."));
@@ -107,7 +104,7 @@ public static class ProjectNetlistBuilder
         foreach (var (label, rep, sheetId) in labelReps)
             repByNameSheet[(sheetId, label.Text)] = rep;
 
-        MergeBoundaries(walker.Boundaries, uf, repByNameSheet);              // ports ↔ sheet entries
+        MergeBoundaries(boundaries, uf, repByNameSheet);                     // ports ↔ sheet entries
 
         if (options.ResolveHarnesses)
             HarnessResolver.Resolve(graphs, uf, tolRaw);                     // harness-bundle members
@@ -139,6 +136,43 @@ public static class ProjectNetlistBuilder
             .ToList();
 
         return new ProjectNetlist(result.Nets, result.Unconnected, publicSheets, scope, diagnostics);
+    }
+
+    // Maps the hierarchy's sheet instances (parents first) onto the solver's, keeping the netlist's
+    // own channel view: a channel is one of several instances of the same sheet under one parent,
+    // numbered per parent (its Repeat index, or its position among duplicate symbols).
+    private static (List<SheetInstanceInternal> Instances, List<Boundary> Boundaries) ToSolverInstances(ProjectHierarchy hierarchy)
+    {
+        var instances = new List<SheetInstanceInternal>(hierarchy.Sheets.Count);
+        var boundaries = new List<Boundary>();
+        foreach (var sheet in hierarchy.Sheets)
+        {
+            if (sheet.Parent is null || sheet.SheetSymbol is null)
+            {
+                instances.Add(new SheetInstanceInternal(sheet.Index, sheet.Document, sheet.FileName, designator: null,
+                    Path.GetFileNameWithoutExtension(sheet.FileName), parentId: null, sheet.SymbolUniqueIds,
+                    channelName: null, channelIndex: null, isRepeated: false));
+                continue;
+            }
+
+            var parent = instances[sheet.Parent.Index];
+            var sameFile = sheet.Parent.Children
+                .Where(c => string.Equals(c.FileName, sheet.FileName, StringComparison.OrdinalIgnoreCase)).ToList();
+            var isRepeated = sameFile.Count > 1;
+            var ordinal = sameFile.IndexOf(sheet) + 1;
+            var symbolName = string.IsNullOrEmpty(sheet.SheetSymbol.SheetName)
+                ? Path.GetFileNameWithoutExtension(sheet.FileName)
+                : sheet.SheetSymbol.SheetName;
+            var channelName = sheet.RepeatIndex is null ? symbolName : sheet.SheetSymbol.Repeat.ChannelName;
+            int? channelIndex = isRepeated ? sheet.RepeatIndex ?? ordinal : null;
+            var path = $"{parent.Path}/{symbolName}{(isRepeated ? ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty)}";
+
+            var instance = new SheetInstanceInternal(sheet.Index, sheet.Document, sheet.FileName, symbolName, path,
+                parent.Id, sheet.SymbolUniqueIds, channelName, channelIndex, isRepeated);
+            instances.Add(instance);
+            boundaries.Add(new Boundary(parent, sheet.SheetSymbol, instance));
+        }
+        return (instances, boundaries);
     }
 
     private static void MergeBoundaries(

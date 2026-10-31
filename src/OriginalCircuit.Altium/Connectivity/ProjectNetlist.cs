@@ -37,8 +37,10 @@ public sealed class ProjectSheetInstance
 
     /// <summary>
     /// The chain of ancestor sheet-symbol UniqueIds from the root to this instance — the channel
-    /// discriminator. A PCB component's <c>SourceUniqueId</c> is this chain followed by the component's
-    /// own UniqueId, so a PCB pad can be mapped to the exact channel instance it belongs to.
+    /// discriminator. A <c>Repeat()</c> channel's entry is its index followed by the symbol's UniqueId
+    /// (<c>"5ABCDEFGH"</c>), as Altium writes it. A PCB component's <c>SourceUniqueId</c> is this chain
+    /// followed by the component's own UniqueId, so a PCB pad can be mapped to the exact channel
+    /// instance it belongs to.
     /// </summary>
     public IReadOnlyList<string> SymbolUidPath { get; }
 

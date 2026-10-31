@@ -11,12 +11,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - `ComponentType` enum (Altium's component "Type": Standard, Mechanical, Graphical, Net Tie (In BOM), Net Tie, Standard (No BOM), Jumper) with `IsInBom()`. `SchComponent.ComponentType` and `PcbComponent.ComponentType` give the effective type.
 - `SchComponent.Designator` (the `Designator` parameter), `FindParameter`, `GetParameterValue`, `GetResolvedParameterValue`, `GetResolvedComment` and `ResolveParameterText`, plus the `ParameterReference` helper. They resolve Altium's `=Name` parameter references (such as a Comment of `=Value` or `=Part Number`) against the component's parameters, then the sheet's, then the project's.
 - `AltiumLibrary.OpenProjectAsync(Stream, Stream? structureStream)` and `PrjPcbReader.Read(Stream, Stream?)` load a project together with its `.PrjPcbStructure` when neither is on disk. `ProjectStructure.Parse(Stream)` reads a structure file's bytes, and `Parse(string)` now ignores a leading byte-order mark.
+- `ProjectHierarchy`: a public, in-memory compile of a project's schematic hierarchy. `ProjectHierarchy.LoadAsync(project, openDocument)` opens the sheets through a callback (for example from an uploaded zip; streams need not be seekable), `LoadAsync(project)` reads them from disk, and `Build(project, sheets)` takes documents already open. It produces one `HierarchySheetInstance` per sheet-symbol use and `Repeat(name, first, last)` channel, with Altium's room names (channel name plus index; shared symbol designators numbered across the whole design in sheet-position order), unique-id paths that equal a PCB component's `SourceUniqueId`, and `HierarchicalPath` equal to its `SourceHierarchicalPath`. Each `PhysicalComponentPart` carries its physical designator (`ChannelDesignatorFormatString`, by default `$Component_$RoomName`, for sheets used more than once), and parts with the same physical designator merge into one `PhysicalComponent` (multi-part components, across sheets). `FindComponentByUniqueIdPath` also matches the PCB's mixed path for a multi-part component split across sheets. Problems (missing sheets, cycles, duplicate or unannotated designators, unsupported format tokens) are reported in `Diagnostics`.
+- `ProjectNetlistBuilder.Build(ProjectHierarchy)` builds a netlist from documents in memory.
+
+### Changed
+
+- `ProjectNetlistBuilder` now walks the hierarchy with `ProjectHierarchy` (the internal walker is gone). Sibling sheet symbols are visited in sheet-position order rather than record order, so per-parent channel numbers follow Altium's.
 
 ### Fixed
 
 - `SchComponent` now reads `COMPONENTKINDVERSION2` (new `ComponentKindVersion2` property) in SchDocs and SchLibs, and the writer emits it. Newer Altium versions keep the legacy `COMPONENTKIND` at 0 and store the real kind there, so "Standard (No BOM)" parts such as test points and fiducials previously read as Standard.
 - `SchComponent.Comment` read from a SchDoc is now the component's `Comment` parameter, as it already was for a SchLib. It was previously filled with the Design Item ID.
 - Reading a SchDoc, SchLib, PcbDoc or PcbLib from a writable stream no longer writes to it. OpenMcdf flushed the stream on dispose, which trimmed and rewrote the caller's data, and threw on a fixed-size `MemoryStream` ("Memory stream is not expandable") or on a FAT that ran past the end. Any seekable stream now works.
+- `ProjectSheetInstance.SymbolUidPath` for a `Repeat()` channel is now `{index}{symbolUid}`, as Altium writes it, instead of `{symbolUid}~{index}`, so `ProjectNetlist.FindInstanceByUidPath` matches PCB `SourceUniqueId`s on Repeat designs.
 
 ## [2.0.0-alpha.1] - Unreleased
 

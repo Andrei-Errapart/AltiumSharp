@@ -62,7 +62,8 @@ public sealed class SchComponent : ISchComponent
     /// <summary>
     /// The reference designator: the value of the <c>Designator</c> parameter (for example
     /// <c>"R1"</c>, or <c>"R?"</c> before annotation), or <c>null</c> when there is none. In a
-    /// multi-channel design this is the logical designator shared by every channel.
+    /// multi-channel design this is the logical designator shared by every channel; see
+    /// <see cref="Project.ProjectHierarchy"/> for the physical one (e.g. <c>"R1_CH2"</c>).
     /// </summary>
     public string? Designator => GetParameterValue("Designator") is { Length: > 0 } designator ? designator : null;
 
