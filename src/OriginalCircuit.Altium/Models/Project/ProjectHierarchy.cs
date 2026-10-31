@@ -52,16 +52,20 @@ public sealed class ProjectHierarchy
     private readonly Dictionary<string, List<PhysicalComponentPart>> _partsByComponentUid = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HierarchySheetInstance> _sheetByUniqueIdPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<SchDocument, int> _designatedCounts = new(ReferenceEqualityComparer.Instance);
+    private readonly List<string> _missing = new();
+    private readonly HashSet<string> _missingNames = new(StringComparer.OrdinalIgnoreCase);
     private long _plannedParts;
     private bool _stopped;
 
     private ProjectHierarchy(AltiumProject? project, Dictionary<string, SchDocument> documents,
-        List<AltiumDiagnostic> diagnostics, ProjectHierarchyOptions options)
+        List<AltiumDiagnostic> diagnostics, List<string> missing, ProjectHierarchyOptions options)
     {
         Project = project;
         _documents = documents;
         _diagnostics = diagnostics;
         _options = options;
+        foreach (var path in missing)
+            AddMissing(path);
         var design = project?.GetSection("Design");
         DesignatorFormat = design?.Get("ChannelDesignatorFormatString") is { Length: > 0 } format ? format : DefaultDesignatorFormat;
         RoomNamingStyle = design?.Get("ChannelRoomNamingStyle") is { Length: > 0 } style ? style : "0";
@@ -104,6 +108,13 @@ public sealed class ProjectHierarchy
     /// error in <see cref="Diagnostics"/> says which limit.
     /// </summary>
     public bool IsTruncated { get; private set; }
+
+    /// <summary>
+    /// The schematic documents the design needs but that were not supplied, each once and as written:
+    /// project documents (their <see cref="ProjectDocument.DocumentPath"/>) and sheets that sheet
+    /// symbols use (the symbol's file name, e.g. an Altium device sheet).
+    /// </summary>
+    public IReadOnlyList<string> MissingDocuments => _missing;
 
     /// <summary>Returns the physical component with the given physical designator (case-insensitive), or <c>null</c>.</summary>
     public PhysicalComponent? FindComponent(string designator)
@@ -161,95 +172,167 @@ public sealed class ProjectHierarchy
     public static ProjectHierarchy Build(AltiumProject? project, IEnumerable<SchDocument> sheets, ProjectHierarchyOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(sheets);
-        return Build(project, sheets, new List<AltiumDiagnostic>(), options ?? ProjectHierarchyOptions.Default);
+        var list = sheets.Where(s => s is not null).ToList();
+        var diagnostics = new List<AltiumDiagnostic>();
+        var missing = new List<string>();
+        if (project is not null)
+        {
+            var supplied = new HashSet<string>(
+                list.Select(s => NormalizeFileName(s.FileName) ?? NormalizeFileName(s.FilePath)).OfType<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var document in project.SchematicDocuments)
+            {
+                if (NormalizeFileName(document.DocumentPath) is { } name && !supplied.Contains(name))
+                {
+                    missing.Add(document.DocumentPath!);
+                    diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                        $"Schematic document '{document.DocumentPath}' was not supplied."));
+                }
+            }
+        }
+        return Build(project, list, diagnostics, missing, options ?? ProjectHierarchyOptions.Default);
     }
 
     /// <summary>
-    /// Opens the project's schematic documents through <paramref name="openDocument"/> (for example
-    /// from the entries of an uploaded zip) and builds the hierarchy. The callback returns a stream of
-    /// a document's bytes, or <c>null</c> when it is not available (reported in
-    /// <see cref="Diagnostics"/>). Each returned stream is read and then disposed; it need not be
-    /// seekable.
+    /// Opens the schematic documents through <paramref name="openDocument"/> (for example from the
+    /// entries of an uploaded zip) and builds the hierarchy. The callback is given a document's path
+    /// as written: first each schematic <see cref="ProjectDocument.DocumentPath"/> of the project, then
+    /// the file name of each sheet a sheet symbol uses that the project does not list (such as an
+    /// Altium device sheet, e.g. <c>"DeviceSheets\USB-C.SchDoc"</c>), repeating for the sheets those
+    /// use until no new names appear. It returns a stream of the document's bytes, or <c>null</c>
+    /// when it is not available; those names are listed in <see cref="MissingDocuments"/> and
+    /// reported in <see cref="Diagnostics"/>. Each returned stream is read and then disposed; it need
+    /// not be seekable.
     /// </summary>
     /// <exception cref="AltiumCorruptFileException">A supplied document is not a readable SchDoc.</exception>
-    public static async ValueTask<ProjectHierarchy> LoadAsync(
-        AltiumProject project, Func<ProjectDocument, Stream?> openDocument,
+    public static ValueTask<ProjectHierarchy> LoadAsync(
+        AltiumProject project, Func<string, Stream?> openDocument,
         ProjectHierarchyOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(openDocument);
 
-        var diagnostics = new List<AltiumDiagnostic>();
-        var sheets = new List<SchDocument>();
-        foreach (var document in project.SchematicDocuments)
+        return LoadCoreAsync(project, async (path, _, ct) =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var stream = openDocument(document);
+            var stream = openDocument(path);
             if (stream is null)
-            {
-                diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
-                    $"Schematic document '{document.DocumentPath}' was not supplied."));
-                continue;
-            }
-
-            SchDocument sheet;
+                return (null, null);
             await using (stream.ConfigureAwait(false))
             {
                 var seekable = stream;
                 if (!stream.CanSeek)
                 {
                     seekable = new MemoryStream();
-                    await stream.CopyToAsync(seekable, cancellationToken).ConfigureAwait(false);
+                    await stream.CopyToAsync(seekable, ct).ConfigureAwait(false);
                     seekable.Position = 0;
                 }
                 try
                 {
-                    sheet = new SchDocReader().Read(seekable);
+                    return (new SchDocReader().Read(seekable), null);
                 }
                 catch (AltiumCorruptFileException ex) when (ex.FilePath is null)
                 {
-                    throw new AltiumCorruptFileException(ex.Message, ex.StreamName, document.DocumentPath, ex);
+                    throw new AltiumCorruptFileException(ex.Message, ex.StreamName, path, ex);
                 }
             }
-            sheet.FileName = NormalizeFileName(document.DocumentPath);
-            sheets.Add(sheet);
-        }
-
-        return Build(project, sheets, diagnostics, options ?? ProjectHierarchyOptions.Default);
+        }, options ?? ProjectHierarchyOptions.Default, cancellationToken);
     }
 
     /// <summary>
-    /// Opens the project's schematic documents from disk, next to the project file
-    /// (<see cref="AltiumProject.FilePath"/> must be set), and builds the hierarchy. Documents that
-    /// are not found are reported in <see cref="Diagnostics"/>.
+    /// Opens the schematic documents from disk and builds the hierarchy: the project's schematic
+    /// documents next to the project file (<see cref="AltiumProject.FilePath"/> must be set), then any
+    /// sheet a sheet symbol uses that the project does not list, looked for at the symbol's path if it
+    /// is absolute, else next to the sheet that uses it, else next to the project. Documents that
+    /// are not found are listed in <see cref="MissingDocuments"/> and reported in <see cref="Diagnostics"/>.
     /// </summary>
-    public static async ValueTask<ProjectHierarchy> LoadAsync(
+    public static ValueTask<ProjectHierarchy> LoadAsync(
         AltiumProject project, ProjectHierarchyOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(project);
 
+        return LoadCoreAsync(project, async (path, usedBy, ct) =>
+        {
+            var file = FindOnDisk(project, path, usedBy);
+            if (file is null)
+                return (null, null);
+            var sheet = (SchDocument)await AltiumLibrary.OpenSchDocAsync(file, ct).ConfigureAwait(false);
+            return (sheet, file);
+        }, options ?? ProjectHierarchyOptions.Default, cancellationToken);
+    }
+
+    // Opens the project's schematic documents, then every sheet their sheet symbols use that has not
+    // been asked for yet, until no new names appear. The callback gets a path as written and the
+    // location of the sheet that uses it (null for project documents), and returns the document and
+    // its own location (passed on to the sheets it uses), or no document when it is unavailable.
+    private static async ValueTask<ProjectHierarchy> LoadCoreAsync(AltiumProject project,
+        Func<string, string?, CancellationToken, ValueTask<(SchDocument? Sheet, string? Location)>> open,
+        ProjectHierarchyOptions options, CancellationToken cancellationToken)
+    {
         var diagnostics = new List<AltiumDiagnostic>();
+        var missing = new List<string>();
         var sheets = new List<SchDocument>();
+        var requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var queue = new Queue<(string Path, string? UsedBy, bool Listed)>();
         foreach (var document in project.SchematicDocuments)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var path = project.ResolveDocumentPath(document);
-            if (path is null || !File.Exists(path))
-            {
-                diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
-                    $"Schematic document not found: {document.DocumentPath}"));
-                continue;
-            }
-            var sheet = (SchDocument)await AltiumLibrary.OpenSchDocAsync(path, cancellationToken).ConfigureAwait(false);
-            sheet.FileName = NormalizeFileName(document.DocumentPath) ?? Path.GetFileName(path);
-            sheets.Add(sheet);
+            if (!string.IsNullOrWhiteSpace(document.DocumentPath))
+                queue.Enqueue((document.DocumentPath, null, true));
         }
 
-        return Build(project, sheets, diagnostics, options ?? ProjectHierarchyOptions.Default);
+        while (queue.TryDequeue(out var item))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var name = NormalizeFileName(item.Path);
+            if (name is null || !requested.Add(name))
+                continue;
+
+            var (sheet, location) = await open(item.Path, item.UsedBy, cancellationToken).ConfigureAwait(false);
+            if (sheet is null)
+            {
+                // A sheet only a symbol uses is reported by the walk, which knows which sheet uses it.
+                if (item.Listed)
+                {
+                    missing.Add(item.Path);
+                    diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                        $"Schematic document '{item.Path}' was not supplied."));
+                }
+                continue;
+            }
+            if (!item.Listed)
+                diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Info,
+                    $"Sheet '{item.Path}' is used by a sheet symbol but is not a project document; it was loaded too."));
+
+            sheet.FileName = name;
+            sheets.Add(sheet);
+            foreach (var symbol in sheet.SheetSymbols)
+            {
+                if (!string.IsNullOrWhiteSpace(symbol.FileName))
+                    queue.Enqueue((symbol.FileName, location ?? item.Path, false));
+            }
+        }
+
+        return Build(project, sheets, diagnostics, missing, options);
+    }
+
+    // The first existing file for a document path: as given when absolute, else next to the sheet
+    // that uses it, else in the project folder.
+    private static string? FindOnDisk(AltiumProject project, string path, string? usedBy)
+    {
+        var native = Path.DirectorySeparatorChar == '\\' ? path : path.Replace('\\', '/');
+        var candidates = new List<string?>();
+        if (Path.IsPathRooted(native))
+            candidates.Add(native);
+        else
+        {
+            if (Path.GetDirectoryName(usedBy) is { Length: > 0 } usedByDirectory)
+                candidates.Add(Path.Combine(usedByDirectory, native));
+            candidates.Add(project.ResolveDocumentPath(native));
+        }
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     private static ProjectHierarchy Build(AltiumProject? project, IEnumerable<SchDocument> sheets,
-        List<AltiumDiagnostic> diagnostics, ProjectHierarchyOptions options)
+        List<AltiumDiagnostic> diagnostics, List<string> missing, ProjectHierarchyOptions options)
     {
         var documents = new Dictionary<string, SchDocument>(StringComparer.OrdinalIgnoreCase);
         var order = new List<string>();
@@ -273,7 +356,7 @@ public sealed class ProjectHierarchy
             order.Add(name);
         }
 
-        var hierarchy = new ProjectHierarchy(project, documents, diagnostics, options);
+        var hierarchy = new ProjectHierarchy(project, documents, diagnostics, missing, options);
         hierarchy.Compile(order);
         return hierarchy;
     }
@@ -406,6 +489,7 @@ public sealed class ProjectHierarchy
             }
             if (!_documents.ContainsKey(childName))
             {
+                AddMissing(symbol.FileName!);
                 Report(DiagnosticSeverity.Warning, $"Sheet '{fileName}' uses sub-sheet '{symbol.FileName}', which was not supplied.");
                 continue;
             }
@@ -479,6 +563,12 @@ public sealed class ProjectHierarchy
     }
 
     private static bool HasDesignator(SchComponent component) => !string.IsNullOrWhiteSpace(component.Designator);
+
+    private void AddMissing(string path)
+    {
+        if (NormalizeFileName(path) is { } name && _missingNames.Add(name))
+            _missing.Add(path);
+    }
 
     private void Stop(string message)
     {

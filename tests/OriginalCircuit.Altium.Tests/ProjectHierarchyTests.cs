@@ -529,10 +529,9 @@ public sealed class ProjectHierarchyTests
         var project = await AltiumLibrary.OpenProjectAsync(prj, structure);
 
         var opened = new List<ForwardOnlyStream>();
-        var hierarchy = await ProjectHierarchy.LoadAsync(project, document =>
+        var hierarchy = await ProjectHierarchy.LoadAsync(project, path =>
         {
-            var key = document.DocumentPath!.Replace('\\', '/');
-            if (!files.TryGetValue(key, out var bytes))
+            if (!files.TryGetValue(path.Replace('\\', '/'), out var bytes))
                 return null;
             var stream = new ForwardOnlyStream(bytes);
             opened.Add(stream);
@@ -544,6 +543,50 @@ public sealed class ProjectHierarchyTests
         Assert.Equal(new[] { "Top.SchDoc", "Channel.SchDoc" }, hierarchy.Documents.Keys.ToArray());
         Assert.All(opened, s => Assert.True(s.Disposed));
         Assert.Contains(hierarchy.Diagnostics, d => d.Message.Contains("'Missing.SchDoc' was not supplied", StringComparison.Ordinal));
+        Assert.Equal(new[] { "Missing.SchDoc" }, hierarchy.MissingDocuments);
+    }
+
+    [Fact]
+    public async Task LoadAsync_AlsoLoadsSheetsThatSymbolsUseButTheProjectDoesNotList()
+    {
+        // Top places a device sheet (supplied, and itself placing another) and one that is not supplied.
+        var files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Top.SchDoc"] = Bytes(Sheet("Top.SchDoc",
+                Symbol("U_Usb", "DeviceSheets\\USB-C.SchDoc", "SYMUSBCC", xMils: 1000),
+                Symbol("U_Gone", "DeviceSheets\\Gone.SchDoc", "SYMGONEE", xMils: 5000),
+                Part("J1", "JACKJACK"))),
+            ["DeviceSheets\\USB-C.SchDoc"] = Bytes(Sheet("USB-C.SchDoc",
+                Symbol("U_Esd", "Esd.SchDoc", "SYMESDES"), Part("J2", "USBCJACK"))),
+            ["Esd.SchDoc"] = Bytes(Sheet("Esd.SchDoc", Part("D1", "ESDDIODE"))),
+        };
+        var project = Project("Top.SchDoc");
+        var asked = new List<string>();
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(project, path =>
+        {
+            asked.Add(path);
+            return files.TryGetValue(path, out var bytes) ? new MemoryStream(bytes) : null;
+        });
+
+        Assert.Equal(new[] { "Top.SchDoc", "DeviceSheets\\USB-C.SchDoc", "DeviceSheets\\Gone.SchDoc", "Esd.SchDoc" }, asked);
+        Assert.Equal(new[] { "D1", "J1", "J2" }, Designators(hierarchy));
+        Assert.Equal("Top\\U_Usb\\U_Esd", hierarchy.FindComponent("D1")!.Sheet.HierarchicalPath);
+        Assert.Equal(new[] { "DeviceSheets\\Gone.SchDoc" }, hierarchy.MissingDocuments);
+        Assert.Contains(hierarchy.Diagnostics, d => d.Message.Contains("'DeviceSheets\\Gone.SchDoc', which was not supplied", StringComparison.Ordinal));
+        Assert.Contains(hierarchy.Diagnostics, d => d.Severity == DiagnosticSeverity.Info &&
+            d.Message.Contains("'DeviceSheets\\USB-C.SchDoc' is used by a sheet symbol but is not a project document", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Build_ListsMissingProjectDocumentsAndSubSheets()
+    {
+        var project = Project("Top.SchDoc", "Notes.SchDoc");
+        var top = Sheet("Top.SchDoc", Symbol("U_Io", "Io.SchDoc", "SYMIOIOO"), Part("R1", "RESISTOR"));
+
+        var hierarchy = ProjectHierarchy.Build(project, new[] { top });
+
+        Assert.Equal(new[] { "Notes.SchDoc", "Io.SchDoc" }, hierarchy.MissingDocuments);
     }
 
     [Fact]
@@ -574,6 +617,34 @@ public sealed class ProjectHierarchyTests
 
             Assert.Equal(new[] { "Q1_U_A1", "Q1_U_A2" }, Designators(hierarchy));
             Assert.Equal("Q1_U_A2", hierarchy.FindComponentByUniqueIdPath("\\SYMAMPBB\\TRANSIST")!.Designator);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_FromDisk_FindsUnlistedSheetsNextToTheSheetThatUsesThem()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "hier_" + Guid.NewGuid().ToString("N"));
+        var devices = Path.Combine(dir, "DeviceSheets");
+        Directory.CreateDirectory(devices);
+        try
+        {
+            await File.WriteAllBytesAsync(Path.Combine(dir, "Top.SchDoc"),
+                Bytes(Sheet("Top.SchDoc", Symbol("U_Usb", Path.Combine("DeviceSheets", "USB-C.SchDoc"), "SYMUSBCC"))));
+            // USB-C.SchDoc names its child without a folder: it sits beside USB-C.SchDoc, not the project.
+            await File.WriteAllBytesAsync(Path.Combine(devices, "USB-C.SchDoc"),
+                Bytes(Sheet("USB-C.SchDoc", Symbol("U_Esd", "Esd.SchDoc", "SYMESDES"), Part("J2", "USBCJACK"))));
+            await File.WriteAllBytesAsync(Path.Combine(devices, "Esd.SchDoc"), Bytes(Sheet("Esd.SchDoc", Part("D1", "ESDDIODE"))));
+            var project = Project("Top.SchDoc");
+            project.FilePath = Path.Combine(dir, "Board.PrjPcb");
+
+            var hierarchy = await ProjectHierarchy.LoadAsync(project);
+
+            Assert.Equal(new[] { "D1", "J2" }, Designators(hierarchy));
+            Assert.Empty(hierarchy.MissingDocuments);
         }
         finally
         {

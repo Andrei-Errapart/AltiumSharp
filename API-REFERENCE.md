@@ -692,9 +692,16 @@ sheet-symbol use and per `Repeat(name, first, last)` channel, Altium's room name
 designators and multi-part merging. It works from documents in memory.
 
 ```csharp
-// Sheets from a callback (return null when a document is missing; streams need not be seekable)
+// Sheets from a callback, given each path as written: the project's documents, then sheets that
+// symbols use but the project does not list (e.g. device sheets). Return null when a document is
+// missing (see hierarchy.MissingDocuments); streams need not be seekable.
 var hierarchy = await ProjectHierarchy.LoadAsync(uploaded,
-    doc => zip.GetEntry(doc.DocumentPath!.Replace('\\', '/'))?.Open());
+    path => zip.GetEntry(path.Replace('\\', '/'))?.Open());
+
+// Limits for untrusted input (defaults: depth 64, 10,000 sheet instances, 200,000 parts)
+var bounded = await ProjectHierarchy.LoadAsync(uploaded, open,
+    new ProjectHierarchyOptions { MaxSheetInstances = 2_000, MaxComponentParts = 100_000 });
+if (bounded.IsTruncated) { /* a limit was reached; see Diagnostics */ }
 
 // Or from disk next to the project file, or from SchDocuments already open (set FileName)
 var fromDisk = await ProjectHierarchy.LoadAsync(project);
@@ -719,7 +726,8 @@ foreach (var d in hierarchy.Diagnostics)   // missing sheets, duplicate designat
 
 | Type | Key members |
 |------|-------------|
-| `ProjectHierarchy` | `Roots`, `Sheets`, `Parts`, `Components`, `DesignatorFormat`, `Diagnostics`, `FindComponent`, `FindComponentByUniqueIdPath`, `FindSheetByUniqueIdPath`, `FormatDesignator` |
+| `ProjectHierarchy` | `Roots`, `Sheets`, `Parts`, `Components`, `DesignatorFormat`, `Diagnostics`, `IsTruncated`, `MissingDocuments`, `FindComponent`, `FindComponentByUniqueIdPath`, `FindSheetByUniqueIdPath`, `FormatDesignator` |
+| `ProjectHierarchyOptions` | `MaxDepth`, `MaxSheetInstances`, `MaxComponentParts`, `Default` |
 | `HierarchySheetInstance` | `Document`, `FileName`, `Parent`, `Children`, `SheetSymbol`, `RepeatIndex`, `ChannelName`, `RoomName`, `ChannelIndex`, `IsMultiChannel`, `UniqueIdPath`, `HierarchicalPath`, `Parts` |
 | `PhysicalComponent` | `Designator`, `LogicalDesignator`, `Parts`, `Component`, `Sheet`, `ComponentType`, `IsInBom`, `Comment`, `UniqueIdPaths`, `GetParameterValue` |
 | `PhysicalComponentPart` | `Component`, `Sheet`, `LogicalDesignator`, `PhysicalDesignator`, `PartId`, `UniqueIdPath`, `Owner` |
