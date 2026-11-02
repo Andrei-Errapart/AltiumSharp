@@ -680,7 +680,8 @@ using OriginalCircuit.Altium.Models.Project;
 // From disk: also loads the sibling .PrjPcbStructure (the compiled sheet hierarchy)
 var project = await AltiumLibrary.OpenProjectAsync("Board.PrjPcb");
 
-// From streams (e.g. an uploaded zip): pass the structure file's stream, or null
+// From streams (e.g. an uploaded zip): pass the structure file's stream, or null.
+// Files that are not UTF-8 are read as Windows-1252.
 var uploaded = await AltiumLibrary.OpenProjectAsync(prjStream, structureStreamOrNull);
 // equivalently: uploaded.Structure = ProjectStructure.Parse(structureStream);
 ```
@@ -720,22 +721,38 @@ foreach (var c in hierarchy.Components.Where(c => c.IsInBom))
 // Match PCB components and variant entries by their unique-id path
 var placed = hierarchy.FindComponentByUniqueIdPath(pcbComponent.SourceUniqueId!);
 
-foreach (var d in hierarchy.Diagnostics)   // missing sheets, duplicate designators, ...
-    Console.WriteLine($"[{d.Severity}] {d.Message}");
+// Separate components that share a designator stay separate (a BOM counts each)
+foreach (var designator in hierarchy.DuplicateDesignators)
+    Console.WriteLine($"{designator}: {hierarchy.FindComponents(designator).Count} components");
+
+// Each diagnostic has a code and says where it was found
+foreach (var d in hierarchy.Diagnostics)
+{
+    if (d.Code == AltiumDiagnosticCode.MaxDepthExceeded)
+        Console.WriteLine($"Too deep at {d.SheetSymbol?.NameLabel?.Text} on {d.SheetInstance?.FileName}");
+    Console.WriteLine($"[{d.Severity}] {d.Code}: {d.Message}");
+}
 ```
 
 | Type | Key members |
 |------|-------------|
-| `ProjectHierarchy` | `Roots`, `Sheets`, `Parts`, `Components`, `DesignatorFormat`, `Diagnostics`, `IsTruncated`, `MissingDocuments`, `FindComponent`, `FindComponentByUniqueIdPath`, `FindSheetByUniqueIdPath`, `FormatDesignator` |
+| `ProjectHierarchy` | `Roots`, `Sheets`, `Parts`, `Components`, `DesignatorFormat`, `Diagnostics`, `IsTruncated`, `MissingDocuments`, `DuplicateDesignators`, `FindComponent`, `FindComponents`, `FindComponentByUniqueIdPath`, `FindSheetByUniqueIdPath`, `FormatDesignator` |
 | `ProjectHierarchyOptions` | `MaxDepth`, `MaxSheetInstances`, `MaxComponentParts`, `Default` |
 | `HierarchySheetInstance` | `Document`, `FileName`, `Parent`, `Children`, `SheetSymbol`, `RepeatIndex`, `ChannelName`, `RoomName`, `ChannelIndex`, `IsMultiChannel`, `UniqueIdPath`, `HierarchicalPath`, `Parts` |
 | `PhysicalComponent` | `Designator`, `LogicalDesignator`, `Parts`, `Component`, `Sheet`, `ComponentType`, `IsInBom`, `Comment`, `UniqueIdPaths`, `GetParameterValue` |
 | `PhysicalComponentPart` | `Component`, `Sheet`, `LogicalDesignator`, `PhysicalDesignator`, `PartId`, `UniqueIdPath`, `Owner` |
+| `AltiumDiagnostic` | `Severity`, `Message`, `Code` (`AltiumDiagnosticCode`), `DocumentName`, `SheetInstance`, `SheetSymbol`, `Designator` |
+| `RepeatInfo` (`SchSheetSymbol.Repeat`) | `IsRepeated`, `IsUnreadable`, `ChannelName`, `FirstInstance`, `LastInstance`, `InstanceCount`, `Parse`, `MentionsRepeat` |
 
 Room names follow Altium's "flat numbered" style (`ChannelRoomNamingStyle=0`): a `Repeat`
 channel is its name plus index (`CH3`); any other instance is its symbol designator, numbered
 1..n across the whole design (bottom to top, then left to right) when several instances share
-it. Components on a sheet that is used once keep their logical designators.
+it. Components on a sheet that is used once keep their logical designators; on a sheet used
+more than once they get the project's designator format, with Altium's keywords `$Component`,
+`$ComponentPrefix`, `$ComponentIndex`, `$RoomName`, `$ChannelPrefix`, `$ChannelIndex` and
+`$ChannelAlpha` (a component the format cannot be filled for gets `$Component_$RoomName`).
+Records with one designator merge into one component only as its parts (U1A, U1B): different
+part numbers from the same library symbol.
 `ProjectNetlistBuilder.Build(hierarchy)` builds a netlist from the same in-memory hierarchy.
 
 ### Component Data on a Single Sheet
