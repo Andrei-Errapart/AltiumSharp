@@ -81,6 +81,9 @@ public sealed class HierarchySheetInstance
     /// </summary>
     public bool IsMultiChannel { get; internal set; }
 
+    // The position of this instance among the instances of its document (1-based, in Sheets order).
+    internal int Ordinal { get; set; }
+
     /// <summary>
     /// The sheet-symbol unique ids from the root to this instance. A <c>Repeat</c> channel's entry is
     /// its index followed by the symbol's id (e.g. <c>"5ABCDEFGH"</c>), as Altium writes it.

@@ -27,7 +27,8 @@ namespace OriginalCircuit.Altium.Models.Project;
 /// This is the "flat numbered" room naming style (<c>ChannelRoomNamingStyle=0</c>).</item>
 /// <item>A component on a sheet instantiated more than once gets the physical designator
 /// <see cref="DesignatorFormat"/> (Altium's <c>ChannelDesignatorFormatString</c>, by default
-/// <c>$Component_$RoomName</c>, e.g. <c>R2_CH3</c>); elsewhere it keeps its logical designator.</item>
+/// <c>$Component_$RoomName</c>, e.g. <c>R2_CH3</c>; see <see cref="FormatDesignator(string, string, string, string?, int?)"/>
+/// for the keywords); elsewhere it keeps its logical designator.</item>
 /// <item>Component records with the same physical designator and different part numbers (U1A,
 /// U1B, ...) from the same library symbol are the parts of one <see cref="PhysicalComponent"/>,
 /// even when the parts sit on different sheets. Records that cannot be parts of one component
@@ -58,6 +59,8 @@ public sealed class ProjectHierarchy
     private readonly Dictionary<SchDocument, int> _designatedCounts = new(ReferenceEqualityComparer.Instance);
     private readonly List<string> _missing = new();
     private readonly HashSet<string> _missingNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _unfilledTokens = new(StringComparer.OrdinalIgnoreCase);
+    private bool _formatHasUnknownTokens;
     private long _plannedParts;
     private bool _stopped;
 
@@ -80,8 +83,10 @@ public sealed class ProjectHierarchy
 
     /// <summary>
     /// The format of a channel component's physical designator: the project's
-    /// <c>ChannelDesignatorFormatString</c>, or <see cref="DefaultDesignatorFormat"/>. <c>$Component</c>
-    /// is replaced by the logical designator and <c>$RoomName</c> by the sheet instance's room name.
+    /// <c>ChannelDesignatorFormatString</c>, or <see cref="DefaultDesignatorFormat"/>. Its keywords are
+    /// those Altium documents (see <see cref="FormatDesignator(string, string, string, string?, int?)"/>).
+    /// A component the format cannot be filled for (an unknown keyword, or one the component or its
+    /// sheet has no value for) gets <see cref="DefaultDesignatorFormat"/> instead, and a diagnostic says so.
     /// </summary>
     public string DesignatorFormat { get; }
 
@@ -414,10 +419,11 @@ public sealed class ProjectHierarchy
             Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnsupportedRoomNamingStyle,
                 $"Channel room naming style {RoomNamingStyle} is not modelled; rooms are named as for style 0 (flat numbered).");
         var unknownTokens = DesignatorTokens(DesignatorFormat).Where(t => !IsKnownToken(t)).ToList();
-        if (unknownTokens.Count > 0)
+        _formatHasUnknownTokens = unknownTokens.Count > 0;
+        if (_formatHasUnknownTokens)
             Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnsupportedDesignatorToken,
                 $"The channel designator format '{DesignatorFormat}' uses {string.Join(", ", unknownTokens.Select(t => "$" + t))}, " +
-                "which are left as written; only $Component and $RoomName are expanded.");
+                $"which are not designator keywords; channel components use {DefaultDesignatorFormat} instead.");
 
         foreach (var root in DetermineRoots(documentOrder))
         {
@@ -654,7 +660,7 @@ public sealed class ProjectHierarchy
         var namedCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var sheet in _sheets)
         {
-            instancesPerFile[sheet.FileName] = instancesPerFile.GetValueOrDefault(sheet.FileName) + 1;
+            sheet.Ordinal = instancesPerFile[sheet.FileName] = instancesPerFile.GetValueOrDefault(sheet.FileName) + 1;
             if (sheet.Parent is null || sheet.SheetSymbol is not { } symbol)
             {
                 sheet.HierarchicalPath = Path.GetFileNameWithoutExtension(sheet.FileName);
@@ -711,7 +717,7 @@ public sealed class ProjectHierarchy
                     continue;
                 }
                 var physical = sheet.IsMultiChannel && sheet.RoomName is { } room
-                    ? FormatDesignator(DesignatorFormat, logical, room)
+                    ? ChannelDesignator(sheet, logical, room)
                     : logical;
                 var part = new PhysicalComponentPart(component, sheet, logical, physical);
                 sheet.AddPart(part);
@@ -784,6 +790,23 @@ public sealed class ProjectHierarchy
                 $"{unannotated} component(s) are not annotated (their designator contains '?'); each is kept as a separate component.");
     }
 
+    // A channel component's physical designator: DesignatorFormat, or the default format when a token
+    // cannot be filled for it. $ChannelIndex is the number in the room name (the Repeat index, or the
+    // number given to symbols that share a designator), else the instance's position among its
+    // sheet's instances.
+    private string ChannelDesignator(HierarchySheetInstance sheet, string logical, string room)
+    {
+        var channelIndex = sheet.ChannelIndex ?? sheet.Ordinal;
+        if (Expand(DesignatorFormat, logical, room, sheet.ChannelName, channelIndex, out var unfilled) is { } designator
+            && unfilled is null)
+            return designator;
+        if (!_formatHasUnknownTokens && _unfilledTokens.Add(unfilled!))
+            Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnfilledDesignatorToken,
+                $"The channel designator format '{DesignatorFormat}' has ${unfilled}, which '{logical}' in room '{room}' has no value for; " +
+                $"such components use {DefaultDesignatorFormat} instead.", sheet, designator: logical);
+        return FormatDesignator(DefaultDesignatorFormat, logical, room);
+    }
+
     // Whether a part can join a component's parts: its part number is not taken yet, and it comes from
     // the same library symbol (when both records name one).
     private static bool IsAnotherPartOf(List<PhysicalComponentPart> component, PhysicalComponentPart part)
@@ -799,16 +822,38 @@ public sealed class ProjectHierarchy
     // ---- Helpers -----------------------------------------------------------------------------------
 
     /// <summary>
-    /// Expands a channel designator format: <c>$Component</c> becomes <paramref name="component"/> and
-    /// <c>$RoomName</c> becomes <paramref name="roomName"/> (case-insensitively); other text and other
-    /// <c>$</c> tokens are kept as written.
+    /// Expands a channel designator format without channel details: as
+    /// <see cref="FormatDesignator(string, string, string, string?, int?)"/> with no channel prefix or
+    /// index, so <c>$ChannelPrefix</c>, <c>$ChannelIndex</c> and <c>$ChannelAlpha</c> are kept as written.
     /// </summary>
-    public static string FormatDesignator(string format, string component, string roomName)
+    public static string FormatDesignator(string format, string component, string roomName) =>
+        FormatDesignator(format, component, roomName, channelPrefix: null, channelIndex: null);
+
+    /// <summary>
+    /// Expands a channel designator format with Altium's keywords (case-insensitive):
+    /// <c>$Component</c> is <paramref name="component"/> (the logical designator, e.g. <c>U12</c>),
+    /// <c>$ComponentPrefix</c> and <c>$ComponentIndex</c> are its letters and its trailing number
+    /// (<c>U</c> and <c>12</c>), <c>$RoomName</c> is <paramref name="roomName"/>, <c>$ChannelPrefix</c>
+    /// is <paramref name="channelPrefix"/> (the sheet symbol's designator or <c>Repeat</c> name),
+    /// <c>$ChannelIndex</c> is <paramref name="channelIndex"/> and <c>$ChannelAlpha</c> is that index as
+    /// letters (1 = A, 26 = Z, 27 = AA). Other text, unknown tokens and tokens with no value (such as
+    /// <c>$ComponentIndex</c> for <c>J_PWR</c>, or <c>$ChannelAlpha</c> for index 0) are kept as written.
+    /// </summary>
+    public static string FormatDesignator(string format, string component, string roomName, string? channelPrefix, int? channelIndex)
     {
         ArgumentNullException.ThrowIfNull(format);
         ArgumentNullException.ThrowIfNull(component);
         ArgumentNullException.ThrowIfNull(roomName);
-        var sb = new StringBuilder(format.Length + component.Length + roomName.Length);
+        return Expand(format, component, roomName, channelPrefix, channelIndex, out _);
+    }
+
+    // Expands the format, keeping a token with no value as written and returning the first such
+    // token's name in unfilled.
+    private static string Expand(string format, string component, string? roomName, string? channelPrefix,
+        int? channelIndex, out string? unfilled)
+    {
+        unfilled = null;
+        var sb = new StringBuilder(format.Length + component.Length + (roomName?.Length ?? 0));
         for (var i = 0; i < format.Length; i++)
         {
             if (format[i] != '$')
@@ -818,15 +863,52 @@ public sealed class ProjectHierarchy
             }
             var end = TokenEnd(format, i + 1);
             var token = format.AsSpan(i + 1, end - i - 1);
-            if (token.Equals("Component", StringComparison.OrdinalIgnoreCase))
-                sb.Append(component);
-            else if (token.Equals("RoomName", StringComparison.OrdinalIgnoreCase))
-                sb.Append(roomName);
+            if (token.IsEmpty)
+                sb.Append('$');
+            else if (TokenValue(token, component, roomName, channelPrefix, channelIndex) is { } value)
+                sb.Append(value);
             else
+            {
+                unfilled ??= token.ToString();
                 sb.Append(format, i, end - i);
+            }
             i = end - 1;
         }
         return sb.ToString();
+    }
+
+    private static readonly string[] KnownTokens =
+        { "Component", "ComponentPrefix", "ComponentIndex", "RoomName", "ChannelPrefix", "ChannelIndex", "ChannelAlpha" };
+
+    private static string? TokenValue(ReadOnlySpan<char> token, string component, string? roomName, string? channelPrefix, int? channelIndex)
+    {
+        var digits = component.Length;
+        while (digits > 0 && char.IsAsciiDigit(component[digits - 1]))
+            digits--;
+        if (token.Equals("Component", StringComparison.OrdinalIgnoreCase))
+            return component;
+        if (token.Equals("ComponentPrefix", StringComparison.OrdinalIgnoreCase))
+            return component[..digits];
+        if (token.Equals("ComponentIndex", StringComparison.OrdinalIgnoreCase))
+            return digits < component.Length ? component[digits..] : null;
+        if (token.Equals("RoomName", StringComparison.OrdinalIgnoreCase))
+            return roomName;
+        if (token.Equals("ChannelPrefix", StringComparison.OrdinalIgnoreCase))
+            return channelPrefix;
+        if (token.Equals("ChannelIndex", StringComparison.OrdinalIgnoreCase))
+            return channelIndex?.ToString(CultureInfo.InvariantCulture);
+        if (token.Equals("ChannelAlpha", StringComparison.OrdinalIgnoreCase))
+            return channelIndex is { } index and > 0 ? Alpha(index) : null;
+        return null;
+    }
+
+    // 1 = A ... 26 = Z, 27 = AA, as spreadsheet columns.
+    private static string Alpha(int index)
+    {
+        var letters = new StringBuilder();
+        for (var n = index; n > 0; n = (n - 1) / 26)
+            letters.Insert(0, (char)('A' + (n - 1) % 26));
+        return letters.ToString();
     }
 
     private static IEnumerable<string> DesignatorTokens(string format)
@@ -848,7 +930,7 @@ public sealed class ProjectHierarchy
     }
 
     private static bool IsKnownToken(string token) =>
-        token.Equals("Component", StringComparison.OrdinalIgnoreCase) || token.Equals("RoomName", StringComparison.OrdinalIgnoreCase);
+        Array.Exists(KnownTokens, t => t.Equals(token, StringComparison.OrdinalIgnoreCase));
 
     // Reports each message once; a problem met again keeps the location where it was first found.
     private void Report(DiagnosticSeverity severity, AltiumDiagnosticCode code, string message,

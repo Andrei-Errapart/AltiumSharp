@@ -90,8 +90,19 @@ public enum AltiumDiagnosticCode
     /// <summary>The project's channel room naming style is not modelled; rooms are named as for style 0.</summary>
     UnsupportedRoomNamingStyle,
 
-    /// <summary>The channel designator format uses a token the hierarchy does not know.</summary>
+    /// <summary>
+    /// The channel designator format uses a token that is not a designator keyword, so channel
+    /// components get the default format instead.
+    /// </summary>
     UnsupportedDesignatorToken,
+
+    /// <summary>
+    /// The channel designator format has a keyword with no value for a component (such as
+    /// <c>$ComponentIndex</c> for <c>J_PWR</c>, or <c>$ChannelAlpha</c> for channel 0), so it gets the default
+    /// format instead. <see cref="AltiumDiagnostic.Designator"/> and <see cref="AltiumDiagnostic.SheetInstance"/>
+    /// are the first such component and its sheet; it is reported once per keyword.
+    /// </summary>
+    UnfilledDesignatorToken,
 
     /// <summary>
     /// Several sheet instances share a room name (the first is <see cref="AltiumDiagnostic.SheetInstance"/>), so

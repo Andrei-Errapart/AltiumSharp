@@ -209,18 +209,96 @@ public sealed class ProjectHierarchyTests
         Assert.Equal("R2-ch3", ProjectHierarchy.FormatDesignator("$component-$roomname", "R2", "ch3"));
         Assert.Equal("R2$ChannelAlpha", ProjectHierarchy.FormatDesignator("$Component$ChannelAlpha", "R2", "CH3"));
         Assert.Equal("$R2", ProjectHierarchy.FormatDesignator("$$Component", "R2", "CH3"));
+        Assert.Equal("R_CH3_12", ProjectHierarchy.FormatDesignator("$ComponentPrefix_$RoomName_$ComponentIndex", "R12", "CH3"));
+        Assert.Equal("R2$Variant", ProjectHierarchy.FormatDesignator("$Component$Variant", "R2", "CH3"));
+    }
+
+    [Theory]
+    [InlineData("$Component$ChannelAlpha", "R12", 3, "R12C")]
+    [InlineData("$Component$ChannelAlpha", "R12", 26, "R12Z")]
+    [InlineData("$Component$ChannelAlpha", "R12", 27, "R12AA")]
+    [InlineData("$Component$ChannelAlpha", "R12", 52, "R12AZ")]
+    [InlineData("$Component$ChannelAlpha", "R12", 703, "R12AAA")]
+    [InlineData("$Component_$ChannelIndex", "R12", 3, "R12_3")]
+    [InlineData("$Component_$ChannelPrefix$ChannelIndex", "R12", 3, "R12_CH3")]
+    [InlineData("$Component_$ChannelPrefix$ChannelAlpha", "R12", 3, "R12_CHC")]
+    [InlineData("$ComponentPrefix_$ChannelIndex_$ComponentIndex", "R12", 3, "R_3_12")]
+    [InlineData("$RoomName_$Component", "R12", 3, "CH3_R12")]
+    [InlineData("$Component$ChannelAlpha", "R12", 0, "R12$ChannelAlpha")]
+    [InlineData("$ComponentPrefix_$ComponentIndex", "J_PWR", 3, "J_PWR_$ComponentIndex")]
+    public void FormatDesignator_ExpandsAltiumsChannelKeywords(string format, string component, int index, string expected) =>
+        Assert.Equal(expected, ProjectHierarchy.FormatDesignator(format, component, "CH3", "CH", index));
+
+    [Fact]
+    public void ChannelAlphaFormat_GivesEachRepeatChannelItsLetter()
+    {
+        var project = Project("Top.SchDoc", "Channel.SchDoc");
+        project.Design.Section.Set("ChannelDesignatorFormatString", "$Component$ChannelAlpha");
+        var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,1,3)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"));
+
+        var hierarchy = ProjectHierarchy.Build(project, new[] { top, channel });
+
+        Assert.Equal(new[] { "R1A", "R1B", "R1C" }, Designators(hierarchy));
+        Assert.Empty(hierarchy.DuplicateDesignators);
+        Assert.DoesNotContain(hierarchy.Diagnostics, d => d.Severity != DiagnosticSeverity.Info);
+    }
+
+    [Fact]
+    public void ChannelIndex_IsTheRoomNumber_OrElseThePositionAmongTheSheetsInstances()
+    {
+        // Two differently named symbols (rooms with no number), then a pair sharing a designator.
+        var project = Project("Top.SchDoc", "Amp.SchDoc");
+        project.Design.Section.Set("ChannelDesignatorFormatString", "$Component_$ChannelIndex");
+        var top = Sheet("Top.SchDoc",
+            Symbol("U_Right", "Amp.SchDoc", "SYMRIGHT", xMils: 5000, yMils: 1000),
+            Symbol("U_Left", "Amp.SchDoc", "SYMLEFTT", xMils: 1000, yMils: 1000));
+        var amp = Sheet("Amp.SchDoc", Part("Q1", "TRANSIST"));
+
+        var hierarchy = ProjectHierarchy.Build(project, new[] { top, amp });
+
+        Assert.Equal("Q1_1", hierarchy.FindComponentByUniqueIdPath("\\SYMLEFTT\\TRANSIST")!.Designator);
+        Assert.Equal("Q1_2", hierarchy.FindComponentByUniqueIdPath("\\SYMRIGHT\\TRANSIST")!.Designator);
+
+        project.Design.Section.Set("ChannelDesignatorFormatString", "$Component_$ChannelPrefix$ChannelIndex");
+        var shared = Sheet("Top.SchDoc",
+            Symbol("U_A", "Amp.SchDoc", "SYMAMPAA", xMils: 1000),
+            Symbol("U_A", "Amp.SchDoc", "SYMAMPBB", xMils: 3000));
+        Assert.Equal(new[] { "Q1_U_A1", "Q1_U_A2" }, Designators(ProjectHierarchy.Build(project, new[] { shared, amp })));
+    }
+
+    [Fact]
+    public void AKeywordWithNoValue_GivesThatComponentTheDefaultFormat_AndIsReported()
+    {
+        var project = Project("Top.SchDoc", "Channel.SchDoc");
+        project.Design.Section.Set("ChannelDesignatorFormatString", "$Component$ChannelAlpha");
+        var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,0,2)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"), Part("C1", "CAPACITR"));
+
+        var hierarchy = ProjectHierarchy.Build(project, new[] { top, channel });
+
+        Assert.Equal(new[] { "C1A", "C1B", "C1_CH0", "R1A", "R1B", "R1_CH0" }, Designators(hierarchy));
+        var diagnostic = Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.UnfilledDesignatorToken);
+        Assert.Equal("R1", diagnostic.Designator);
+        Assert.Equal("CH0", diagnostic.SheetInstance!.RoomName);
+        Assert.Contains("$ChannelAlpha", diagnostic.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void UnsupportedFormatTokens_AndRoomStyles_AreReported()
     {
-        var project = Project("Top.SchDoc");
-        project.Design.Section.Set("ChannelDesignatorFormatString", "$Component$ChannelAlpha");
+        var project = Project("Top.SchDoc", "Channel.SchDoc");
+        project.Design.Section.Set("ChannelDesignatorFormatString", "$Component$Variant");
         project.Design.Section.Set("ChannelRoomNamingStyle", "2");
+        var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,1,2)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"));
 
-        var hierarchy = ProjectHierarchy.Build(project, new[] { Sheet("Top.SchDoc", Part("R1", "RESISTOR")) });
+        var hierarchy = ProjectHierarchy.Build(project, new[] { top, channel });
 
-        Assert.Contains(hierarchy.Diagnostics, d => d.Message.Contains("$ChannelAlpha", StringComparison.Ordinal));
+        Assert.Equal(new[] { "R1_CH1", "R1_CH2" }, Designators(hierarchy)); // the default format, not "R1$Variant"
+        var unknown = Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.UnsupportedDesignatorToken);
+        Assert.Contains("$Variant", unknown.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.UnfilledDesignatorToken);
         Assert.Contains(hierarchy.Diagnostics, d => d.Message.Contains("naming style 2", StringComparison.Ordinal));
     }
 
