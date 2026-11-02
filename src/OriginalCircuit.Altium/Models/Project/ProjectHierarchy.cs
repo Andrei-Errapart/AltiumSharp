@@ -342,7 +342,8 @@ public sealed class ProjectHierarchy
 
             sheet.FileName = name;
             sheets.Add(sheet);
-            foreach (var symbol in sheet.SheetSymbols)
+            // In the order the walk visits them, so Documents lists unlisted sheets in walk order too.
+            foreach (var symbol in OrderSiblings(sheet.SheetSymbols))
             {
                 if (!string.IsNullOrWhiteSpace(symbol.FileName))
                     queue.Enqueue((symbol.FileName, location ?? item.Path, false));

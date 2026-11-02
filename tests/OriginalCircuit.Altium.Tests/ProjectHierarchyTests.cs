@@ -895,6 +895,32 @@ public sealed class ProjectHierarchyTests
     }
 
     [Fact]
+    public async Task LoadAsync_AsksForUnlistedSheetsInTheOrderTheWalkVisitsThem()
+    {
+        // Record order puts the upper symbol first; the walk goes bottom to top.
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["Top.SchDoc"] = Bytes(Sheet("Top.SchDoc",
+                Symbol("U_Upper", "Upper.SchDoc", "SYMUPPER", yMils: 5000),
+                Symbol("U_Lower", "Lower.SchDoc", "SYMLOWER", yMils: 1000))),
+            ["Upper.SchDoc"] = Bytes(Sheet("Upper.SchDoc", Part("R2", "RESUPPER"))),
+            ["Lower.SchDoc"] = Bytes(Sheet("Lower.SchDoc", Part("R1", "RESLOWER"))),
+        };
+        var asked = new List<string>();
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(Project("Top.SchDoc"), path =>
+        {
+            asked.Add(path);
+            return files.TryGetValue(path, out var bytes) ? new MemoryStream(bytes) : null;
+        });
+
+        var walk = hierarchy.Sheets.Select(s => s.FileName).ToArray();
+        Assert.Equal(new[] { "Top.SchDoc", "Lower.SchDoc", "Upper.SchDoc" }, walk);
+        Assert.Equal(walk, asked);
+        Assert.Equal(walk, hierarchy.Documents.Keys.ToArray());
+    }
+
+    [Fact]
     public void Build_ListsMissingProjectDocumentsAndSubSheets()
     {
         var project = Project("Top.SchDoc", "Notes.SchDoc");
