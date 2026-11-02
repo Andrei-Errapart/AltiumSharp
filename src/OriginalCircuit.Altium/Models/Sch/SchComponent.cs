@@ -450,9 +450,9 @@ public sealed class SchComponent : ISchComponent
     private readonly List<SchImplementation> _implementations = new();
 
     /// <summary>
-    /// Adds an implementation to the component.
+    /// Adds an implementation link (e.g. a <c>PCBLIB</c> footprint model) to the component.
     /// </summary>
-    internal void AddImplementation(SchImplementation implementation) => _implementations.Add(implementation);
+    public void AddImplementation(SchImplementation implementation) => _implementations.Add(implementation);
 
     /// <inheritdoc />
     public CoordRect Bounds

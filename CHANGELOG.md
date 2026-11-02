@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Channel designator formats support every keyword Altium documents: `$Component`, `$ComponentPrefix`, `$ComponentIndex`, `$RoomName`, `$ChannelPrefix`, `$ChannelIndex` and `$ChannelAlpha` (1 = A, 26 = Z, 27 = AA), so formats such as `$Component$ChannelAlpha` and `$Component_$ChannelPrefix$ChannelIndex` give each channel its own designator. `$ChannelIndex` is the number in the room name (the `Repeat` index, or the number given to symbols that share a designator), and otherwise the instance's position among its sheet's instances. New overload `ProjectHierarchy.FormatDesignator(format, component, roomName, channelPrefix, channelIndex)`.
 - `ProjectHierarchy.DuplicateDesignators` lists the physical designators that separate components share, and `FindComponents(designator)` returns every component with a designator.
 - `ProjectHierarchy` reports a project with no structure file (or none naming a top-level document) as an Info diagnostic, `StructureFileMissing`.
+- `SchComponent.AddImplementation` is now public, so code can give a component a footprint (`PCBLIB`) or other model link.
 - `RepeatInfo.IsUnreadable` tells a sheet symbol whose designator has a `Repeat(...)` that cannot be read (`Repeat(CH,1,200000)`, `Repeat(CH,-1,3)`, `Repeat(,1,3)`, an unclosed one) from a plain designator; both have `IsRepeated == false`. `RepeatInfo.MentionsRepeat` is now public.
 
 ### Changed
