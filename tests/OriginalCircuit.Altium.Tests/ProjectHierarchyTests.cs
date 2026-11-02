@@ -1,3 +1,4 @@
+using OriginalCircuit.Altium.Diagnostics;
 using OriginalCircuit.Altium.Models;
 using OriginalCircuit.Altium.Models.Project;
 using OriginalCircuit.Altium.Models.Sch;
@@ -198,7 +199,7 @@ public sealed class ProjectHierarchyTests
 
         Assert.Equal("$Component$RoomName", hierarchy.DesignatorFormat);
         Assert.Equal(new[] { "R1A1", "R1A2" }, Designators(hierarchy));
-        Assert.Empty(hierarchy.Diagnostics);
+        Assert.Equal(AltiumDiagnosticCode.StructureFileMissing, Assert.Single(hierarchy.Diagnostics).Code);
     }
 
     [Fact]
@@ -491,6 +492,139 @@ public sealed class ProjectHierarchyTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new ProjectHierarchyOptions { MaxComponentParts = -1 });
     }
 
+    // ---- diagnostic codes and locations ----
+
+    private static AltiumDiagnostic Single(ProjectHierarchy hierarchy, AltiumDiagnosticCode code) =>
+        Assert.Single(hierarchy.Diagnostics, d => d.Code == code);
+
+    [Fact]
+    public void LimitDiagnostics_SayWhichLimit_AndWhereTheWalkStopped()
+    {
+        var deep = ProjectHierarchy.Build(null, Chain(100));
+        var depth = Single(deep, AltiumDiagnosticCode.MaxDepthExceeded);
+        Assert.Equal(DiagnosticSeverity.Error, depth.Severity);
+        Assert.Equal("Sheet64.SchDoc", depth.SheetInstance!.FileName);
+        Assert.Equal(64, depth.SheetInstance.Depth);
+        Assert.Equal("SYM00065", depth.SheetSymbol!.UniqueId);
+        Assert.Equal("Sheet65.SchDoc", depth.DocumentName);
+
+        var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,1,50)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"), Part("R2", "RESISTR2"));
+
+        var wide = ProjectHierarchy.Build(null, new[] { top, channel }, new ProjectHierarchyOptions { MaxSheetInstances = 10 });
+        var instances = Single(wide, AltiumDiagnosticCode.MaxSheetInstancesExceeded);
+        Assert.Same(wide.Roots[0], instances.SheetInstance);
+        Assert.Equal("SYMCHANL", instances.SheetSymbol!.UniqueId);
+        Assert.Equal("Channel.SchDoc", instances.DocumentName);
+
+        var heavy = ProjectHierarchy.Build(null, new[] { top, channel }, new ProjectHierarchyOptions { MaxComponentParts = 5 });
+        var parts = Single(heavy, AltiumDiagnosticCode.MaxComponentPartsExceeded);
+        Assert.Same(heavy.Roots[0], parts.SheetInstance);
+        Assert.Equal("SYMCHANL", parts.SheetSymbol!.UniqueId);
+        Assert.DoesNotContain(heavy.Diagnostics, d => d.Code == AltiumDiagnosticCode.MaxSheetInstancesExceeded);
+    }
+
+    [Fact]
+    public void SheetSymbolDiagnostics_NameTheSymbolAndTheSheetItIsOn()
+    {
+        var top = Sheet("Top.SchDoc",
+            Symbol("U_Gone", "Gone.SchDoc", "SYMGONEE", xMils: 1000),
+            Symbol("U_Loop", "Loop.SchDoc", "SYMLOOPP", xMils: 3000),
+            Symbol("Repeat(CH,-1,3)", "Channel.SchDoc", "SYMCHANL", xMils: 5000),
+            Symbol("U_None", "", "SYMNOFIL", xMils: 7000));
+        var loop = Sheet("Loop.SchDoc", Symbol("U_Back", "Loop.SchDoc", "SYMBACKK"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"));
+
+        var hierarchy = ProjectHierarchy.Build(null, new[] { top, loop, channel });
+        var root = Assert.Single(hierarchy.Roots);
+
+        var missing = Single(hierarchy, AltiumDiagnosticCode.SubSheetNotSupplied);
+        Assert.Same(root, missing.SheetInstance);
+        Assert.Equal("SYMGONEE", missing.SheetSymbol!.UniqueId);
+        Assert.Equal("Gone.SchDoc", missing.DocumentName);
+
+        var cycle = Single(hierarchy, AltiumDiagnosticCode.SheetCycle);
+        Assert.Equal("Loop.SchDoc", cycle.SheetInstance!.FileName);
+        Assert.Equal("SYMBACKK", cycle.SheetSymbol!.UniqueId);
+        Assert.Equal("Loop.SchDoc", cycle.DocumentName);
+
+        var repeat = Single(hierarchy, AltiumDiagnosticCode.UnreadableRepeat);
+        Assert.Same(root, repeat.SheetInstance);
+        Assert.Equal("SYMCHANL", repeat.SheetSymbol!.UniqueId);
+        Assert.Equal("Channel.SchDoc", repeat.DocumentName);
+
+        Assert.Equal("SYMNOFIL", Single(hierarchy, AltiumDiagnosticCode.SheetSymbolWithoutFile).SheetSymbol!.UniqueId);
+
+        var a = Sheet("A.SchDoc", Symbol("U_B", "B.SchDoc", "SYMBBBBB"));
+        var b = Sheet("B.SchDoc", Symbol("U_A", "A.SchDoc", "SYMAAAAA"));
+        Assert.Equal("A.SchDoc", Single(ProjectHierarchy.Build(null, new[] { a, b }), AltiumDiagnosticCode.NoRootSheet).DocumentName);
+    }
+
+    [Fact]
+    public void DesignatorDiagnostics_HaveCodes()
+    {
+        var top = Sheet("Top.SchDoc",
+            Symbol("U_Io", "Io.SchDoc", "SYMIOIOO"),
+            Part("R1", "RESONEAA"), Part("R?", "UNANNOTA"),
+            new SchComponent { Name = "LOGO", UniqueId = "LOGOLOGO" });
+        var io = Sheet("Io.SchDoc", Part("R1", "RESONEBB"));
+
+        var hierarchy = ProjectHierarchy.Build(null, new[] { top, io });
+
+        var duplicate = Single(hierarchy, AltiumDiagnosticCode.DuplicateDesignator);
+        Assert.Equal("R1", duplicate.Designator);
+        Assert.Equal("Io.SchDoc", duplicate.SheetInstance!.FileName);
+        Single(hierarchy, AltiumDiagnosticCode.UnannotatedDesignator);
+        var nameless = Single(hierarchy, AltiumDiagnosticCode.ComponentWithoutDesignator);
+        Assert.Same(hierarchy.Roots[0], nameless.SheetInstance);
+        Assert.Equal("Top.SchDoc", nameless.DocumentName);
+    }
+
+    [Fact]
+    public void DocumentAndStructureDiagnostics_HaveCodes()
+    {
+        var project = Project("Top.SchDoc", "Child.SchDoc", "Notes.SchDoc");
+        project.Structure = ProjectStructure.Parse("Record=TopLevelDocument|FileName=Child.SchDoc\r\n");
+        var top = Sheet("Top.SchDoc", Symbol("U_Child", "Child.SchDoc", "SYMCHILD"));
+        var child = Sheet("Child.SchDoc", Part("R1", "RESISTOR"));
+
+        var stale = ProjectHierarchy.Build(project, new[] { top, child });
+        Assert.Equal("Child.SchDoc", Single(stale, AltiumDiagnosticCode.StructureFileStale).DocumentName);
+        Assert.Equal("Notes.SchDoc", Single(stale, AltiumDiagnosticCode.DocumentNotSupplied).DocumentName);
+        Assert.DoesNotContain(stale.Diagnostics, d => d.Code == AltiumDiagnosticCode.StructureFileMissing);
+
+        project.Structure = null;
+        Single(ProjectHierarchy.Build(project, new[] { top, child }), AltiumDiagnosticCode.StructureFileMissing);
+        Assert.DoesNotContain(ProjectHierarchy.Build(null, new[] { top, child }).Diagnostics,
+            d => d.Code == AltiumDiagnosticCode.StructureFileMissing);
+
+        project.Structure = ProjectStructure.Parse("Record=TopLevelDocument|FileName=Top.SchDoc\r\n");
+        var unused = ProjectHierarchy.Build(project, new[] { top, child, Sheet("Spare.SchDoc") });
+        Assert.Equal("Spare.SchDoc", Single(unused, AltiumDiagnosticCode.SheetNotInHierarchy).DocumentName);
+        Assert.DoesNotContain(unused.Diagnostics, d => d.Code is AltiumDiagnosticCode.StructureFileStale or AltiumDiagnosticCode.StructureFileMissing);
+
+        var badNames = ProjectHierarchy.Build(null, new[] { new SchDocument(), top, Sheet("top.schdoc") });
+        Single(badNames, AltiumDiagnosticCode.DocumentWithoutFileName);
+        Assert.Equal("top.schdoc", Single(badNames, AltiumDiagnosticCode.DuplicateDocumentName).DocumentName);
+    }
+
+    [Fact]
+    public void ChannelSettingDiagnostics_HaveCodes()
+    {
+        var project = Project("Top.SchDoc");
+        project.Design.Section.Set("ChannelRoomNamingStyle", "2");
+        var top = Sheet("Top.SchDoc",
+            Symbol("U_Bank", "Bank.SchDoc", "SYMBANKA", yMils: 1000),
+            Symbol("U_Bank", "Bank.SchDoc", "SYMBANKB", yMils: 5000));
+        var bank = Sheet("Bank.SchDoc", Symbol("Repeat(CH,1,2)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"));
+
+        var hierarchy = ProjectHierarchy.Build(project, new[] { top, bank, channel });
+
+        Single(hierarchy, AltiumDiagnosticCode.UnsupportedRoomNamingStyle);
+        Assert.Contains(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.SharedRoomName && d.SheetInstance!.RoomName == "CH1");
+    }
+
     [Fact]
     public void DocumentsWithoutAFileName_AreSkipped()
     {
@@ -580,6 +714,12 @@ public sealed class ProjectHierarchyTests
         Assert.Contains(hierarchy.Diagnostics, d => d.Message.Contains("'DeviceSheets\\Gone.SchDoc', which was not supplied", StringComparison.Ordinal));
         Assert.Contains(hierarchy.Diagnostics, d => d.Severity == DiagnosticSeverity.Info &&
             d.Message.Contains("'DeviceSheets\\USB-C.SchDoc' is used by a sheet symbol but is not a project document", StringComparison.Ordinal));
+        Assert.Equal(new[] { "DeviceSheets\\USB-C.SchDoc", "Esd.SchDoc" }, hierarchy.Diagnostics
+            .Where(d => d.Code == AltiumDiagnosticCode.UnlistedSheetLoaded).Select(d => d.DocumentName).ToArray());
+        var gone = Single(hierarchy, AltiumDiagnosticCode.SubSheetNotSupplied);
+        Assert.Equal("DeviceSheets\\Gone.SchDoc", gone.DocumentName);
+        Assert.Equal("SYMGONEE", gone.SheetSymbol!.UniqueId);
+        Assert.Equal("Top.SchDoc", gone.SheetInstance!.FileName);
     }
 
     [Theory]

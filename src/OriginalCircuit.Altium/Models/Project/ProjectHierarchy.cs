@@ -185,8 +185,7 @@ public sealed class ProjectHierarchy
                 if (NormalizeFileName(document.DocumentPath) is { } name && !supplied.Contains(name))
                 {
                     missing.Add(document.DocumentPath!);
-                    diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
-                        $"Schematic document '{document.DocumentPath}' was not supplied."));
+                    diagnostics.Add(NotSupplied(document.DocumentPath!));
                 }
             }
         }
@@ -293,14 +292,17 @@ public sealed class ProjectHierarchy
                 if (item.Listed)
                 {
                     missing.Add(item.Path);
-                    diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
-                        $"Schematic document '{item.Path}' was not supplied."));
+                    diagnostics.Add(NotSupplied(item.Path));
                 }
                 continue;
             }
             if (!item.Listed)
                 diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Info,
-                    $"Sheet '{item.Path}' is used by a sheet symbol but is not a project document; it was loaded too."));
+                    $"Sheet '{item.Path}' is used by a sheet symbol but is not a project document; it was loaded too.")
+                {
+                    Code = AltiumDiagnosticCode.UnlistedSheetLoaded,
+                    DocumentName = item.Path,
+                });
 
             sheet.FileName = name;
             sheets.Add(sheet);
@@ -313,6 +315,13 @@ public sealed class ProjectHierarchy
 
         return Build(project, sheets, diagnostics, missing, options);
     }
+
+    private static AltiumDiagnostic NotSupplied(string path) =>
+        new(DiagnosticSeverity.Warning, $"Schematic document '{path}' was not supplied.")
+        {
+            Code = AltiumDiagnosticCode.DocumentNotSupplied,
+            DocumentName = path,
+        };
 
     // The first existing file for a document path: as given when absolute, else next to the sheet
     // that uses it, else in the project folder.
@@ -344,13 +353,20 @@ public sealed class ProjectHierarchy
             if (name is null)
             {
                 diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
-                    "A schematic document without a file name was skipped; set SchDocument.FileName to the name its sheet symbols use."));
+                    "A schematic document without a file name was skipped; set SchDocument.FileName to the name its sheet symbols use.")
+                {
+                    Code = AltiumDiagnosticCode.DocumentWithoutFileName,
+                });
                 continue;
             }
             if (!documents.TryAdd(name, sheet))
             {
                 diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
-                    $"More than one schematic document is named '{name}'; only the first is used."));
+                    $"More than one schematic document is named '{name}'; only the first is used.")
+                {
+                    Code = AltiumDiagnosticCode.DuplicateDocumentName,
+                    DocumentName = name,
+                });
                 continue;
             }
             order.Add(name);
@@ -364,11 +380,11 @@ public sealed class ProjectHierarchy
     private void Compile(IReadOnlyList<string> documentOrder)
     {
         if (RoomNamingStyle != "0")
-            Report(DiagnosticSeverity.Warning,
+            Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnsupportedRoomNamingStyle,
                 $"Channel room naming style {RoomNamingStyle} is not modelled; rooms are named as for style 0 (flat numbered).");
         var unknownTokens = DesignatorTokens(DesignatorFormat).Where(t => !IsKnownToken(t)).ToList();
         if (unknownTokens.Count > 0)
-            Report(DiagnosticSeverity.Warning,
+            Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnsupportedDesignatorToken,
                 $"The channel designator format '{DesignatorFormat}' uses {string.Join(", ", unknownTokens.Select(t => "$" + t))}, " +
                 "which are left as written; only $Component and $RoomName are expanded.");
 
@@ -381,7 +397,8 @@ public sealed class ProjectHierarchy
 
         var instantiated = new HashSet<string>(_sheets.Select(s => s.FileName), StringComparer.OrdinalIgnoreCase);
         foreach (var name in documentOrder.Where(n => !instantiated.Contains(n)))
-            Report(DiagnosticSeverity.Info, $"Sheet '{name}' is not part of the hierarchy and was left out.");
+            Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.SheetNotInHierarchy,
+                $"Sheet '{name}' is not part of the hierarchy and was left out.", document: name);
 
         AssignRooms();
         CollectParts();
@@ -405,14 +422,19 @@ public sealed class ProjectHierarchy
         if (top is not null && _documents.ContainsKey(top) && !referenced.Contains(top))
             return new List<string> { top };
         if (top is not null)
-            Report(DiagnosticSeverity.Info,
-                $"The structure file's top-level document '{top}' is {(_documents.ContainsKey(top) ? "used by a sheet symbol" : "not supplied")}; the roots are the sheets no sheet symbol uses.");
+            Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.StructureFileStale,
+                $"The structure file's top-level document '{top}' is {(_documents.ContainsKey(top) ? "used by a sheet symbol" : "not supplied")}; the roots are the sheets no sheet symbol uses.",
+                document: top);
+        else if (Project is not null)
+            Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.StructureFileMissing,
+                "The project has no structure file naming its top-level document; the roots are the sheets no sheet symbol uses.");
 
         var roots = documentOrder.Where(n => !referenced.Contains(n)).ToList();
         if (roots.Count == 0 && documentOrder.Count > 0)
         {
-            Report(DiagnosticSeverity.Warning,
-                $"Every sheet is used by a sheet symbol (a cycle); the hierarchy starts from '{documentOrder[0]}'.");
+            Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.NoRootSheet,
+                $"Every sheet is used by a sheet symbol (a cycle); the hierarchy starts from '{documentOrder[0]}'.",
+                document: documentOrder[0]);
             roots.Add(documentOrder[0]);
         }
         return roots;
@@ -484,34 +506,39 @@ public sealed class ProjectHierarchy
             var childName = NormalizeFileName(symbol.FileName);
             if (childName is null)
             {
-                Report(DiagnosticSeverity.Warning, $"A sheet symbol on '{fileName}' names no sheet file.");
+                Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SheetSymbolWithoutFile,
+                    $"A sheet symbol on '{fileName}' names no sheet file.", frame.Instance, symbol, fileName);
                 continue;
             }
             if (!_documents.ContainsKey(childName))
             {
                 AddMissing(symbol.FileName!);
-                Report(DiagnosticSeverity.Warning, $"Sheet '{fileName}' uses sub-sheet '{symbol.FileName}', which was not supplied.");
+                Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SubSheetNotSupplied,
+                    $"Sheet '{fileName}' uses sub-sheet '{symbol.FileName}', which was not supplied.", frame.Instance, symbol, symbol.FileName);
                 continue;
             }
             if (ancestors.Contains(childName))
             {
-                Report(DiagnosticSeverity.Warning, $"Sheet '{fileName}' uses '{childName}', which is one of its own parents; the cycle was skipped.");
+                Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SheetCycle,
+                    $"Sheet '{fileName}' uses '{childName}', which is one of its own parents; the cycle was skipped.", frame.Instance, symbol, childName);
                 continue;
             }
             if (frame.Instance.Depth >= _options.MaxDepth)
             {
                 IsTruncated = true;
-                Report(DiagnosticSeverity.Error,
-                    $"The hierarchy is deeper than {_options.MaxDepth} levels (ProjectHierarchyOptions.MaxDepth); sheets below that depth were left out.");
+                Report(DiagnosticSeverity.Error, AltiumDiagnosticCode.MaxDepthExceeded,
+                    $"The hierarchy is deeper than {_options.MaxDepth} levels (ProjectHierarchyOptions.MaxDepth); sheets below that depth were left out.",
+                    frame.Instance, symbol, childName);
                 continue;
             }
 
             var designator = symbol.NameLabel?.Text ?? symbol.SheetName;
             var repeat = symbol.Repeat;
             if (repeat.IsUnreadable)
-                Report(DiagnosticSeverity.Warning,
+                Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnreadableRepeat,
                     $"Sheet symbol '{designator}' on '{fileName}' has a Repeat(...) that cannot be read " +
-                    "(it needs a name and two whole numbers at most 100,000 apart); it is treated as one instance.");
+                    "(it needs a name and two whole numbers at most 100,000 apart); it is treated as one instance.",
+                    frame.Instance, symbol, childName);
 
             frame.Symbol = symbol;
             frame.ChildName = childName;
@@ -529,16 +556,18 @@ public sealed class ProjectHierarchy
     {
         if (_sheets.Count >= _options.MaxSheetInstances)
         {
-            Stop($"The hierarchy has more than {_options.MaxSheetInstances} sheet instances (ProjectHierarchyOptions.MaxSheetInstances); " +
-                 "the walk stopped there.");
+            Stop(AltiumDiagnosticCode.MaxSheetInstancesExceeded,
+                $"The hierarchy has more than {_options.MaxSheetInstances} sheet instances (ProjectHierarchyOptions.MaxSheetInstances); " +
+                "the walk stopped there.", parent, symbol, fileName);
             return null;
         }
         var document = _documents[fileName];
         var parts = DesignatedComponentCount(document);
         if (_plannedParts + parts > _options.MaxComponentParts)
         {
-            Stop($"The design places more than {_options.MaxComponentParts} component parts (ProjectHierarchyOptions.MaxComponentParts); " +
-                 "the walk stopped there.");
+            Stop(AltiumDiagnosticCode.MaxComponentPartsExceeded,
+                $"The design places more than {_options.MaxComponentParts} component parts (ProjectHierarchyOptions.MaxComponentParts); " +
+                "the walk stopped there.", parent, symbol, fileName);
             return null;
         }
         _plannedParts += parts;
@@ -570,11 +599,11 @@ public sealed class ProjectHierarchy
             _missing.Add(path);
     }
 
-    private void Stop(string message)
+    private void Stop(AltiumDiagnosticCode code, string message, HierarchySheetInstance? sheet, SchSheetSymbol? symbol, string document)
     {
         _stopped = true;
         IsTruncated = true;
-        Report(DiagnosticSeverity.Error, message);
+        Report(DiagnosticSeverity.Error, code, message, sheet, symbol, document);
     }
 
     // Altium numbers channels by where their sheet symbols sit, not by record order: bottom to top
@@ -631,8 +660,9 @@ public sealed class ProjectHierarchy
         foreach (var shared in _sheets.Where(s => s.IsMultiChannel && s.RoomName is not null)
                      .GroupBy(s => s.RoomName!, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
         {
-            Report(DiagnosticSeverity.Warning,
-                $"Room name '{shared.Key}' is shared by {shared.Count()} sheet instances, so their physical designators can collide.");
+            Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SharedRoomName,
+                $"Room name '{shared.Key}' is shared by {shared.Count()} sheet instances, so their physical designators can collide.",
+                shared.First());
         }
     }
 
@@ -664,7 +694,8 @@ public sealed class ProjectHierarchy
                 }
             }
             if (skipped > 0)
-                Report(DiagnosticSeverity.Info, $"{skipped} component(s) on '{sheet.FileName}' have no designator and were left out.");
+                Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.ComponentWithoutDesignator,
+                    $"{skipped} component(s) on '{sheet.FileName}' have no designator and were left out.", sheet, document: sheet.FileName);
         }
     }
 
@@ -699,12 +730,13 @@ public sealed class ProjectHierarchy
                 continue;
             _byDesignator[component.Designator] = component;
             if (parts.GroupBy(p => p.PartId).FirstOrDefault(g => g.Count() > 1) is { } duplicate)
-                Report(DiagnosticSeverity.Warning,
-                    $"Designator '{component.Designator}' is used by {duplicate.Count()} component records for the same part; they are counted as one component.");
+                Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.DuplicateDesignator,
+                    $"Designator '{component.Designator}' is used by {duplicate.Count()} component records for the same part; they are counted as one component.",
+                    duplicate.ElementAt(1).Sheet, designator: component.Designator);
         }
 
         if (unannotated > 0)
-            Report(DiagnosticSeverity.Warning,
+            Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnannotatedDesignator,
                 $"{unannotated} component(s) are not annotated (their designator contains '?'); each is kept as a separate component.");
     }
 
@@ -762,10 +794,19 @@ public sealed class ProjectHierarchy
     private static bool IsKnownToken(string token) =>
         token.Equals("Component", StringComparison.OrdinalIgnoreCase) || token.Equals("RoomName", StringComparison.OrdinalIgnoreCase);
 
-    private void Report(DiagnosticSeverity severity, string message)
+    // Reports each message once; a problem met again keeps the location where it was first found.
+    private void Report(DiagnosticSeverity severity, AltiumDiagnosticCode code, string message,
+        HierarchySheetInstance? sheet = null, SchSheetSymbol? symbol = null, string? document = null, string? designator = null)
     {
         if (_reported.Add(message))
-            _diagnostics.Add(new AltiumDiagnostic(severity, message));
+            _diagnostics.Add(new AltiumDiagnostic(severity, message)
+            {
+                Code = code,
+                SheetInstance = sheet,
+                SheetSymbol = symbol,
+                DocumentName = document,
+                Designator = designator,
+            });
     }
 
     private static IReadOnlyList<string> Append(IReadOnlyList<string> path, string entry)
