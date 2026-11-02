@@ -508,7 +508,7 @@ public sealed class ProjectHierarchy
 
             var designator = symbol.NameLabel?.Text ?? symbol.SheetName;
             var repeat = symbol.Repeat;
-            if (!repeat.IsRepeated && RepeatInfo.MentionsRepeat(designator))
+            if (repeat.IsUnreadable)
                 Report(DiagnosticSeverity.Warning,
                     $"Sheet symbol '{designator}' on '{fileName}' has a Repeat(...) that cannot be read " +
                     "(it needs a name and two whole numbers at most 100,000 apart); it is treated as one instance.");

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [2.0.0-alpha.3] - Unreleased
 
+### Added
+
+- `RepeatInfo.IsUnreadable` tells a sheet symbol whose designator has a `Repeat(...)` that cannot be read (`Repeat(CH,1,200000)`, `Repeat(CH,-1,3)`, `Repeat(,1,3)`, an unclosed one) from a plain designator; both have `IsRepeated == false`. `RepeatInfo.MentionsRepeat` is now public.
+
 ### Fixed
 
 - `ProjectHierarchy` now knows a sheet by one key everywhere: the last segment of its path, trimmed afterwards, with `\`, `/` and a drive's `:` as separators on every platform. A sheet symbol whose file name needed trimming after its folder (`Sheets\ Power.SchDoc`) or held a colon (`Sheets\C:Power.SchDoc`) did not find the sheet it was given, which then became a second root and was also listed in `MissingDocuments`.

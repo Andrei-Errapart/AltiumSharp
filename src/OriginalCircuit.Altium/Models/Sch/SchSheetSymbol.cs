@@ -216,16 +216,25 @@ public sealed class SchSheetSymbol : ISchSheet
 /// </summary>
 public readonly partial struct RepeatInfo
 {
-    private RepeatInfo(bool isRepeated, string? channelName, int firstInstance, int lastInstance)
+    private RepeatInfo(bool isRepeated, string? channelName, int firstInstance, int lastInstance, bool isUnreadable = false)
     {
         IsRepeated = isRepeated;
         ChannelName = channelName;
         FirstInstance = firstInstance;
         LastInstance = lastInstance;
+        IsUnreadable = isUnreadable;
     }
 
     /// <summary>Whether the designator carries a <c>Repeat(...)</c> directive.</summary>
     public bool IsRepeated { get; }
+
+    /// <summary>
+    /// Whether the designator mentions <c>Repeat(</c> (see <see cref="MentionsRepeat"/>) but the
+    /// directive cannot be read: its name is empty, its bounds are not plain ASCII whole numbers
+    /// within range, it spans more than 100,000 channels, or it is not closed. <see cref="IsRepeated"/>
+    /// is then <c>false</c>, so the symbol places its sheet once, as for a plain designator.
+    /// </summary>
+    public bool IsUnreadable { get; }
 
     /// <summary>The channel name (the <c>Repeat</c> first argument, or the plain designator).</summary>
     public string? ChannelName { get; }
@@ -262,23 +271,27 @@ public readonly partial struct RepeatInfo
             return new RepeatInfo(false, designator, 1, 1);
 
         var plain = new RepeatInfo(false, designator.Trim(), 1, 1);
+        var unreadable = new RepeatInfo(false, designator.Trim(), 1, 1, isUnreadable: true);
         var m = RepeatRegex().Match(designator);
         if (!m.Success)
-            return plain;
+            return MentionsRepeat(designator) ? unreadable : plain;
 
         var name = m.Groups[1].Value.Trim();
         if (name.Length == 0 || !TryParseIndex(m.Groups[2].Value, out var first) || !TryParseIndex(m.Groups[3].Value, out var last))
-            return plain;
+            return unreadable;
         if (last < first)
             (first, last) = (last, first);
         // Guard against absurd counts.
         if (last - first > 100_000)
-            return plain;
+            return unreadable;
         return new RepeatInfo(true, name, first, last);
     }
 
-    /// <summary>Whether <paramref name="designator"/> contains <c>Repeat(</c>, readable or not.</summary>
-    internal static bool MentionsRepeat(string? designator) =>
+    /// <summary>
+    /// Whether <paramref name="designator"/> contains <c>Repeat(</c> (case-insensitive, spaces allowed
+    /// before the parenthesis), readable or not.
+    /// </summary>
+    public static bool MentionsRepeat(string? designator) =>
         designator is not null && RepeatMentionRegex().IsMatch(designator);
 
     // ASCII digits only: NumberStyles.None allows no sign, separators or whitespace, and int.TryParse

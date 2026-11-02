@@ -376,6 +376,9 @@ public sealed class ProjectHierarchyTests
     [Theory]
     [InlineData("Repeat(CH,1,99999999999)")]
     [InlineData("Repeat(CH,١,٤)")]
+    [InlineData("Repeat(CH,1,200000)")]
+    [InlineData("Repeat(CH,-1,3)")]
+    [InlineData("Repeat(,1,3)")]
     public void UnreadableRepeat_IsOneInstance_AndReported(string designator)
     {
         var top = Sheet("Top.SchDoc", Symbol(designator, "Channel.SchDoc", "SYMCHANL"));
@@ -383,6 +386,7 @@ public sealed class ProjectHierarchyTests
 
         var hierarchy = ProjectHierarchy.Build(null, new[] { top, channel });
 
+        Assert.True(hierarchy.Sheets[1].SheetSymbol!.Repeat.IsUnreadable);
         Assert.Equal(2, hierarchy.Sheets.Count);
         Assert.Equal(new[] { "R1" }, Designators(hierarchy));
         Assert.Contains(hierarchy.Diagnostics, d => d.Severity == DiagnosticSeverity.Warning &&

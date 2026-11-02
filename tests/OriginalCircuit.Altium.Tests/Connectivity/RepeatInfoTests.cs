@@ -47,8 +47,33 @@ public class RepeatInfoTests
     {
         var r = RepeatInfo.Parse(text);
         Assert.False(r.IsRepeated);
+        Assert.True(r.IsUnreadable);
+        Assert.True(RepeatInfo.MentionsRepeat(text));
         Assert.Equal(text.Trim(), r.ChannelName);
         Assert.Equal(1, r.InstanceCount);
+    }
+
+    [Theory]
+    [InlineData("Repeat(,1,3)")]
+    [InlineData("Repeat(CH,1,3")]
+    [InlineData("REPEAT (CH)")]
+    public void Parse_Malformed_Repeat_Is_Unreadable(string text)
+    {
+        var r = RepeatInfo.Parse(text);
+        Assert.False(r.IsRepeated);
+        Assert.True(r.IsUnreadable);
+    }
+
+    [Theory]
+    [InlineData("Repeat(CH,1,4)")]
+    [InlineData("U_Analogue")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Parse_Readable_Or_Plain_Designator_Is_Not_Unreadable(string? text)
+    {
+        Assert.False(RepeatInfo.Parse(text).IsUnreadable);
+        Assert.False(default(RepeatInfo).IsUnreadable);
+        Assert.Equal(text?.Contains("Repeat", StringComparison.Ordinal) == true, RepeatInfo.MentionsRepeat(text));
     }
 
     [Fact]
