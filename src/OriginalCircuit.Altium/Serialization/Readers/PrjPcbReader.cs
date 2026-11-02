@@ -6,7 +6,9 @@ namespace OriginalCircuit.Altium.Serialization.Readers;
 
 /// <summary>
 /// Reads Altium project (<c>.PrjPcb</c>) files. Unlike the other Altium formats, a project file is a
-/// plain UTF-8 INI-style text document (not an OLE compound file), so this reader operates on text.
+/// plain INI-style text document (not an OLE compound file), so this reader operates on text. It is
+/// UTF-8, normally with a byte-order mark; a file without one that is not valid UTF-8 is read as
+/// Windows-1252 (the ANSI code page), and so is its <c>.PrjPcbStructure</c>.
 /// </summary>
 /// <remarks>
 /// Reading from a path also loads the sibling <c>.PrjPcbStructure</c> file (the compiled logical
@@ -14,8 +16,6 @@ namespace OriginalCircuit.Altium.Serialization.Readers;
 /// </remarks>
 public sealed class PrjPcbReader
 {
-    private static readonly byte[] Utf8Bom = { 0xEF, 0xBB, 0xBF };
-
     private List<AltiumDiagnostic> _diagnostics = new();
 
     /// <summary>
@@ -34,7 +34,7 @@ public sealed class PrjPcbReader
             try
             {
                 var structureBytes = await File.ReadAllBytesAsync(structurePath, cancellationToken).ConfigureAwait(false);
-                project.Structure = ProjectStructure.Parse(DecodeText(structureBytes, out _));
+                project.Structure = ProjectStructure.Parse(structureBytes);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -88,17 +88,11 @@ public sealed class PrjPcbReader
 
     private AltiumProject ReadBytes(byte[] bytes)
     {
-        var text = DecodeText(bytes, out var hasBom);
+        var text = AltiumEncoding.DecodeText(bytes, out var hasBom, out var isWindows1252);
         var project = ParseText(text);
         project.HasByteOrderMark = hasBom;
+        project.IsWindows1252 = isWindows1252;
         return project;
-    }
-
-    private static string DecodeText(byte[] bytes, out bool hasBom)
-    {
-        hasBom = bytes.Length >= 3 && bytes[0] == Utf8Bom[0] && bytes[1] == Utf8Bom[1] && bytes[2] == Utf8Bom[2];
-        var start = hasBom ? 3 : 0;
-        return Encoding.UTF8.GetString(bytes, start, bytes.Length - start);
     }
 
     private AltiumProject ParseText(string text)

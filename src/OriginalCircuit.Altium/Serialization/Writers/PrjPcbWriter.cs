@@ -4,7 +4,8 @@ using OriginalCircuit.Altium.Models.Project;
 namespace OriginalCircuit.Altium.Serialization.Writers;
 
 /// <summary>
-/// Writes Altium project (<c>.PrjPcb</c>) files. The project file is plain UTF-8 INI-style text;
+/// Writes Altium project (<c>.PrjPcb</c>) files. The project file is plain UTF-8 INI-style text (or
+/// Windows-1252 when it was read that way and still fits);
 /// sections are emitted in <see cref="AltiumProject.Sections"/> order, each followed by a single
 /// blank line, matching Altium's layout so a read/write round-trip is byte-for-byte.
 /// </summary>
@@ -26,8 +27,8 @@ public sealed class PrjPcbWriter
         if (project.Structure != null)
         {
             var structurePath = Path.ChangeExtension(path, ".PrjPcbStructure");
-            // The structure file has no BOM; UTF-8 of its ASCII content is identical to the original.
-            var structureBytes = Encoding.UTF8.GetBytes(project.Structure.Serialize(NewLineOf(project)));
+            // The structure file has no BOM; it is written in the encoding it was read in.
+            var structureBytes = AltiumEncoding.EncodeText(project.Structure.Serialize(NewLineOf(project)), project.Structure.IsWindows1252);
             await File.WriteAllBytesAsync(structurePath, structureBytes, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -54,9 +55,10 @@ public sealed class PrjPcbWriter
     public byte[] SerializeToBytes(AltiumProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        var body = Encoding.UTF8.GetBytes(SerializeText(project));
         if (!project.HasByteOrderMark)
-            return body;
+            return AltiumEncoding.EncodeText(SerializeText(project), project.IsWindows1252);
+
+        var body = Encoding.UTF8.GetBytes(SerializeText(project));
 
         var result = new byte[Utf8Bom.Length + body.Length];
         Buffer.BlockCopy(Utf8Bom, 0, result, 0, Utf8Bom.Length);

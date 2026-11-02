@@ -92,6 +92,9 @@ public sealed class ProjectStructure
     /// <summary>The records exactly as they appear in the file, in order.</summary>
     public List<ProjectStructureRecord> Records { get; } = new();
 
+    // Read from bytes that were not UTF-8, so written back as Windows-1252.
+    internal bool IsWindows1252 { get; set; }
+
     /// <summary>The top-level document file name (the <c>Record=TopLevelDocument</c> entry), or <c>null</c>.</summary>
     public string? TopLevelDocument
     {
@@ -174,8 +177,9 @@ public sealed class ProjectStructure
     }
 
     /// <summary>
-    /// Reads a <c>.PrjPcbStructure</c> file from a stream of its bytes (UTF-8, with or without a
-    /// byte-order mark). The stream is read to the end and not closed. Use this, or
+    /// Reads a <c>.PrjPcbStructure</c> file from a stream of its bytes: UTF-8 (with or without a
+    /// byte-order mark), or Windows-1252 when the bytes are not valid UTF-8, as for a file saved in
+    /// the ANSI code page. The stream is read to the end and not closed. Use this, or
     /// <see cref="OriginalCircuit.Altium.AltiumLibrary.OpenProjectAsync(Stream, Stream?, CancellationToken)"/>,
     /// to give a project opened from a stream its structure:
     /// <c>project.Structure = ProjectStructure.Parse(structureStream)</c>.
@@ -183,8 +187,16 @@ public sealed class ProjectStructure
     public static ProjectStructure Parse(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
-        return Parse(reader.ReadToEnd());
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return Parse(buffer.ToArray());
+    }
+
+    internal static ProjectStructure Parse(byte[] bytes)
+    {
+        var structure = Parse(Serialization.AltiumEncoding.DecodeText(bytes, out _, out var isWindows1252));
+        structure.IsWindows1252 = isWindows1252;
+        return structure;
     }
 
     /// <summary>

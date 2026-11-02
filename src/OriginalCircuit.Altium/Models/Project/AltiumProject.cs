@@ -53,6 +53,9 @@ public sealed class AltiumProject
     /// </summary>
     public bool HasByteOrderMark { get; set; } = true;
 
+    // Read from bytes that were not UTF-8 (and had no byte-order mark), so written back as Windows-1252.
+    internal bool IsWindows1252 { get; set; }
+
     /// <summary>The line terminator used when serializing. Altium uses CRLF.</summary>
     public string NewLine { get; set; } = "\r\n";
 

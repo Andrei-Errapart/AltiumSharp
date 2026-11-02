@@ -26,6 +26,45 @@ internal static class AltiumEncoding
     /// </summary>
     public static void EnsureInitialized() => _ = _windows1252.Value;
 
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+    /// <summary>
+    /// Decodes an Altium text file (a <c>.PrjPcb</c> or <c>.PrjPcbStructure</c>): as UTF-8 when it starts
+    /// with a UTF-8 byte-order mark (which is dropped) or is valid UTF-8, otherwise as Windows-1252,
+    /// the ANSI code page a file without a mark may have been saved in.
+    /// </summary>
+    public static string DecodeText(byte[] bytes, out bool hasBom, out bool isWindows1252)
+    {
+        hasBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+        isWindows1252 = false;
+        if (hasBom)
+            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+        try
+        {
+            return StrictUtf8.GetString(bytes);
+        }
+        catch (DecoderFallbackException)
+        {
+            isWindows1252 = true;
+            return Windows1252.GetString(bytes);
+        }
+    }
+
+    /// <summary>
+    /// Encodes text read by <see cref="DecodeText"/>: as Windows-1252 when it was read that way and
+    /// every character still fits, otherwise as UTF-8 (without a byte-order mark).
+    /// </summary>
+    public static byte[] EncodeText(string text, bool asWindows1252)
+    {
+        if (asWindows1252)
+        {
+            var ansi = Windows1252.GetBytes(text);
+            if (Windows1252.GetString(ansi) == text)
+                return ansi;
+        }
+        return Encoding.UTF8.GetBytes(text);
+    }
+
     /// <summary>
     /// Decodes a parameter value that carried the <c>%UTF8%</c> key prefix. The surrounding
     /// parameter block is decoded as Windows-1252, so a UTF-8 value arrives as one char per raw

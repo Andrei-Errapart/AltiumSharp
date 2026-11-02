@@ -1,6 +1,7 @@
 using System.Text;
 using OriginalCircuit.Altium;
 using OriginalCircuit.Altium.Models.Project;
+using OriginalCircuit.Altium.Serialization;
 using OriginalCircuit.Altium.Serialization.Readers;
 using OriginalCircuit.Altium.Serialization.Writers;
 
@@ -405,6 +406,67 @@ public sealed class ProjectFileTests
         Assert.Equal("Board.SchDoc", fromText.TopLevelDocument);
         Assert.Equal(SampleStructure, fromStream.Serialize());
         Assert.Equal(SampleStructure, fromText.Serialize());
+    }
+
+    private const string AnsiStructure = "Record=TopLevelDocument|FileName=Übersicht.SchDoc\r\n";
+
+    [Fact]
+    public void Structure_Parse_ReadsWindows1252_WhenTheBytesAreNotUtf8()
+    {
+        using var ansi = new MemoryStream(AltiumEncoding.Windows1252.GetBytes(AnsiStructure));
+        using var utf8 = new MemoryStream(Encoding.UTF8.GetBytes(AnsiStructure));
+        using var utf8WithBom = new MemoryStream(WithBom(AnsiStructure));
+
+        Assert.Equal("Übersicht.SchDoc", ProjectStructure.Parse(ansi).TopLevelDocument);
+        Assert.Equal("Übersicht.SchDoc", ProjectStructure.Parse(utf8).TopLevelDocument);
+        Assert.Equal("Übersicht.SchDoc", ProjectStructure.Parse(utf8WithBom).TopLevelDocument);
+    }
+
+    [Fact]
+    public async Task OpenProjectAsync_FromStreams_ReadsAWindows1252ProjectAndStructure()
+    {
+        var prjText = "[Document1]\r\nDocumentPath=Übersicht.SchDoc\r\n\r\n";
+        var prjBytes = AltiumEncoding.Windows1252.GetBytes(prjText);
+        using var prj = new MemoryStream(prjBytes);
+        using var structure = new MemoryStream(AltiumEncoding.Windows1252.GetBytes(AnsiStructure));
+
+        var project = await AltiumLibrary.OpenProjectAsync(prj, structure);
+
+        Assert.Equal("Übersicht.SchDoc", project.Structure!.TopLevelDocument);
+        Assert.Equal("Übersicht.SchDoc", Assert.Single(project.SchematicDocuments).DocumentPath);
+        Assert.Equal(prjBytes, new PrjPcbWriter().SerializeToBytes(project)); // written back as it was read
+        var hierarchy = ProjectHierarchy.Build(project, new[] { new Models.Sch.SchDocument { FileName = "Übersicht.SchDoc" } });
+        Assert.Equal("Übersicht.SchDoc", Assert.Single(hierarchy.Roots).FileName);
+    }
+
+    [Fact]
+    public async Task OpenProjectAsync_FromDisk_ReadsAndWritesBackAWindows1252Structure()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "PrjAnsiTest_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var prjPath = Path.Combine(dir, "Board.PrjPcb");
+            await File.WriteAllBytesAsync(prjPath, WithBom(SampleProject));
+            var structureBytes = AltiumEncoding.Windows1252.GetBytes(AnsiStructure);
+            await File.WriteAllBytesAsync(Path.Combine(dir, "Board.PrjPcbStructure"), structureBytes);
+
+            var project = await AltiumLibrary.OpenProjectAsync(prjPath);
+            Assert.Equal("Übersicht.SchDoc", project.Structure!.TopLevelDocument);
+
+            await project.SaveAsync(Path.Combine(dir, "Saved.PrjPcb"));
+            Assert.Equal(structureBytes, await File.ReadAllBytesAsync(Path.Combine(dir, "Saved.PrjPcbStructure")));
+
+            // A character Windows-1252 cannot hold is written as UTF-8 instead of being lost.
+            project.Structure.Records[0].Fields[1] = new("FileName", "Übersicht-日本.SchDoc");
+            await project.SaveAsync(Path.Combine(dir, "Edited.PrjPcb"));
+            await using var edited = File.OpenRead(Path.Combine(dir, "Edited.PrjPcbStructure"));
+            Assert.Equal("Übersicht-日本.SchDoc", ProjectStructure.Parse(edited).TopLevelDocument);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 
     [Fact]
