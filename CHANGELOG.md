@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-alpha.3] - Unreleased
+
+### Fixed
+
+- `ProjectHierarchy` now knows a sheet by one key everywhere: the last segment of its path, trimmed afterwards, with `\`, `/` and a drive's `:` as separators on every platform. A sheet symbol whose file name needed trimming after its folder (`Sheets\ Power.SchDoc`) or held a colon (`Sheets\C:Power.SchDoc`) did not find the sheet it was given, which then became a second root and was also listed in `MissingDocuments`.
+
 ## [2.0.0-alpha.2] - Unreleased
 
 ### Added

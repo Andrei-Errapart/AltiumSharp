@@ -578,6 +578,48 @@ public sealed class ProjectHierarchyTests
             d.Message.Contains("'DeviceSheets\\USB-C.SchDoc' is used by a sheet symbol but is not a project document", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("Sheets\\ Power.SchDoc")]
+    [InlineData("Sheets\\C:Power.SchDoc")]
+    [InlineData(" Sheets/Power.SchDoc ")]
+    [InlineData("C:\\Designs\\Power.SchDoc")]
+    public void FileNames_AreKeyedByTheirTrimmedLastSegment(string path)
+    {
+        var name = ProjectHierarchy.NormalizeFileName(path);
+
+        Assert.Equal("Power.SchDoc", name);
+        Assert.Equal(name, ProjectHierarchy.NormalizeFileName(name));
+    }
+
+    [Theory]
+    [InlineData("Sheets\\ Power.SchDoc", true)]
+    [InlineData("Sheets\\ Power.SchDoc", false)]
+    [InlineData("Sheets\\C:Power.SchDoc", true)]
+    [InlineData("Sheets\\C:Power.SchDoc", false)]
+    public async Task ASymbolPathNeedingTrim_StillPlacesItsSheet(string symbolPath, bool listed)
+    {
+        // The project lists the sheet under its clean path, or not at all (the symbol's path is then asked for).
+        var power = Bytes(Sheet("Power.SchDoc", Part("U1", "REGULATR")));
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["Top.SchDoc"] = Bytes(Sheet("Top.SchDoc", Symbol("U_Power", symbolPath, "SYMPOWER"))),
+            [listed ? "Sheets\\Power.SchDoc" : symbolPath] = power,
+        };
+        var project = listed ? Project("Top.SchDoc", "Sheets\\Power.SchDoc") : Project("Top.SchDoc");
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(project,
+            path => files.TryGetValue(path, out var bytes) ? new MemoryStream(bytes) : null);
+
+        var root = Assert.Single(hierarchy.Roots);
+        Assert.Equal("Top.SchDoc", root.FileName);
+        var sheet = Assert.Single(root.Children);
+        Assert.Equal("Power.SchDoc", sheet.FileName);
+        Assert.Equal("Top\\U_Power", sheet.HierarchicalPath);
+        Assert.Equal(new[] { "Top.SchDoc", "Power.SchDoc" }, hierarchy.Documents.Keys.ToArray());
+        Assert.Empty(hierarchy.MissingDocuments);
+        Assert.DoesNotContain(hierarchy.Diagnostics, d => d.Severity != DiagnosticSeverity.Info);
+    }
+
     [Fact]
     public void Build_ListsMissingProjectDocumentsAndSubSheets()
     {

@@ -776,6 +776,15 @@ public sealed class ProjectHierarchy
         return list;
     }
 
-    internal static string? NormalizeFileName(string? fileName) =>
-        string.IsNullOrWhiteSpace(fileName) ? null : Path.GetFileName(fileName.Trim().Replace('\\', '/'));
+    // The key a document is known by: the last segment of its path, trimmed, case-insensitive in
+    // use. '\', '/' and a drive's ':' all separate segments on every platform, and trimming comes
+    // last, so the result is its own key ("Sheets\ Power.SchDoc" and "Sheets\C:Power.SchDoc" are
+    // both "Power.SchDoc").
+    internal static string? NormalizeFileName(string? fileName)
+    {
+        if (fileName is null)
+            return null;
+        var name = fileName.AsSpan(fileName.AsSpan().LastIndexOfAny('\\', '/', ':') + 1).Trim();
+        return name.IsEmpty ? null : name.ToString();
+    }
 }
