@@ -267,6 +267,58 @@ public sealed class ProjectFileTests
         Assert.Empty(child.Children);
     }
 
+    [Fact]
+    public void Structure_BuildsADeepChainWithoutRecursion()
+    {
+        // Deep enough that one stack frame per level would overflow the stack.
+        const int levels = 50_000;
+        var text = new StringBuilder("Record=TopLevelDocument|FileName=S0.SchDoc\r\n");
+        for (var i = 0; i < levels; i++)
+            text.Append($"Record=SheetSymbol|SourceDocument=S{i}.SchDoc|Designator=U{i + 1}|FileName=S{i + 1}.SchDoc\r\n");
+        text.Append($"Record=SheetSymbol|SourceDocument=S{levels}.SchDoc|Designator=U_Back|FileName=S0.SchDoc\r\n");
+
+        var root = ProjectStructure.Parse(text.ToString()).BuildTree()!;
+
+        var depth = 0;
+        var node = root;
+        while (node.Children.Count == 1 && !node.Children[0].IsCycle)
+        {
+            node = node.Children[0];
+            depth++;
+        }
+        Assert.Equal(levels, depth);
+        Assert.Equal($"S{levels}.SchDoc", node.FileName);
+        Assert.True(Assert.Single(node.Children).IsCycle);
+        Assert.False(root.IsTruncated);
+    }
+
+    [Fact]
+    public void Structure_StopsAtTheNodeLimit_AndFlagsWhereItWasCut()
+    {
+        // Each of 20 levels places the next 10 times: 10^20 instances from a few kilobytes.
+        var text = new StringBuilder("Record=TopLevelDocument|FileName=L0.SchDoc\r\n");
+        for (var level = 0; level < 20; level++)
+            for (var k = 0; k < 10; k++)
+                text.Append($"Record=SheetSymbol|SourceDocument=L{level}.SchDoc|Designator=U{k}|FileName=L{level + 1}.SchDoc\r\n");
+        var structure = ProjectStructure.Parse(text.ToString());
+
+        var root = structure.BuildTree(maxNodes: 1000)!;
+
+        static IEnumerable<ProjectSheetNode> All(ProjectSheetNode n) => n.Children.SelectMany(All).Prepend(n);
+        Assert.Equal(1000, All(root).Count());
+        // The flagged nodes are the path from the root to where the tree was cut ...
+        var path = new List<ProjectSheetNode> { root };
+        while (path[^1].Children.LastOrDefault() is { IsTruncated: true } next)
+            path.Add(next);
+        Assert.Equal(path.Count, All(root).Count(n => n.IsTruncated));
+        // ... and a subtree finished before the cut is complete: a level-18 sheet, 1 + 10 x (1 + 10) nodes.
+        var finished = path[17].Children[0];
+        Assert.False(finished.IsTruncated);
+        Assert.Equal(111, All(finished).Count());
+        Assert.Equal(ProjectStructure.DefaultMaxTreeNodes, All(structure.BuildTree()!).Count());
+        Assert.Throws<ArgumentOutOfRangeException>(() => structure.BuildTree(0));
+    }
+
     // ---- Authoring -----------------------------------------------------------------------------
 
     [Fact]

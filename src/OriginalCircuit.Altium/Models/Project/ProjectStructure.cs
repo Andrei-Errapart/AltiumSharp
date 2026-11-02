@@ -76,6 +76,13 @@ public sealed class ProjectSheetNode
     /// <summary><c>true</c> when this node was pruned because it would re-enter a document already on its ancestor chain.</summary>
     public bool IsCycle { get; internal set; }
 
+    /// <summary>
+    /// <c>true</c> when some of this node's descendants are missing because
+    /// <see cref="ProjectStructure.BuildTree(int)"/> reached its node limit. The root and every node on
+    /// the path to where the tree was cut are marked.
+    /// </summary>
+    public bool IsTruncated { get; internal set; }
+
     /// <inheritdoc/>
     public override string ToString() =>
         $"{(Designator is null ? "" : Designator + " -> ")}{FileName}" + (Children.Count > 0 ? $" ({Children.Count} children)" : "");
@@ -84,7 +91,7 @@ public sealed class ProjectSheetNode
 /// <summary>
 /// The parsed contents of a <c>.PrjPcbStructure</c> file: the project's compiled logical document
 /// structure (which schematic sheet symbols instantiate which child sheets). The raw
-/// <see cref="Records"/> preserve the file byte-for-byte; <see cref="BuildTree"/> turns them into a
+/// <see cref="Records"/> preserve the file byte-for-byte; <see cref="BuildTree()"/> turns them into a
 /// navigable hierarchy.
 /// </summary>
 public sealed class ProjectStructure
@@ -107,15 +114,31 @@ public sealed class ProjectStructure
         }
     }
 
+    /// <summary>The number of nodes <see cref="BuildTree()"/> builds at most.</summary>
+    public const int DefaultMaxTreeNodes = 100_000;
+
+    /// <summary>
+    /// Builds the logical sheet hierarchy from <see cref="Records"/>, with at most
+    /// <see cref="DefaultMaxTreeNodes"/> nodes (see <see cref="BuildTree(int)"/>).
+    /// </summary>
+    /// <returns>The root node, or <c>null</c> when there is no top-level document record.</returns>
+    public ProjectSheetNode? BuildTree() => BuildTree(DefaultMaxTreeNodes);
+
     /// <summary>
     /// Builds the logical sheet hierarchy from <see cref="Records"/>. The root is the top-level
     /// document; each sheet's children are the sheet-symbol records whose <c>SourceDocument</c>
     /// equals that sheet's document. Re-entrant references (a document appearing on its own ancestor
-    /// chain) are pruned and flagged via <see cref="ProjectSheetNode.IsCycle"/>.
+    /// chain) are pruned and flagged via <see cref="ProjectSheetNode.IsCycle"/>. The tree is built
+    /// without recursion, so any depth is safe, and stops after <paramref name="maxNodes"/> nodes
+    /// (depth-first), because a small file whose sheets each place another several times describes
+    /// an exponentially large tree; the nodes whose descendants were cut off are flagged via
+    /// <see cref="ProjectSheetNode.IsTruncated"/>.
     /// </summary>
+    /// <param name="maxNodes">The most nodes to build, including the root; at least 1.</param>
     /// <returns>The root node, or <c>null</c> when there is no top-level document record.</returns>
-    public ProjectSheetNode? BuildTree()
+    public ProjectSheetNode? BuildTree(int maxNodes)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxNodes, 1);
         // Group sheet-symbol records by their parent document.
         var childrenByParent = new Dictionary<string, List<ProjectStructureRecord>>(StringComparer.OrdinalIgnoreCase);
         foreach (var r in Records)
@@ -134,8 +157,45 @@ public sealed class ProjectStructure
         if (string.IsNullOrEmpty(topDoc))
             return null;
 
+        // Depth-first with an explicit stack of (node, index of its next child record), in the order
+        // the records list the children.
         var root = new ProjectSheetNode(topDoc, null, TopSheetNumber());
-        AddChildren(root, childrenByParent, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { topDoc });
+        var nodes = 1;
+        var ancestors = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { topDoc };
+        var stack = new Stack<(ProjectSheetNode Node, List<ProjectStructureRecord>? Children, int Next)>();
+        stack.Push((root, childrenByParent.GetValueOrDefault(topDoc), 0));
+        while (stack.Count > 0)
+        {
+            var (node, children, next) = stack.Pop();
+            if (children is null || next >= children.Count)
+            {
+                if (stack.Count > 0)
+                    ancestors.Remove(node.FileName);
+                continue;
+            }
+            stack.Push((node, children, next + 1));
+
+            var rec = children[next];
+            var childDoc = rec.FileName;
+            if (string.IsNullOrEmpty(childDoc))
+                continue;
+            if (nodes >= maxNodes)
+            {
+                foreach (var open in stack)
+                    open.Node.IsTruncated = true;
+                break;
+            }
+
+            var child = new ProjectSheetNode(childDoc, rec.Designator, rec.SheetNumber);
+            node.Children.Add(child);
+            nodes++;
+            if (!ancestors.Add(childDoc))
+            {
+                child.IsCycle = true; // re-entrant reference: stop here
+                continue;
+            }
+            stack.Push((child, childrenByParent.GetValueOrDefault(childDoc), 0));
+        }
         return root;
     }
 
@@ -145,35 +205,6 @@ public sealed class ProjectStructure
             if (string.Equals(r.Record, "TopLevelDocument", StringComparison.OrdinalIgnoreCase))
                 return r.SheetNumber;
         return null;
-    }
-
-    private static void AddChildren(
-        ProjectSheetNode node,
-        Dictionary<string, List<ProjectStructureRecord>> childrenByParent,
-        HashSet<string> ancestors)
-    {
-        if (!childrenByParent.TryGetValue(node.FileName, out var children))
-            return;
-
-        foreach (var rec in children)
-        {
-            var childDoc = rec.FileName;
-            if (string.IsNullOrEmpty(childDoc))
-                continue;
-
-            var child = new ProjectSheetNode(childDoc, rec.Designator, rec.SheetNumber);
-            node.Children.Add(child);
-
-            if (ancestors.Contains(childDoc))
-            {
-                child.IsCycle = true; // re-entrant reference — stop here to avoid infinite recursion
-                continue;
-            }
-
-            ancestors.Add(childDoc);
-            AddChildren(child, childrenByParent, ancestors);
-            ancestors.Remove(childDoc);
-        }
     }
 
     /// <summary>
