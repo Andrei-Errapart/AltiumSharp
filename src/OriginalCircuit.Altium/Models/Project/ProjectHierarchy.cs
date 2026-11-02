@@ -239,7 +239,8 @@ public sealed class ProjectHierarchy
     /// reported in <see cref="Diagnostics"/>. Each returned stream is read and then disposed; it need
     /// not be seekable.
     /// </summary>
-    /// <exception cref="AltiumCorruptFileException">A supplied document is not a readable SchDoc.</exception>
+    /// <exception cref="AltiumCorruptFileException">A supplied document is not a readable SchDoc; <see cref="AltiumFileException.FilePath"/> is its path as given to the callback.</exception>
+    /// <exception cref="AltiumUnsupportedFeatureException">A supplied document uses a format or feature the reader does not support; <see cref="AltiumFileException.FilePath"/> is its path as given to the callback.</exception>
     public static ValueTask<ProjectHierarchy> LoadAsync(
         AltiumProject project, Func<string, Stream?> openDocument,
         ProjectHierarchyOptions? options = null, CancellationToken cancellationToken = default)
@@ -265,13 +266,21 @@ public sealed class ProjectHierarchy
                 {
                     return (new SchDocReader().Read(seekable), null);
                 }
-                catch (AltiumCorruptFileException ex) when (ex.FilePath is null)
+                catch (AltiumFileException ex) when (ex.FilePath is null)
                 {
-                    throw new AltiumCorruptFileException(ex.Message, ex.StreamName, path, ex);
+                    throw WithPath(ex, path);
                 }
             }
         }, options ?? ProjectHierarchyOptions.Default, cancellationToken);
     }
+
+    // The same kind of exception, naming the document it was thrown for.
+    private static AltiumFileException WithPath(AltiumFileException ex, string path) => ex switch
+    {
+        AltiumCorruptFileException corrupt => new AltiumCorruptFileException(ex.Message, corrupt.StreamName, path, ex),
+        AltiumUnsupportedFeatureException unsupported => new AltiumUnsupportedFeatureException(ex.Message, unsupported.RecordType, path, ex),
+        _ => new AltiumFileException(ex.Message, path, ex),
+    };
 
     /// <summary>
     /// Opens the schematic documents from disk and builds the hierarchy: the project's schematic
@@ -280,6 +289,8 @@ public sealed class ProjectHierarchy
     /// is absolute, else next to the sheet that uses it, else next to the project. Documents that
     /// are not found are listed in <see cref="MissingDocuments"/> and reported in <see cref="Diagnostics"/>.
     /// </summary>
+    /// <exception cref="AltiumCorruptFileException">A document is not a readable SchDoc; <see cref="AltiumFileException.FilePath"/> is the file.</exception>
+    /// <exception cref="AltiumUnsupportedFeatureException">A document uses a format or feature the reader does not support; <see cref="AltiumFileException.FilePath"/> is the file.</exception>
     public static ValueTask<ProjectHierarchy> LoadAsync(
         AltiumProject project, ProjectHierarchyOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -290,8 +301,15 @@ public sealed class ProjectHierarchy
             var file = FindOnDisk(project, path, usedBy);
             if (file is null)
                 return (null, null);
-            var sheet = (SchDocument)await AltiumLibrary.OpenSchDocAsync(file, ct).ConfigureAwait(false);
-            return (sheet, file);
+            try
+            {
+                var sheet = (SchDocument)await AltiumLibrary.OpenSchDocAsync(file, ct).ConfigureAwait(false);
+                return (sheet, file);
+            }
+            catch (AltiumFileException ex) when (ex.FilePath is null)
+            {
+                throw WithPath(ex, file);
+            }
         }, options ?? ProjectHierarchyOptions.Default, cancellationToken);
     }
 

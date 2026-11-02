@@ -943,6 +943,38 @@ public sealed class ProjectHierarchyTests
     }
 
     [Fact]
+    public async Task LoadAsync_NamesTheDocument_WhenASheetIsAnAsciiSchematic()
+    {
+        var ascii = System.Text.Encoding.ASCII.GetBytes(
+            "|HEADER=Protel for Windows - Schematic Capture Ascii File Version 5.0|WEIGHT=1\r\n|RECORD=31|FONTIDCOUNT=1\r\n");
+
+        var ex = await Assert.ThrowsAsync<AltiumCorruptFileException>(async () =>
+            await ProjectHierarchy.LoadAsync(Project("Top.SchDoc"), _ => new MemoryStream(ascii)));
+
+        Assert.Equal("Top.SchDoc", ex.FilePath);
+    }
+
+    private sealed class FailingStream(Exception error) : MemoryStream(new byte[1024])
+    {
+        public override int Read(byte[] buffer, int offset, int count) => throw error;
+        public override int Read(Span<byte> buffer) => throw error;
+    }
+
+    [Fact]
+    public async Task LoadAsync_NamesTheDocument_WhenASheetIsNotSupported()
+    {
+        var project = Project("Sheets\\Top.SchDoc");
+
+        var ex = await Assert.ThrowsAsync<AltiumUnsupportedFeatureException>(async () =>
+            await ProjectHierarchy.LoadAsync(project,
+                _ => new FailingStream(new AltiumUnsupportedFeatureException("ASCII schematics are not supported.", recordType: 7))));
+
+        Assert.Equal("Sheets\\Top.SchDoc", ex.FilePath);
+        Assert.Equal(7, ex.RecordType);
+        Assert.Equal("ASCII schematics are not supported.", ex.Message);
+    }
+
+    [Fact]
     public async Task LoadAsync_FromDisk_ReadsTheProjectFolder()
     {
         var dir = Path.Combine(Path.GetTempPath(), "hier_" + Guid.NewGuid().ToString("N"));
