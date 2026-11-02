@@ -9,8 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 
 - `AltiumDiagnostic.Code` (new `AltiumDiagnosticCode` enum) says what a diagnostic reports, and `DocumentName`, `SheetInstance`, `SheetSymbol` and `Designator` say where, so callers need not match message text. Every `ProjectHierarchy` diagnostic has a code: each `ProjectHierarchyOptions` limit (with the sheet symbol that went past it), a missing project document or sub-sheet (with the symbol that places it), a cycle, an unreadable `Repeat(...)`, duplicate, unannotated and missing designators, shared room names, unsupported channel settings, and a stale or missing structure file. Messages are unchanged; other diagnostics have `AltiumDiagnosticCode.None`.
+- `ProjectHierarchy.DuplicateDesignators` lists the physical designators that separate components share, and `FindComponents(designator)` returns every component with a designator.
 - `ProjectHierarchy` reports a project with no structure file (or none naming a top-level document) as an Info diagnostic, `StructureFileMissing`.
 - `RepeatInfo.IsUnreadable` tells a sheet symbol whose designator has a `Repeat(...)` that cannot be read (`Repeat(CH,1,200000)`, `Repeat(CH,-1,3)`, `Repeat(,1,3)`, an unclosed one) from a plain designator; both have `IsRepeated == false`. `RepeatInfo.MentionsRepeat` is now public.
+
+### Changed
+
+- `ProjectHierarchy` merges records with one physical designator only when they can be the parts of one component: different part numbers from the same library symbol (`LibReference`, when both have one). Separate components that share a designator, such as an R5 on each of two sheets or a second copy of U1A, are now separate `PhysicalComponent`s, so a BOM taken from `Components` counts them all; they were merged into one with a warning. The `DuplicateDesignator` warning now says they are kept apart, and `FindComponent` returns the first of them.
 
 ### Fixed
 

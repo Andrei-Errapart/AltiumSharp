@@ -4,8 +4,8 @@ namespace OriginalCircuit.Altium.Models.Project;
 
 /// <summary>
 /// One placed schematic component record on one sheet instance. A multi-part component (U1A,
-/// U1B, ...) has one part per placed record; parts with the same physical designator form one
-/// <see cref="PhysicalComponent"/>.
+/// U1B, ...) has one part per placed record; parts with the same physical designator and different
+/// part numbers form one <see cref="PhysicalComponent"/>.
 /// </summary>
 public sealed class PhysicalComponentPart
 {
@@ -49,8 +49,10 @@ public sealed class PhysicalComponentPart
 }
 
 /// <summary>
-/// A component of the compiled design: every placed part with one physical designator, merged
-/// across sheets. This is what a BOM line counts and what the PCB places once.
+/// A component of the compiled design: the placed parts of one component (one physical designator,
+/// each part number once, from one library symbol), merged across sheets. This is what a BOM line
+/// counts and what the PCB places once. Separate components given the same designator stay separate
+/// (see <see cref="ProjectHierarchy.DuplicateDesignators"/>).
 /// </summary>
 public sealed class PhysicalComponent
 {

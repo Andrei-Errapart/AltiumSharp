@@ -28,8 +28,11 @@ namespace OriginalCircuit.Altium.Models.Project;
 /// <item>A component on a sheet instantiated more than once gets the physical designator
 /// <see cref="DesignatorFormat"/> (Altium's <c>ChannelDesignatorFormatString</c>, by default
 /// <c>$Component_$RoomName</c>, e.g. <c>R2_CH3</c>); elsewhere it keeps its logical designator.</item>
-/// <item>Component records with the same physical designator are the parts of one
-/// <see cref="PhysicalComponent"/>, even when the parts sit on different sheets.</item>
+/// <item>Component records with the same physical designator and different part numbers (U1A,
+/// U1B, ...) from the same library symbol are the parts of one <see cref="PhysicalComponent"/>,
+/// even when the parts sit on different sheets. Records that cannot be parts of one component
+/// (two R5s, or a second U1A) are separate components with the same designator, listed in
+/// <see cref="DuplicateDesignators"/>.</item>
 /// </list>
 /// <para>Problems such as missing sub-sheets or duplicate designators are reported in
 /// <see cref="Diagnostics"/>; nothing throws for design content.</para>
@@ -47,7 +50,8 @@ public sealed class ProjectHierarchy
     private readonly List<PhysicalComponent> _components = new();
     private readonly List<AltiumDiagnostic> _diagnostics;
     private readonly HashSet<string> _reported = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, PhysicalComponent> _byDesignator = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<PhysicalComponent>> _byDesignator = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _duplicateDesignators = new();
     private readonly Dictionary<string, PhysicalComponentPart> _partByUniqueIdPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<PhysicalComponentPart>> _partsByComponentUid = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HierarchySheetInstance> _sheetByUniqueIdPath = new(StringComparer.OrdinalIgnoreCase);
@@ -96,8 +100,20 @@ public sealed class ProjectHierarchy
     /// <summary>Every placed component part, in <see cref="Sheets"/> order then document order.</summary>
     public IReadOnlyList<PhysicalComponentPart> Parts => _parts;
 
-    /// <summary>The physical components, in the order their first part appears.</summary>
+    /// <summary>
+    /// The physical components, in the order their first part appears. Components that share a
+    /// designator (see <see cref="DuplicateDesignators"/>) are each listed, so a BOM counts every one.
+    /// </summary>
     public IReadOnlyList<PhysicalComponent> Components => _components;
+
+    /// <summary>
+    /// The physical designators that more than one component has, in the order they first appear:
+    /// separate components given the same designator, which Altium's compiler reports as an error.
+    /// <see cref="FindComponents"/> returns the components; each designator is also reported as an
+    /// <see cref="AltiumDiagnosticCode.DuplicateDesignator"/> diagnostic. Unannotated designators
+    /// (<c>R?</c>) are not listed.
+    /// </summary>
+    public IReadOnlyList<string> DuplicateDesignators => _duplicateDesignators;
 
     /// <summary>Problems found while building: missing sheets, duplicate designators and the like.</summary>
     public IReadOnlyList<AltiumDiagnostic> Diagnostics => _diagnostics;
@@ -116,11 +132,26 @@ public sealed class ProjectHierarchy
     /// </summary>
     public IReadOnlyList<string> MissingDocuments => _missing;
 
-    /// <summary>Returns the physical component with the given physical designator (case-insensitive), or <c>null</c>.</summary>
+    /// <summary>
+    /// Returns the physical component with the given physical designator (case-insensitive), or
+    /// <c>null</c>. For a designator in <see cref="DuplicateDesignators"/> it is the first of them;
+    /// <see cref="FindComponents"/> returns them all.
+    /// </summary>
     public PhysicalComponent? FindComponent(string designator)
     {
         ArgumentNullException.ThrowIfNull(designator);
-        return _byDesignator.GetValueOrDefault(designator.Trim());
+        return _byDesignator.TryGetValue(designator.Trim(), out var components) ? components[0] : null;
+    }
+
+    /// <summary>
+    /// Returns every physical component with the given physical designator (case-insensitive), in
+    /// <see cref="Components"/> order: more than one for a designator in <see cref="DuplicateDesignators"/>,
+    /// none when no component has it.
+    /// </summary>
+    public IReadOnlyList<PhysicalComponent> FindComponents(string designator)
+    {
+        ArgumentNullException.ThrowIfNull(designator);
+        return _byDesignator.TryGetValue(designator.Trim(), out var components) ? components : Array.Empty<PhysicalComponent>();
     }
 
     /// <summary>
@@ -701,7 +732,10 @@ public sealed class ProjectHierarchy
 
     private void MergeComponents()
     {
-        var groups = new Dictionary<string, List<PhysicalComponentPart>>(StringComparer.OrdinalIgnoreCase);
+        // Each designator's components, as lists of parts. A part joins the first of them that lacks
+        // its part number and comes from the same library symbol (the parts of one multi-part
+        // component, wherever they sit); otherwise it starts another component with that designator.
+        var byDesignator = new Dictionary<string, List<List<PhysicalComponentPart>>>(StringComparer.OrdinalIgnoreCase);
         var ordered = new List<List<PhysicalComponentPart>>();
         var unannotated = 0;
         foreach (var part in _parts)
@@ -713,31 +747,53 @@ public sealed class ProjectHierarchy
                 ordered.Add(new List<PhysicalComponentPart> { part });
                 continue;
             }
-            if (!groups.TryGetValue(part.PhysicalDesignator, out var group))
+            if (!byDesignator.TryGetValue(part.PhysicalDesignator, out var components))
+                byDesignator[part.PhysicalDesignator] = components = new List<List<PhysicalComponentPart>>();
+            var owner = components.Find(c => IsAnotherPartOf(c, part));
+            if (owner is null)
             {
-                groups[part.PhysicalDesignator] = group = new List<PhysicalComponentPart>();
-                ordered.Add(group);
+                owner = new List<PhysicalComponentPart>();
+                components.Add(owner);
+                ordered.Add(owner);
             }
-            group.Add(part);
+            owner.Add(part);
         }
 
         foreach (var group in ordered)
         {
-            var parts = group.OrderBy(p => p.PartId).ToList(); // stable: walk order within a part number
-            var component = new PhysicalComponent(this, parts);
+            var component = new PhysicalComponent(this, group.OrderBy(p => p.PartId).ToList());
             _components.Add(component);
-            if (parts[0].LogicalDesignator.Contains('?', StringComparison.Ordinal))
+            if (component.LogicalDesignator.Contains('?', StringComparison.Ordinal))
                 continue;
-            _byDesignator[component.Designator] = component;
-            if (parts.GroupBy(p => p.PartId).FirstOrDefault(g => g.Count() > 1) is { } duplicate)
-                Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.DuplicateDesignator,
-                    $"Designator '{component.Designator}' is used by {duplicate.Count()} component records for the same part; they are counted as one component.",
-                    duplicate.ElementAt(1).Sheet, designator: component.Designator);
+            if (!_byDesignator.TryGetValue(component.Designator, out var same))
+                _byDesignator[component.Designator] = same = new List<PhysicalComponent>();
+            same.Add(component);
+        }
+
+        foreach (var components in byDesignator.Values.Where(c => c.Count > 1))
+        {
+            var designator = components[0][0].PhysicalDesignator;
+            _duplicateDesignators.Add(designator);
+            Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.DuplicateDesignator,
+                $"Designator '{designator}' is used by {components.Count} separate components; each is kept as its own component.",
+                components[1][0].Sheet, designator: designator);
         }
 
         if (unannotated > 0)
             Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnannotatedDesignator,
                 $"{unannotated} component(s) are not annotated (their designator contains '?'); each is kept as a separate component.");
+    }
+
+    // Whether a part can join a component's parts: its part number is not taken yet, and it comes from
+    // the same library symbol (when both records name one).
+    private static bool IsAnotherPartOf(List<PhysicalComponentPart> component, PhysicalComponentPart part)
+    {
+        if (component.Exists(p => p.PartId == part.PartId))
+            return false;
+        var library = component[0].Component.LibReference;
+        var other = part.Component.LibReference;
+        return string.IsNullOrEmpty(library) || string.IsNullOrEmpty(other)
+            || string.Equals(library, other, StringComparison.OrdinalIgnoreCase);
     }
 
     // ---- Helpers -----------------------------------------------------------------------------------

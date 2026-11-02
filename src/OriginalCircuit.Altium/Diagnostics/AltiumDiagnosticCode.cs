@@ -100,9 +100,9 @@ public enum AltiumDiagnosticCode
     SharedRoomName,
 
     /// <summary>
-    /// More than one component record for the same part has the physical designator in
-    /// <see cref="AltiumDiagnostic.Designator"/>. <see cref="AltiumDiagnostic.SheetInstance"/> is the
-    /// sheet of the first record after the first.
+    /// Separate components have the physical designator in <see cref="AltiumDiagnostic.Designator"/>
+    /// (see <c>ProjectHierarchy.DuplicateDesignators</c>); each is kept as its own component.
+    /// <see cref="AltiumDiagnostic.SheetInstance"/> is the sheet of the second one.
     /// </summary>
     DuplicateDesignator,
 

@@ -287,10 +287,62 @@ public sealed class ProjectHierarchyTests
 
         var hierarchy = ProjectHierarchy.Build(null, new[] { top });
 
-        Assert.Equal(3, hierarchy.Components.Count); // R1 once, each R? apart
+        Assert.Equal(4, hierarchy.Components.Count); // both R1s, each R? apart
+        Assert.Equal(new[] { "R1" }, hierarchy.DuplicateDesignators);
         Assert.Contains(hierarchy.Diagnostics, d => d.Message.Contains("'R1'", StringComparison.Ordinal));
         Assert.Contains(hierarchy.Diagnostics, d => d.Message.Contains("not annotated", StringComparison.Ordinal));
         Assert.Null(hierarchy.FindComponent("R?"));
+        Assert.Empty(hierarchy.FindComponents("R?"));
+    }
+
+    [Fact]
+    public void SeparateComponentsWithOneDesignator_AreNotMerged()
+    {
+        // Two sheets each place their own single-part R5: the design has two resistors.
+        var top = Sheet("Top.SchDoc",
+            Symbol("U_Left", "Left.SchDoc", "SYMLEFTT", xMils: 1000),
+            Symbol("U_Right", "Right.SchDoc", "SYMRIGHT", xMils: 5000));
+        var left = Sheet("Left.SchDoc", Part("R5", "RESLEFTT"));
+        var right = Sheet("Right.SchDoc", Part("R5", "RESRIGHT"));
+
+        var hierarchy = ProjectHierarchy.Build(null, new[] { top, left, right });
+
+        Assert.Equal(2, hierarchy.Components.Count);
+        Assert.All(hierarchy.Components, c => Assert.Single(c.Parts));
+        Assert.Equal(new[] { "R5" }, hierarchy.DuplicateDesignators);
+        var both = hierarchy.FindComponents("r5");
+        Assert.Equal(new[] { "Left.SchDoc", "Right.SchDoc" }, both.Select(c => c.Sheet.FileName).ToArray());
+        Assert.Same(both[0], hierarchy.FindComponent("R5"));
+        Assert.Same(both[1], hierarchy.FindComponentByUniqueIdPath("\\SYMRIGHT\\RESRIGHT"));
+        var diagnostic = Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.DuplicateDesignator);
+        Assert.Equal("R5", diagnostic.Designator);
+        Assert.Same(both[1].Sheet, diagnostic.SheetInstance);
+    }
+
+    [Fact]
+    public void RepeatedPartsOfAMultiPartComponent_StartAnotherComponent()
+    {
+        // Two copies of a two-part U1, and a part B from a different symbol under the same designator.
+        var top = Sheet("Top.SchDoc",
+            Part("U1", "UONECPYA", partId: 1, partCount: 2),
+            Part("U1", "UONECPYB", partId: 2, partCount: 2),
+            Part("U1", "UTWOCPYA", partId: 1, partCount: 2),
+            Part("U1", "UTWOCPYB", partId: 2, partCount: 2));
+        var opamp = Part("U7", "OPAMPPTA", partId: 1, partCount: 2);
+        var regulator = Part("U7", "REGULPTB", partId: 2, partCount: 2);
+        opamp.LibReference = "OPAMP_DUAL";
+        regulator.LibReference = "REGULATOR";
+        top.AddComponent(opamp);
+        top.AddComponent(regulator);
+
+        var hierarchy = ProjectHierarchy.Build(null, new[] { top });
+
+        var u1 = hierarchy.FindComponents("U1");
+        Assert.Equal(2, u1.Count);
+        Assert.Equal(new[] { "UONECPYA", "UONECPYB" }, u1[0].Parts.Select(p => p.Component.UniqueId).ToArray());
+        Assert.Equal(new[] { "UTWOCPYA", "UTWOCPYB" }, u1[1].Parts.Select(p => p.Component.UniqueId).ToArray());
+        Assert.Equal(2, hierarchy.FindComponents("U7").Count);
+        Assert.Equal(new[] { "U1", "U7" }, hierarchy.DuplicateDesignators);
     }
 
     [Fact]
