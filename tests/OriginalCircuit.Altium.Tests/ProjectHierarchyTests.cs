@@ -373,6 +373,54 @@ public sealed class ProjectHierarchyTests
         Assert.Empty(hierarchy.FindComponents("R?"));
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void ManyRecordsWithOneDesignator_AreMergedQuickly_AndReported(int partCount)
+    {
+        // A format with no tokens gives every channel part the designator "X": 1,999 channels x 50
+        // resistors is 99,950 records under one designator, each a part 1.
+        var project = Project("Top.SchDoc", "Channel.SchDoc");
+        project.Design.Section.Set("ChannelDesignatorFormatString", "X");
+        var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,1,1999)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc",
+            Enumerable.Range(1, 50).Select(i => (object)Part($"R{i}", $"RES{i:D5}", partId: 1, partCount: partCount)).ToArray());
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var hierarchy = ProjectHierarchy.Build(project, new[] { top, channel });
+        watch.Stop();
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
+        Assert.False(hierarchy.IsTruncated);
+        Assert.Equal(99_950, hierarchy.Components.Count);
+        Assert.Equal(new[] { "X" }, hierarchy.DuplicateDesignators);
+        Assert.Equal(99_950, hierarchy.FindComponents("X").Count);
+        Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.DuplicateDesignator);
+    }
+
+    [Fact]
+    public async Task Compiling_StopsWhenCancelled()
+    {
+        var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,1,3)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"));
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() =>
+            ProjectHierarchy.Build(null, new[] { top, channel }, options: null, cancelled.Token));
+
+        // Cancelled while the last sheet is opened: every document is read, then compiling stops.
+        var files = new Dictionary<string, byte[]> { ["Top.SchDoc"] = Bytes(top), ["Channel.SchDoc"] = Bytes(channel) };
+        using var late = new CancellationTokenSource();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await ProjectHierarchy.LoadAsync(Project("Top.SchDoc"), path =>
+            {
+                if (path == "Channel.SchDoc")
+                    late.Cancel();
+                return new MemoryStream(files[path]);
+            }, cancellationToken: late.Token));
+    }
+
     [Fact]
     public void SeparateComponentsWithOneDesignator_AreNotMerged()
     {

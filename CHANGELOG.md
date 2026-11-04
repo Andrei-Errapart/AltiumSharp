@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-alpha.4] - Unreleased
+
+### Added
+
+- `ProjectHierarchy.Build(project, sheets, options, cancellationToken)`. Building the hierarchy now checks the cancellation token while it walks, collects and merges, also in `LoadAsync` after the documents are read.
+
+### Fixed
+
+- Merging component records was quadratic in the number of records that share one physical designator (a regression in 2.0.0-alpha.3): a format with no tokens over `Repeat(CH,1,1999)` of a 50-part sheet, 99,950 records all designated `X`, took minutes. Each record now finds its component in constant time on average; that design builds in about 0.1 s.
+
 ## [2.0.0-alpha.3] - Unreleased
 
 ### Added

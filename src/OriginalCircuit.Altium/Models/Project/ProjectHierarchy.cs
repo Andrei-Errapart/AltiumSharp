@@ -63,6 +63,7 @@ public sealed class ProjectHierarchy
     private bool _formatHasUnknownTokens;
     private long _plannedParts;
     private bool _stopped;
+    private CancellationToken _cancellationToken;
 
     private ProjectHierarchy(AltiumProject? project, Dictionary<string, SchDocument> documents,
         List<AltiumDiagnostic> diagnostics, List<string> missing, ProjectHierarchyOptions options)
@@ -205,7 +206,17 @@ public sealed class ProjectHierarchy
     /// <param name="project">The project, for its structure file and channel settings; may be <c>null</c>.</param>
     /// <param name="sheets">The project's schematic documents, in project order.</param>
     /// <param name="options">Limits on the walk; <see cref="ProjectHierarchyOptions.Default"/> when <c>null</c>.</param>
-    public static ProjectHierarchy Build(AltiumProject? project, IEnumerable<SchDocument> sheets, ProjectHierarchyOptions? options = null)
+    public static ProjectHierarchy Build(AltiumProject? project, IEnumerable<SchDocument> sheets, ProjectHierarchyOptions? options = null) =>
+        Build(project, sheets, options, CancellationToken.None);
+
+    /// <summary>
+    /// Builds the hierarchy from schematic documents that are already open, as
+    /// <see cref="Build(AltiumProject?, IEnumerable{SchDocument}, ProjectHierarchyOptions?)"/>, checking
+    /// <paramref name="cancellationToken"/> while it works.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    public static ProjectHierarchy Build(AltiumProject? project, IEnumerable<SchDocument> sheets, ProjectHierarchyOptions? options,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sheets);
         var list = sheets.Where(s => s is not null).ToList();
@@ -225,7 +236,7 @@ public sealed class ProjectHierarchy
                 }
             }
         }
-        return Build(project, list, diagnostics, missing, options ?? ProjectHierarchyOptions.Default);
+        return Build(project, list, diagnostics, missing, options ?? ProjectHierarchyOptions.Default, cancellationToken);
     }
 
     /// <summary>
@@ -368,7 +379,7 @@ public sealed class ProjectHierarchy
             }
         }
 
-        return Build(project, sheets, diagnostics, missing, options);
+        return Build(project, sheets, diagnostics, missing, options, cancellationToken);
     }
 
     private static AltiumDiagnostic NotSupplied(string path) =>
@@ -396,7 +407,7 @@ public sealed class ProjectHierarchy
     }
 
     private static ProjectHierarchy Build(AltiumProject? project, IEnumerable<SchDocument> sheets,
-        List<AltiumDiagnostic> diagnostics, List<string> missing, ProjectHierarchyOptions options)
+        List<AltiumDiagnostic> diagnostics, List<string> missing, ProjectHierarchyOptions options, CancellationToken cancellationToken)
     {
         var documents = new Dictionary<string, SchDocument>(StringComparer.OrdinalIgnoreCase);
         var order = new List<string>();
@@ -428,12 +439,14 @@ public sealed class ProjectHierarchy
         }
 
         var hierarchy = new ProjectHierarchy(project, documents, diagnostics, missing, options);
-        hierarchy.Compile(order);
+        hierarchy.Compile(order, cancellationToken);
         return hierarchy;
     }
 
-    private void Compile(IReadOnlyList<string> documentOrder)
+    private void Compile(IReadOnlyList<string> documentOrder, CancellationToken cancellationToken)
     {
+        _cancellationToken = cancellationToken;
+        cancellationToken.ThrowIfCancellationRequested();
         if (RoomNamingStyle != "0")
             Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnsupportedRoomNamingStyle,
                 $"Channel room naming style {RoomNamingStyle} is not modelled; rooms are named as for style 0 (flat numbered).");
@@ -524,6 +537,7 @@ public sealed class ProjectHierarchy
         stack.Push(new WalkFrame(root, OrderSiblings(root.Document.SheetSymbols).ToList()));
         while (stack.Count > 0 && !_stopped)
         {
+            _cancellationToken.ThrowIfCancellationRequested();
             var frame = stack.Peek();
             if (frame.Symbol is null && !StartNextSymbol(frame, ancestors))
             {
@@ -726,6 +740,7 @@ public sealed class ProjectHierarchy
     {
         foreach (var sheet in _sheets)
         {
+            _cancellationToken.ThrowIfCancellationRequested();
             var skipped = 0;
             foreach (var component in sheet.Document.Components.OfType<SchComponent>())
             {
@@ -757,36 +772,33 @@ public sealed class ProjectHierarchy
 
     private void MergeComponents()
     {
-        // Each designator's components, as lists of parts. A part joins the first of them that lacks
-        // its part number and comes from the same library symbol (the parts of one multi-part
-        // component, wherever they sit); otherwise it starts another component with that designator.
-        var byDesignator = new Dictionary<string, List<List<PhysicalComponentPart>>>(StringComparer.OrdinalIgnoreCase);
-        var ordered = new List<List<PhysicalComponentPart>>();
+        // Each designator's components. A part joins the first of them that lacks its part number and
+        // comes from the same library symbol (the parts of one multi-part component, wherever they
+        // sit); otherwise it starts another component with that designator.
+        var byDesignator = new Dictionary<string, DesignatorGroup>(StringComparer.OrdinalIgnoreCase);
+        var ordered = new List<PartGroup>();
         var unannotated = 0;
         foreach (var part in _parts)
         {
+            _cancellationToken.ThrowIfCancellationRequested();
             // An unannotated designator ("R?") names no particular component: keep each record apart.
             if (part.LogicalDesignator.Contains('?', StringComparison.Ordinal))
             {
                 unannotated++;
-                ordered.Add(new List<PhysicalComponentPart> { part });
+                ordered.Add(new PartGroup(part));
                 continue;
             }
-            if (!byDesignator.TryGetValue(part.PhysicalDesignator, out var components))
-                byDesignator[part.PhysicalDesignator] = components = new List<List<PhysicalComponentPart>>();
-            var owner = components.Find(c => IsAnotherPartOf(c, part));
-            if (owner is null)
-            {
-                owner = new List<PhysicalComponentPart>();
-                components.Add(owner);
-                ordered.Add(owner);
-            }
-            owner.Add(part);
+            if (!byDesignator.TryGetValue(part.PhysicalDesignator, out var designatorGroup))
+                byDesignator[part.PhysicalDesignator] = designatorGroup = new DesignatorGroup();
+            if (designatorGroup.FindOwner(part) is { } owner)
+                owner.Add(part);
+            else
+                ordered.Add(designatorGroup.Start(part));
         }
 
         foreach (var group in ordered)
         {
-            var component = new PhysicalComponent(this, group.OrderBy(p => p.PartId).ToList());
+            var component = new PhysicalComponent(this, group.Parts.OrderBy(p => p.PartId).ToList());
             _components.Add(component);
             if (component.LogicalDesignator.Contains('?', StringComparison.Ordinal))
                 continue;
@@ -795,13 +807,13 @@ public sealed class ProjectHierarchy
             same.Add(component);
         }
 
-        foreach (var components in byDesignator.Values.Where(c => c.Count > 1))
+        foreach (var components in byDesignator.Values.Select(g => g.Components).Where(c => c.Count > 1))
         {
-            var designator = components[0][0].PhysicalDesignator;
+            var designator = components[0].Parts[0].PhysicalDesignator;
             _duplicateDesignators.Add(designator);
             Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.DuplicateDesignator,
                 $"Designator '{designator}' is used by {components.Count} separate components; each is kept as its own component.",
-                components[1][0].Sheet, designator: designator);
+                components[1].Parts[0].Sheet, designator: designator);
         }
 
         if (unannotated > 0)
@@ -826,16 +838,57 @@ public sealed class ProjectHierarchy
         return FormatDesignator(DefaultDesignatorFormat, logical, room);
     }
 
-    // Whether a part can join a component's parts: its part number is not taken yet, and it comes from
-    // the same library symbol (when both records name one).
-    private static bool IsAnotherPartOf(List<PhysicalComponentPart> component, PhysicalComponentPart part)
+    // The parts gathered for one component, with the part numbers it has.
+    private sealed class PartGroup(PhysicalComponentPart first)
     {
-        if (component.Exists(p => p.PartId == part.PartId))
-            return false;
-        var library = component[0].Component.LibReference;
-        var other = part.Component.LibReference;
-        return string.IsNullOrEmpty(library) || string.IsNullOrEmpty(other)
-            || string.Equals(library, other, StringComparison.OrdinalIgnoreCase);
+        public List<PhysicalComponentPart> Parts { get; } = new() { first };
+        public HashSet<int> PartIds { get; } = new() { first.PartId };
+        public string Library { get; } = first.Component.LibReference ?? string.Empty;
+
+        public void Add(PhysicalComponentPart part)
+        {
+            Parts.Add(part);
+            PartIds.Add(part.PartId);
+        }
+
+        // Whether a part can join: its part number is not taken yet, and it comes from the same
+        // library symbol (when both records name one).
+        public bool CanTake(int partId, string library) =>
+            !PartIds.Contains(partId) && (Library.Length == 0 || library.Length == 0
+                || string.Equals(Library, library, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // The components that share one physical designator, in the order they were started.
+    private sealed class DesignatorGroup
+    {
+        // For each part number and library symbol, the index of the first component that may still
+        // take such a part. The components before it have that part number or another symbol, and a
+        // component never loses a part, so a search resumes there instead of scanning them all again.
+        private Dictionary<int, Dictionary<string, int>>? _nextCandidate;
+
+        public List<PartGroup> Components { get; } = new();
+
+        public PartGroup? FindOwner(PhysicalComponentPart part)
+        {
+            if (Components.Count == 0)
+                return null;
+            _nextCandidate ??= new Dictionary<int, Dictionary<string, int>>();
+            if (!_nextCandidate.TryGetValue(part.PartId, out var byLibrary))
+                _nextCandidate[part.PartId] = byLibrary = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var library = part.Component.LibReference ?? string.Empty;
+            var i = byLibrary.GetValueOrDefault(library);
+            while (i < Components.Count && !Components[i].CanTake(part.PartId, library))
+                i++;
+            byLibrary[library] = i;
+            return i < Components.Count ? Components[i] : null;
+        }
+
+        public PartGroup Start(PhysicalComponentPart part)
+        {
+            var component = new PartGroup(part);
+            Components.Add(component);
+            return component;
+        }
     }
 
     // ---- Helpers -----------------------------------------------------------------------------------
