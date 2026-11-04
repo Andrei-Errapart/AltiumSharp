@@ -305,13 +305,14 @@ public sealed class ProjectHierarchyTests
         Assert.Equal("R1", diagnostic.Designator);
         Assert.Equal("CH0", diagnostic.SheetInstance!.RoomName);
         Assert.Contains("$ChannelAlpha", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Equal(new[] { "$ChannelAlpha" }, diagnostic.DesignatorTokens);
     }
 
     [Fact]
     public void UnsupportedFormatTokens_AndRoomStyles_AreReported()
     {
         var project = Project("Top.SchDoc", "Channel.SchDoc");
-        project.Design.Section.Set("ChannelDesignatorFormatString", "$Component$Variant");
+        project.Design.Section.Set("ChannelDesignatorFormatString", "$Component$Variant_$sheet");
         project.Design.Section.Set("ChannelRoomNamingStyle", "2");
         var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,1,2)", "Channel.SchDoc", "SYMCHANL"));
         var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"));
@@ -321,7 +322,10 @@ public sealed class ProjectHierarchyTests
         Assert.Equal(new[] { "R1_CH1", "R1_CH2" }, Designators(hierarchy)); // the default format, not "R1$Variant"
         var unknown = Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.UnsupportedDesignatorToken);
         Assert.Contains("$Variant", unknown.Message, StringComparison.Ordinal);
+        Assert.Equal(new[] { "$Variant", "$sheet" }, unknown.DesignatorTokens);
         Assert.DoesNotContain(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.UnfilledDesignatorToken);
+        Assert.All(hierarchy.Diagnostics.Where(d => d.Code != AltiumDiagnosticCode.UnsupportedDesignatorToken),
+            d => Assert.Null(d.DesignatorTokens));
         Assert.Contains(hierarchy.Diagnostics, d => d.Message.Contains("naming style 2", StringComparison.Ordinal));
     }
 

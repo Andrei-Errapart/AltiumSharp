@@ -456,9 +456,12 @@ public sealed class ProjectHierarchy
         var unknownTokens = DesignatorTokens(DesignatorFormat).Where(t => !IsKnownToken(t)).ToList();
         _formatHasUnknownTokens = unknownTokens.Count > 0;
         if (_formatHasUnknownTokens)
+        {
+            var tokens = unknownTokens.Select(t => "$" + t).ToArray();
             Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnsupportedDesignatorToken,
-                $"The channel designator format '{DesignatorFormat}' uses {string.Join(", ", unknownTokens.Select(t => "$" + t))}, " +
-                $"which are not designator keywords; channel components use {DefaultDesignatorFormat} instead.");
+                $"The channel designator format '{DesignatorFormat}' uses {string.Join(", ", tokens)}, " +
+                $"which are not designator keywords; channel components use {DefaultDesignatorFormat} instead.", tokens: tokens);
+        }
 
         foreach (var root in DetermineRoots(documentOrder))
         {
@@ -838,7 +841,7 @@ public sealed class ProjectHierarchy
         if (!_formatHasUnknownTokens && _unfilledTokens.Add(unfilled!))
             Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnfilledDesignatorToken,
                 $"The channel designator format '{DesignatorFormat}' has ${unfilled}, which '{logical}' in room '{room}' has no value for; " +
-                $"such components use {DefaultDesignatorFormat} instead.", sheet, designator: logical);
+                $"such components use {DefaultDesignatorFormat} instead.", sheet, designator: logical, tokens: new[] { "$" + unfilled });
         return FormatDesignator(DefaultDesignatorFormat, logical, room);
     }
 
@@ -1010,10 +1013,11 @@ public sealed class ProjectHierarchy
 
     // Reports each message once; a problem met again keeps the location where it was first found.
     private void Report(DiagnosticSeverity severity, AltiumDiagnosticCode code, string message,
-        HierarchySheetInstance? sheet = null, SchSheetSymbol? symbol = null, string? document = null, string? designator = null)
+        HierarchySheetInstance? sheet = null, SchSheetSymbol? symbol = null, string? document = null, string? designator = null,
+        IReadOnlyList<string>? tokens = null)
     {
         if (_reported.Add(message))
-            Add(severity, code, message, sheet, symbol, document, designator);
+            Add(severity, code, message, sheet, symbol, document, designator, tokens);
     }
 
     // Reports a problem with one sheet symbol once, however many instances of its sheet the walk
@@ -1022,11 +1026,11 @@ public sealed class ProjectHierarchy
         HierarchySheetInstance sheet, SchSheetSymbol symbol, string? document)
     {
         if (_reportedSymbols.Add((code, symbol)))
-            Add(severity, code, message, sheet, symbol, document, designator: null);
+            Add(severity, code, message, sheet, symbol, document, designator: null, tokens: null);
     }
 
     private void Add(DiagnosticSeverity severity, AltiumDiagnosticCode code, string message,
-        HierarchySheetInstance? sheet, SchSheetSymbol? symbol, string? document, string? designator) =>
+        HierarchySheetInstance? sheet, SchSheetSymbol? symbol, string? document, string? designator, IReadOnlyList<string>? tokens) =>
         _diagnostics.Add(new AltiumDiagnostic(severity, message)
         {
             Code = code,
@@ -1034,6 +1038,7 @@ public sealed class ProjectHierarchy
             SheetSymbol = symbol,
             DocumentName = document,
             Designator = designator,
+            DesignatorTokens = tokens,
         });
 
     private static string SymbolName(SchSheetSymbol symbol) =>

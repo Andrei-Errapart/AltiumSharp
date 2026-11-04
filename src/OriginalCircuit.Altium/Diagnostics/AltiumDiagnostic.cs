@@ -39,4 +39,12 @@ public sealed record AltiumDiagnostic(
 
     /// <summary>The component designator the diagnostic concerns, when there is one.</summary>
     public string? Designator { get; init; }
+
+    /// <summary>
+    /// The channel designator format tokens the diagnostic concerns, as written in the format with
+    /// their <c>$</c> (e.g. <c>"$Sheet"</c>): every unknown token for
+    /// <see cref="AltiumDiagnosticCode.UnsupportedDesignatorToken"/>, the keyword with no value for
+    /// <see cref="AltiumDiagnosticCode.UnfilledDesignatorToken"/>; otherwise <c>null</c>.
+    /// </summary>
+    public IReadOnlyList<string>? DesignatorTokens { get; init; }
 }
