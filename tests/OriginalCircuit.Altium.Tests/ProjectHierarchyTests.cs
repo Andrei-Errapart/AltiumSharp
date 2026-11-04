@@ -762,6 +762,34 @@ public sealed class ProjectHierarchyTests
     }
 
     [Fact]
+    public void EachSheetSymbolWithAProblem_IsReportedOnce()
+    {
+        // Two symbols on Child each place Child itself, two name no file; Child is placed twice, so
+        // the walk meets every symbol twice.
+        var top = Sheet("Top.SchDoc",
+            Symbol("U_ChildA", "Child.SchDoc", "SYMCHLDA", yMils: 1000),
+            Symbol("U_ChildB", "Child.SchDoc", "SYMCHLDB", yMils: 5000));
+        var child = Sheet("Child.SchDoc",
+            Symbol("AGAIN1", "Child.SchDoc", "SYMAGAN1", yMils: 1000),
+            Symbol("AGAIN3", "Child.SchDoc", "SYMAGAN3", yMils: 3000),
+            Symbol("NOFILE1", "", "SYMNOFL1", xMils: 3000, yMils: 5000),
+            Symbol("NOFILE2", "", "SYMNOFL2", xMils: 6000, yMils: 5000),
+            Symbol("GONE1", "Gone.SchDoc", "SYMGONE1", xMils: 3000, yMils: 7000),
+            Symbol("GONE2", "Gone.SchDoc", "SYMGONE2", xMils: 6000, yMils: 7000),
+            Part("R1", "RESISTOR"));
+
+        var hierarchy = ProjectHierarchy.Build(null, new[] { top, child });
+
+        string?[] Symbols(AltiumDiagnosticCode code) => hierarchy.Diagnostics
+            .Where(d => d.Code == code).Select(d => d.SheetSymbol!.NameLabel!.Text).ToArray();
+        Assert.Equal(new[] { "AGAIN1", "AGAIN3" }, Symbols(AltiumDiagnosticCode.SheetCycle));
+        Assert.Equal(new[] { "NOFILE1", "NOFILE2" }, Symbols(AltiumDiagnosticCode.SheetSymbolWithoutFile));
+        Assert.Equal(new[] { "GONE1", "GONE2" }, Symbols(AltiumDiagnosticCode.SubSheetNotSupplied));
+        Assert.Contains(hierarchy.Diagnostics, d => d.Message.Contains("'NOFILE2'", StringComparison.Ordinal));
+        Assert.Equal(new[] { "Gone.SchDoc" }, hierarchy.MissingDocuments);
+    }
+
+    [Fact]
     public void DesignatorDiagnostics_HaveCodes()
     {
         var top = Sheet("Top.SchDoc",

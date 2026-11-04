@@ -51,6 +51,7 @@ public sealed class ProjectHierarchy
     private readonly List<PhysicalComponent> _components = new();
     private readonly List<AltiumDiagnostic> _diagnostics;
     private readonly HashSet<string> _reported = new(StringComparer.Ordinal);
+    private readonly HashSet<(AltiumDiagnosticCode, SchSheetSymbol)> _reportedSymbols = new();
     private readonly Dictionary<string, List<PhysicalComponent>> _byDesignator = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _duplicateDesignators = new();
     private readonly Dictionary<string, PhysicalComponentPart> _partByUniqueIdPath = new(StringComparer.OrdinalIgnoreCase);
@@ -578,21 +579,23 @@ public sealed class ProjectHierarchy
             var childName = NormalizeFileName(symbol.FileName);
             if (childName is null)
             {
-                Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SheetSymbolWithoutFile,
-                    $"A sheet symbol on '{fileName}' names no sheet file.", frame.Instance, symbol, fileName);
+                ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SheetSymbolWithoutFile,
+                    $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' names no sheet file.", frame.Instance, symbol, fileName);
                 continue;
             }
             if (!_documents.ContainsKey(childName))
             {
                 AddMissing(symbol.FileName!);
-                Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SubSheetNotSupplied,
-                    $"Sheet '{fileName}' uses sub-sheet '{symbol.FileName}', which was not supplied.", frame.Instance, symbol, symbol.FileName);
+                ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SubSheetNotSupplied,
+                    $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' uses sub-sheet '{symbol.FileName}', which was not supplied.",
+                    frame.Instance, symbol, symbol.FileName);
                 continue;
             }
             if (ancestors.Contains(childName))
             {
-                Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SheetCycle,
-                    $"Sheet '{fileName}' uses '{childName}', which is one of its own parents; the cycle was skipped.", frame.Instance, symbol, childName);
+                ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SheetCycle,
+                    $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' uses '{childName}', which is one of its own parents; the cycle was skipped.",
+                    frame.Instance, symbol, childName);
                 continue;
             }
             if (frame.Instance.Depth >= _options.MaxDepth)
@@ -604,11 +607,10 @@ public sealed class ProjectHierarchy
                 continue;
             }
 
-            var designator = symbol.NameLabel?.Text ?? symbol.SheetName;
             var repeat = symbol.Repeat;
             if (repeat.IsUnreadable)
-                Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnreadableRepeat,
-                    $"Sheet symbol '{designator}' on '{fileName}' has a Repeat(...) that cannot be read " +
+                ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnreadableRepeat,
+                    $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' has a Repeat(...) that cannot be read " +
                     "(it needs a name and two whole numbers at most 100,000 apart); it is treated as one instance.",
                     frame.Instance, symbol, childName);
 
@@ -1011,15 +1013,31 @@ public sealed class ProjectHierarchy
         HierarchySheetInstance? sheet = null, SchSheetSymbol? symbol = null, string? document = null, string? designator = null)
     {
         if (_reported.Add(message))
-            _diagnostics.Add(new AltiumDiagnostic(severity, message)
-            {
-                Code = code,
-                SheetInstance = sheet,
-                SheetSymbol = symbol,
-                DocumentName = document,
-                Designator = designator,
-            });
+            Add(severity, code, message, sheet, symbol, document, designator);
     }
+
+    // Reports a problem with one sheet symbol once, however many instances of its sheet the walk
+    // visits, so symbols with the same problem on one sheet are each reported.
+    private void ReportSymbol(DiagnosticSeverity severity, AltiumDiagnosticCode code, string message,
+        HierarchySheetInstance sheet, SchSheetSymbol symbol, string? document)
+    {
+        if (_reportedSymbols.Add((code, symbol)))
+            Add(severity, code, message, sheet, symbol, document, designator: null);
+    }
+
+    private void Add(DiagnosticSeverity severity, AltiumDiagnosticCode code, string message,
+        HierarchySheetInstance? sheet, SchSheetSymbol? symbol, string? document, string? designator) =>
+        _diagnostics.Add(new AltiumDiagnostic(severity, message)
+        {
+            Code = code,
+            SheetInstance = sheet,
+            SheetSymbol = symbol,
+            DocumentName = document,
+            Designator = designator,
+        });
+
+    private static string SymbolName(SchSheetSymbol symbol) =>
+        (symbol.NameLabel?.Text ?? symbol.SheetName) is { } name && !string.IsNullOrWhiteSpace(name) ? name : "(unnamed)";
 
     private static IReadOnlyList<string> Append(IReadOnlyList<string> path, string entry)
     {
