@@ -55,6 +55,7 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
 
         try
         {
+            ThrowIfAscii(stream, path);
             // OpenMcdf reads synchronously from the seekable stream. LeaveOpen lets this accessor
             // own the FileStream's lifetime.
             var root = OpenMcdf.RootStorage.Open(stream, StorageModeFlags.LeaveOpen);
@@ -73,6 +74,8 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
     /// </summary>
     public static CompoundFileAccessor Open(Stream stream, bool leaveOpen = false)
     {
+        ThrowIfAscii(stream, path: null);
+
         // OpenMcdf opens a writer whenever the stream can write, and on dispose flushes it: it walks
         // and rewrites the FAT and header and trims the stream to its last used sector. That fails on
         // a fixed-size MemoryStream ("Memory stream is not expandable") or on a FAT that runs past the
@@ -112,6 +115,28 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
 
         var root = OpenMcdf.RootStorage.Open(stream, StorageModeFlags.LeaveOpen);
         return new CompoundFileAccessor(root, stream, leaveOpen);
+    }
+
+    // Altium can also save a document as text, which starts with a '|' record such as
+    // "|HEADER=Protel for Windows - Schematic Capture Ascii File Version 5.0|". That is no compound
+    // file (whose first byte is 0xD0), so say what it is rather than let OpenMcdf report a bad header.
+    private static void ThrowIfAscii(Stream stream, string? path)
+    {
+        if (!stream.CanSeek)
+            return;
+        Span<byte> start = stackalloc byte[64];
+        long origin = stream.Position;
+        stream.Position = 0;
+        int read = stream.ReadAtLeast(start, start.Length, throwOnEndOfStream: false);
+        stream.Position = origin;
+
+        var text = start[..read];
+        if (text.StartsWith("﻿"u8))
+            text = text[3..];
+        text = text.TrimStart(" \t\r\n"u8);
+        if (!text.IsEmpty && text[0] == (byte)'|')
+            throw new AltiumAsciiFileException(
+                "The document is in Altium's ASCII (text) format, which cannot be read; save it in Altium as a binary document.", path);
     }
 
     // Bytes of the CFB header read to validate the magic and reach the sector-shift field (at offset 30).

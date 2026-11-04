@@ -48,6 +48,26 @@ public class AltiumCorruptFileException : AltiumFileException
 }
 
 /// <summary>
+/// Thrown when a document is in Altium's ASCII (text) format, such as a schematic saved as
+/// "Schematic ASCII", rather than the binary format this library reads; save it in Altium as a
+/// binary document. It derives from <see cref="AltiumCorruptFileException"/>, as which such files
+/// were reported before, so existing handlers still catch it.
+/// </summary>
+public class AltiumAsciiFileException : AltiumCorruptFileException
+{
+    /// <summary>
+    /// Initializes a new instance of <see cref="AltiumAsciiFileException"/>.
+    /// </summary>
+    /// <param name="message">The error message.</param>
+    /// <param name="filePath">Path of the file being processed, if available.</param>
+    /// <param name="innerException">The inner exception, if any.</param>
+    public AltiumAsciiFileException(string message, string? filePath = null, Exception? innerException = null)
+        : base(message, streamName: null, filePath, innerException)
+    {
+    }
+}
+
+/// <summary>
 /// Thrown when an Altium file contains a record type or feature that is not supported.
 /// </summary>
 public class AltiumUnsupportedFeatureException : AltiumFileException

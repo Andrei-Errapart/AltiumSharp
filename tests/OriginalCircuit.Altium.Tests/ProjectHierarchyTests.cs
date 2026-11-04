@@ -1127,10 +1127,11 @@ public sealed class ProjectHierarchyTests
         var ascii = System.Text.Encoding.ASCII.GetBytes(
             "|HEADER=Protel for Windows - Schematic Capture Ascii File Version 5.0|WEIGHT=1\r\n|RECORD=31|FONTIDCOUNT=1\r\n");
 
-        var ex = await Assert.ThrowsAsync<AltiumCorruptFileException>(async () =>
+        var ex = await Assert.ThrowsAsync<AltiumAsciiFileException>(async () =>
             await ProjectHierarchy.LoadAsync(Project("Top.SchDoc"), _ => new MemoryStream(ascii)));
 
         Assert.Equal("Top.SchDoc", ex.FilePath);
+        Assert.IsAssignableFrom<AltiumCorruptFileException>(ex); // still caught as before
     }
 
     private sealed class FailingStream(Exception error) : MemoryStream(new byte[1024])

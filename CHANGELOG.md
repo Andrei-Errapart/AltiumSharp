@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- `AltiumAsciiFileException`, derived from `AltiumCorruptFileException`: every binary reader (and so `ProjectHierarchy.LoadAsync`, with the document's path) throws it for a document Altium saved in its ASCII text format, such as a schematic beginning `|HEADER=Protel for Windows - Schematic Capture Ascii File`, so a caller can tell the user to save it as binary. Such files were reported as a generic `AltiumCorruptFileException`, which still catches them.
 - `AltiumDiagnostic.SheetInstances`: every sheet instance a diagnostic concerns when there are several. A `SharedRoomName` diagnostic now lists each instance with that room name; it carried only the first.
 - `AltiumDiagnostic.DesignatorTokens`: the channel designator format tokens, as written with their `$`, that an `UnsupportedDesignatorToken` (every unknown one) or `UnfilledDesignatorToken` (the keyword with no value) diagnostic is about.
 - `ProjectHierarchy.NormalizeFileName` is public: the key the hierarchy knows a document by (the keys of `Documents` and the `FileName` of each sheet instance), for matching paths in `MissingDocuments` or sheet-symbol file names without a copy of the rule.

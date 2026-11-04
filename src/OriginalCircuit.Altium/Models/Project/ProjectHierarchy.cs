@@ -292,6 +292,7 @@ public sealed class ProjectHierarchy
     // The same kind of exception, naming the document it was thrown for.
     private static AltiumFileException WithPath(AltiumFileException ex, string path) => ex switch
     {
+        AltiumAsciiFileException => new AltiumAsciiFileException(ex.Message, path, ex),
         AltiumCorruptFileException corrupt => new AltiumCorruptFileException(ex.Message, corrupt.StreamName, path, ex),
         AltiumUnsupportedFeatureException unsupported => new AltiumUnsupportedFeatureException(ex.Message, unsupported.RecordType, path, ex),
         _ => new AltiumFileException(ex.Message, path, ex),
