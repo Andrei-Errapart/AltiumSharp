@@ -202,6 +202,29 @@ public sealed class ProjectHierarchyTests
         Assert.Equal(AltiumDiagnosticCode.StructureFileMissing, Assert.Single(hierarchy.Diagnostics).Code);
     }
 
+    [Theory]
+    [InlineData(" $Component_$RoomName ", " 0", "$Component_$RoomName")]
+    [InlineData("   ", "0 ", "$Component_$RoomName")]
+    [InlineData("", "", "$Component_$RoomName")]
+    [InlineData("\t$Component$ChannelAlpha", "\t0\t", "$Component$ChannelAlpha")]
+    public void ChannelSettings_AreTrimmed_AndBlankMeansTheDefault(string format, string style, string expected)
+    {
+        var project = Project("Top.SchDoc", "Channel.SchDoc");
+        project.Design.Section.Set("ChannelDesignatorFormatString", format);
+        project.Design.Section.Set("ChannelRoomNamingStyle", style);
+        project.Structure = ProjectStructure.Parse("Record=TopLevelDocument|FileName=Top.SchDoc\r\n");
+        var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,1,2)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RESISTOR"));
+
+        var hierarchy = ProjectHierarchy.Build(project, new[] { top, channel });
+
+        Assert.Equal(expected, hierarchy.DesignatorFormat);
+        Assert.Equal("0", hierarchy.RoomNamingStyle);
+        Assert.Equal(2, hierarchy.Components.Count);
+        Assert.All(hierarchy.Components, c => Assert.Equal(c.Designator.Trim(), c.Designator));
+        Assert.Empty(hierarchy.Diagnostics);
+    }
+
     [Fact]
     public void FormatDesignator_ExpandsComponentAndRoomName_AndKeepsOtherTokens()
     {

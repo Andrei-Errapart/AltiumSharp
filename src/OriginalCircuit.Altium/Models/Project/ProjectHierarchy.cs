@@ -75,8 +75,9 @@ public sealed class ProjectHierarchy
         foreach (var path in missing)
             AddMissing(path);
         var design = project?.GetSection("Design");
-        DesignatorFormat = design?.Get("ChannelDesignatorFormatString") is { Length: > 0 } format ? format : DefaultDesignatorFormat;
-        RoomNamingStyle = design?.Get("ChannelRoomNamingStyle") is { Length: > 0 } style ? style : "0";
+        // Trimmed, and blank counts as absent: a designator never starts or ends with a space.
+        DesignatorFormat = design?.Get("ChannelDesignatorFormatString")?.Trim() is { Length: > 0 } format ? format : DefaultDesignatorFormat;
+        RoomNamingStyle = design?.Get("ChannelRoomNamingStyle")?.Trim() is { Length: > 0 } style ? style : "0";
     }
 
     /// <summary>The project the hierarchy was built for, or <c>null</c> when built from sheets alone.</summary>
@@ -84,14 +85,15 @@ public sealed class ProjectHierarchy
 
     /// <summary>
     /// The format of a channel component's physical designator: the project's
-    /// <c>ChannelDesignatorFormatString</c>, or <see cref="DefaultDesignatorFormat"/>. Its keywords are
+    /// <c>ChannelDesignatorFormatString</c>, trimmed, or <see cref="DefaultDesignatorFormat"/> when that
+    /// is absent or blank. Its keywords are
     /// those Altium documents (see <see cref="FormatDesignator(string, string, string, string?, int?)"/>).
     /// A component the format cannot be filled for (an unknown keyword, or one the component or its
     /// sheet has no value for) gets <see cref="DefaultDesignatorFormat"/> instead, and a diagnostic says so.
     /// </summary>
     public string DesignatorFormat { get; }
 
-    /// <summary>The project's <c>ChannelRoomNamingStyle</c> (<c>"0"</c> when absent). Only style 0 is modelled.</summary>
+    /// <summary>The project's <c>ChannelRoomNamingStyle</c>, trimmed (<c>"0"</c> when absent or blank). Only style 0 is modelled.</summary>
     public string RoomNamingStyle { get; }
 
     /// <summary>The schematic documents the hierarchy was built from, keyed by file name.</summary>

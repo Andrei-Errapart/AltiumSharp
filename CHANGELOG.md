@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- `ProjectHierarchy` trims the project's `ChannelDesignatorFormatString` and `ChannelRoomNamingStyle`, and takes a blank format as absent (the default). A format of `" $Component_$RoomName "` gave `" R1_CH1 "`, a blank one gave every channel part the designator `"   "`, and a style of `" 0"` was reported as unsupported.
 - Merging component records was quadratic in the number of records that share one physical designator (a regression in 2.0.0-alpha.3): a format with no tokens over `Repeat(CH,1,1999)` of a 50-part sheet, 99,950 records all designated `X`, took minutes. Each record now finds its component in constant time on average; that design builds in about 0.1 s.
 
 ## [2.0.0-alpha.3] - Unreleased
