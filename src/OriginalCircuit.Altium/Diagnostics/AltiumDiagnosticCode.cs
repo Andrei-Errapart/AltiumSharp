@@ -110,8 +110,9 @@ public enum AltiumDiagnosticCode
     UnfilledDesignatorToken,
 
     /// <summary>
-    /// Several sheet instances share a room name (the first is <see cref="AltiumDiagnostic.SheetInstance"/>), so
-    /// their physical designators can collide.
+    /// Several sheet instances share a room name, so their physical designators can collide.
+    /// <see cref="AltiumDiagnostic.SheetInstances"/> lists them all; <see cref="AltiumDiagnostic.SheetInstance"/>
+    /// is the first.
     /// </summary>
     SharedRoomName,
 

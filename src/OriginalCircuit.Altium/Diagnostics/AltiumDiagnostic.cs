@@ -34,6 +34,13 @@ public sealed record AltiumDiagnostic(
     /// </summary>
     public HierarchySheetInstance? SheetInstance { get; init; }
 
+    /// <summary>
+    /// Every sheet instance the diagnostic concerns when it concerns several: for
+    /// <see cref="AltiumDiagnosticCode.SharedRoomName"/>, each instance with that room name, in
+    /// <c>ProjectHierarchy.Sheets</c> order (<see cref="SheetInstance"/> is the first). Otherwise <c>null</c>.
+    /// </summary>
+    public IReadOnlyList<HierarchySheetInstance>? SheetInstances { get; init; }
+
     /// <summary>The sheet symbol the diagnostic concerns, when there is one.</summary>
     public SchSheetSymbol? SheetSymbol { get; init; }
 

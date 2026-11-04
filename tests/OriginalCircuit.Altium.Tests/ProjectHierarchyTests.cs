@@ -346,6 +346,29 @@ public sealed class ProjectHierarchyTests
         Assert.Equal("\\SYMBANKB\\2SYMCHANL", hierarchy.Sheets.Last().UniqueIdPath);
     }
 
+    [Fact]
+    public void SharedRoomNames_CarryEveryInstanceWithThatRoom()
+    {
+        // Two Repeat symbols place Amp twice per channel number.
+        var top = Sheet("Top.SchDoc",
+            Symbol("Repeat(CH,1,2)", "Amp.SchDoc", "SYMAMPLO", yMils: 1000),
+            Symbol("Repeat(CH,1,2)", "Amp.SchDoc", "SYMAMPHI", yMils: 5000));
+        var amp = Sheet("Amp.SchDoc", Part("R1", "RESISTOR"));
+
+        var hierarchy = ProjectHierarchy.Build(null, new[] { top, amp });
+
+        var shared = hierarchy.Diagnostics.Where(d => d.Code == AltiumDiagnosticCode.SharedRoomName).ToArray();
+        Assert.Equal(new[] { "CH1", "CH2" }, shared.Select(d => d.SheetInstance!.RoomName).ToArray());
+        Assert.All(shared, d =>
+        {
+            Assert.Equal(2, d.SheetInstances!.Count);
+            Assert.Same(d.SheetInstance, d.SheetInstances[0]);
+            Assert.All(d.SheetInstances, s => Assert.Equal(d.SheetInstance!.RoomName, s.RoomName));
+        });
+        Assert.Equal(new[] { "\\1SYMAMPLO", "\\1SYMAMPHI" }, shared[0].SheetInstances!.Select(s => s.UniqueIdPath).ToArray());
+        Assert.All(hierarchy.Diagnostics.Where(d => d.Code != AltiumDiagnosticCode.SharedRoomName), d => Assert.Null(d.SheetInstances));
+    }
+
     // ---- multi-part components ----
 
     [Fact]

@@ -757,9 +757,10 @@ public sealed class ProjectHierarchy
         foreach (var shared in _sheets.Where(s => s.IsMultiChannel && s.RoomName is not null)
                      .GroupBy(s => s.RoomName!, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
         {
+            var instances = shared.ToArray();
             Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SharedRoomName,
-                $"Room name '{shared.Key}' is shared by {shared.Count()} sheet instances, so their physical designators can collide.",
-                shared.First());
+                $"Room name '{shared.Key}' is shared by {instances.Length} sheet instances, so their physical designators can collide.",
+                instances[0], instances: instances);
         }
     }
 
@@ -1034,10 +1035,10 @@ public sealed class ProjectHierarchy
     // Reports each message once; a problem met again keeps the location where it was first found.
     private void Report(DiagnosticSeverity severity, AltiumDiagnosticCode code, string message,
         HierarchySheetInstance? sheet = null, SchSheetSymbol? symbol = null, string? document = null, string? designator = null,
-        IReadOnlyList<string>? tokens = null)
+        IReadOnlyList<string>? tokens = null, IReadOnlyList<HierarchySheetInstance>? instances = null)
     {
         if (_reported.Add(message))
-            Add(severity, code, message, sheet, symbol, document, designator, tokens);
+            Add(severity, code, message, sheet, symbol, document, designator, tokens, instances);
     }
 
     // Reports a problem with one sheet symbol once, however many instances of its sheet the walk
@@ -1046,15 +1047,17 @@ public sealed class ProjectHierarchy
         HierarchySheetInstance sheet, SchSheetSymbol symbol, string? document)
     {
         if (_reportedSymbols.Add((code, symbol)))
-            Add(severity, code, message, sheet, symbol, document, designator: null, tokens: null);
+            Add(severity, code, message, sheet, symbol, document, designator: null, tokens: null, instances: null);
     }
 
     private void Add(DiagnosticSeverity severity, AltiumDiagnosticCode code, string message,
-        HierarchySheetInstance? sheet, SchSheetSymbol? symbol, string? document, string? designator, IReadOnlyList<string>? tokens) =>
+        HierarchySheetInstance? sheet, SchSheetSymbol? symbol, string? document, string? designator, IReadOnlyList<string>? tokens,
+        IReadOnlyList<HierarchySheetInstance>? instances) =>
         _diagnostics.Add(new AltiumDiagnostic(severity, message)
         {
             Code = code,
             SheetInstance = sheet,
+            SheetInstances = instances,
             SheetSymbol = symbol,
             DocumentName = document,
             Designator = designator,

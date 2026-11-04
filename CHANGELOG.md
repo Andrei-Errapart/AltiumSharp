@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- `AltiumDiagnostic.SheetInstances`: every sheet instance a diagnostic concerns when there are several. A `SharedRoomName` diagnostic now lists each instance with that room name; it carried only the first.
 - `AltiumDiagnostic.DesignatorTokens`: the channel designator format tokens, as written with their `$`, that an `UnsupportedDesignatorToken` (every unknown one) or `UnfilledDesignatorToken` (the keyword with no value) diagnostic is about.
 - `ProjectHierarchy.NormalizeFileName` is public: the key the hierarchy knows a document by (the keys of `Documents` and the `FileName` of each sheet instance), for matching paths in `MissingDocuments` or sheet-symbol file names without a copy of the rule.
 - `ProjectHierarchy.Build(project, sheets, options, cancellationToken)`. Building the hierarchy now checks the cancellation token while it walks, collects and merges, also in `LoadAsync` after the documents are read.
