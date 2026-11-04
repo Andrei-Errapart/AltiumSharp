@@ -914,6 +914,27 @@ public sealed class ProjectHierarchyTests
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Sheets\\")]
+    [InlineData("Sheets\\  ")]
+    public void FileNames_WithNoLastSegment_HaveNoKey(string? path) =>
+        Assert.Null(ProjectHierarchy.NormalizeFileName(path));
+
+    [Fact]
+    public void MissingDocuments_MatchSheetKeys_ThroughTheNormalizedName()
+    {
+        var top = Sheet("Top.SchDoc", Symbol("U_Io", "Sheets\\ Io.SchDoc", "SYMIOIOO"));
+
+        var hierarchy = ProjectHierarchy.Build(Project("Top.SchDoc", "Sheets\\Io.SchDoc"), new[] { top });
+
+        var missing = Assert.Single(hierarchy.MissingDocuments);
+        Assert.Equal("Io.SchDoc", ProjectHierarchy.NormalizeFileName(missing));
+        Assert.Equal("Top.SchDoc", ProjectHierarchy.NormalizeFileName(hierarchy.Documents.Keys.Single()));
+    }
+
+    [Theory]
     [InlineData("Sheets\\ Power.SchDoc", true)]
     [InlineData("Sheets\\ Power.SchDoc", false)]
     [InlineData("Sheets\\C:Power.SchDoc", true)]

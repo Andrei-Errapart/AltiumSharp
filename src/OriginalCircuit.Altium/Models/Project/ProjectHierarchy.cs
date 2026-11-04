@@ -1027,11 +1027,16 @@ public sealed class ProjectHierarchy
         return list;
     }
 
-    // The key a document is known by: the last segment of its path, trimmed, case-insensitive in
-    // use. '\', '/' and a drive's ':' all separate segments on every platform, and trimming comes
-    // last, so the result is its own key ("Sheets\ Power.SchDoc" and "Sheets\C:Power.SchDoc" are
-    // both "Power.SchDoc").
-    internal static string? NormalizeFileName(string? fileName)
+    /// <summary>
+    /// Returns the key the hierarchy knows a document by: the last segment of its path, trimmed, or
+    /// <c>null</c> when that is empty. <c>\</c>, <c>/</c> and a drive's <c>:</c> all separate segments on
+    /// every platform, and trimming comes last, so a key is its own key (<c>"Sheets\ Power.SchDoc"</c>
+    /// and <c>"Sheets\C:Power.SchDoc"</c> are both <c>"Power.SchDoc"</c>). Keys are compared
+    /// case-insensitively. They are the keys of <see cref="Documents"/> and the
+    /// <see cref="HierarchySheetInstance.FileName"/> of <see cref="Sheets"/>; apply this to a path in
+    /// <see cref="MissingDocuments"/> or a sheet symbol's file name to match them.
+    /// </summary>
+    public static string? NormalizeFileName(string? fileName)
     {
         if (fileName is null)
             return null;
