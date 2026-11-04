@@ -706,7 +706,10 @@ if (bounded.IsTruncated) { /* a limit was reached; see Diagnostics */ }
 
 // Or from disk next to the project file, or from SchDocuments already open (set FileName)
 var fromDisk = await ProjectHierarchy.LoadAsync(project);
-var fromOpen = ProjectHierarchy.Build(project, new[] { topSheet, channelSheet });
+var fromOpen = ProjectHierarchy.Build(project, new[] { topSheet, channelSheet }, options: null, cancellationToken);
+
+// Documents are keyed by their trimmed file name; use the same rule to match other paths
+var key = ProjectHierarchy.NormalizeFileName(hierarchy.MissingDocuments[0]); // "Rev B\ Io.SchDoc" -> "Io.SchDoc"
 
 foreach (var c in hierarchy.Components.Where(c => c.IsInBom))
 {
@@ -736,12 +739,12 @@ foreach (var d in hierarchy.Diagnostics)
 
 | Type | Key members |
 |------|-------------|
-| `ProjectHierarchy` | `Roots`, `Sheets`, `Parts`, `Components`, `DesignatorFormat`, `Diagnostics`, `IsTruncated`, `MissingDocuments`, `DuplicateDesignators`, `FindComponent`, `FindComponents`, `FindComponentByUniqueIdPath`, `FindSheetByUniqueIdPath`, `FormatDesignator` |
+| `ProjectHierarchy` | `Roots`, `Sheets`, `Parts`, `Components`, `DesignatorFormat`, `Diagnostics`, `IsTruncated`, `MissingDocuments`, `DuplicateDesignators`, `FindComponent`, `FindComponents`, `FindComponentByUniqueIdPath`, `FindSheetByUniqueIdPath`, `FormatDesignator`, `NormalizeFileName` |
 | `ProjectHierarchyOptions` | `MaxDepth`, `MaxSheetInstances`, `MaxComponentParts`, `Default` |
 | `HierarchySheetInstance` | `Document`, `FileName`, `Parent`, `Children`, `SheetSymbol`, `RepeatIndex`, `ChannelName`, `RoomName`, `ChannelIndex`, `IsMultiChannel`, `UniqueIdPath`, `HierarchicalPath`, `Parts` |
 | `PhysicalComponent` | `Designator`, `LogicalDesignator`, `Parts`, `Component`, `Sheet`, `ComponentType`, `IsInBom`, `Comment`, `UniqueIdPaths`, `GetParameterValue` |
 | `PhysicalComponentPart` | `Component`, `Sheet`, `LogicalDesignator`, `PhysicalDesignator`, `PartId`, `UniqueIdPath`, `Owner` |
-| `AltiumDiagnostic` | `Severity`, `Message`, `Code` (`AltiumDiagnosticCode`), `DocumentName`, `SheetInstance`, `SheetSymbol`, `Designator` |
+| `AltiumDiagnostic` | `Severity`, `Message`, `Code` (`AltiumDiagnosticCode`), `DocumentName`, `SheetInstance`, `SheetInstances`, `SheetSymbol`, `Designator`, `DesignatorTokens` |
 | `RepeatInfo` (`SchSheetSymbol.Repeat`) | `IsRepeated`, `IsUnreadable`, `ChannelName`, `FirstInstance`, `LastInstance`, `InstanceCount`, `Parse`, `MentionsRepeat` |
 
 Room names follow Altium's "flat numbered" style (`ChannelRoomNamingStyle=0`): a `Repeat`
@@ -1195,6 +1198,7 @@ comp.AddPin(SchPin.Create("1")
 ```
 AltiumFileException                     (base, has FilePath)
   ├── AltiumCorruptFileException        (adds StreamName)
+  │     └── AltiumAsciiFileException    (a document saved in Altium's ASCII text format)
   └── AltiumUnsupportedFeatureException (adds RecordType)
 ```
 
@@ -1221,6 +1225,10 @@ foreach (var diag in lib.Diagnostics)
 try
 {
     var lib = await AltiumLibrary.OpenPcbLibAsync("corrupt.PcbLib");
+}
+catch (AltiumAsciiFileException ex)
+{
+    Console.WriteLine($"{ex.FilePath} is an ASCII document; save it in Altium as binary.");
 }
 catch (AltiumCorruptFileException ex)
 {
