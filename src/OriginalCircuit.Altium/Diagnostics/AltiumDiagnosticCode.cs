@@ -18,7 +18,12 @@ public enum AltiumDiagnosticCode
     /// <summary>A schematic document without a file name was skipped.</summary>
     DocumentWithoutFileName,
 
-    /// <summary>More than one schematic document has the file name in <see cref="AltiumDiagnostic.DocumentName"/>; only the first is used.</summary>
+    /// <summary>
+    /// More than one schematic document has one file name, and the hierarchy holds one document per
+    /// name: two supplied documents (<see cref="AltiumDiagnostic.DocumentName"/> is the name; the first
+    /// is used), or two project documents in different folders (<see cref="AltiumDiagnostic.DocumentName"/>
+    /// is the second path as written; the message names both).
+    /// </summary>
     DuplicateDocumentName,
 
     /// <summary>A sheet that a sheet symbol uses but the project does not list (such as a device sheet) was loaded too.</summary>

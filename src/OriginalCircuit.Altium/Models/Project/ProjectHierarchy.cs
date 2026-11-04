@@ -227,6 +227,7 @@ public sealed class ProjectHierarchy
         var missing = new List<string>();
         if (project is not null)
         {
+            ReportSameNamedDocuments(project, diagnostics, "only one document of that name is used");
             var supplied = new HashSet<string>(
                 list.Select(s => NormalizeFileName(s.FileName) ?? NormalizeFileName(s.FilePath)).OfType<string>(),
                 StringComparer.OrdinalIgnoreCase);
@@ -339,6 +340,7 @@ public sealed class ProjectHierarchy
         var missing = new List<string>();
         var sheets = new List<SchDocument>();
         var requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        ReportSameNamedDocuments(project, diagnostics, "only the first is read");
         var queue = new Queue<(string Path, string? UsedBy, bool Listed)>();
         foreach (var document in project.SchematicDocuments)
         {
@@ -383,6 +385,24 @@ public sealed class ProjectHierarchy
         }
 
         return Build(project, sheets, diagnostics, missing, options, cancellationToken);
+    }
+
+    // Project documents in different folders with one file name share a key, and the hierarchy
+    // holds one document per key.
+    private static void ReportSameNamedDocuments(AltiumProject project, List<AltiumDiagnostic> diagnostics, string outcome)
+    {
+        var first = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in project.SchematicDocuments.Select(d => d.DocumentPath))
+        {
+            if (NormalizeFileName(path) is not { } name || first.TryAdd(name, path!))
+                continue;
+            diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                $"Project documents '{first[name]}' and '{path}' have the same file name; {outcome}.")
+            {
+                Code = AltiumDiagnosticCode.DuplicateDocumentName,
+                DocumentName = path,
+            });
+        }
     }
 
     private static AltiumDiagnostic NotSupplied(string path) =>

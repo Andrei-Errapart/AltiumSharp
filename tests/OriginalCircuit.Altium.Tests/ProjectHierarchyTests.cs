@@ -1045,6 +1045,38 @@ public sealed class ProjectHierarchyTests
     }
 
     [Fact]
+    public async Task ProjectDocumentsWithOneFileName_AreReported()
+    {
+        var prjText = "[Document1]\r\nDocumentPath=Rev A\\Main.SchDoc\r\n\r\n" +
+                      "[Document2]\r\nDocumentPath=Rev B\\Main.SchDoc\r\n\r\n";
+        using var prj = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(prjText));
+        var project = await AltiumLibrary.OpenProjectAsync(prj);
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["Rev A\\Main.SchDoc"] = Bytes(Sheet("Main.SchDoc", Part("R1", "RESREVAA"))),
+            ["Rev B\\Main.SchDoc"] = Bytes(Sheet("Main.SchDoc", Part("R2", "RESREVBB"))),
+        };
+        var asked = new List<string>();
+
+        var loaded = await ProjectHierarchy.LoadAsync(project, path =>
+        {
+            asked.Add(path);
+            return files.TryGetValue(path, out var bytes) ? new MemoryStream(bytes) : null;
+        });
+
+        Assert.Equal(new[] { "Rev A\\Main.SchDoc" }, asked);
+        Assert.Equal(new[] { "R1" }, Designators(loaded));
+        var duplicate = Single(loaded, AltiumDiagnosticCode.DuplicateDocumentName);
+        Assert.Equal("Rev B\\Main.SchDoc", duplicate.DocumentName);
+        Assert.Contains("'Rev A\\Main.SchDoc' and 'Rev B\\Main.SchDoc'", duplicate.Message, StringComparison.Ordinal);
+        Assert.Contains("only the first is read", duplicate.Message, StringComparison.Ordinal);
+
+        var built = ProjectHierarchy.Build(project, new[] { Sheet("Main.SchDoc", Part("R2", "RESREVBB")) });
+        Assert.Equal("Rev B\\Main.SchDoc", Single(built, AltiumDiagnosticCode.DuplicateDocumentName).DocumentName);
+        Assert.Empty(built.MissingDocuments);
+    }
+
+    [Fact]
     public void Build_ListsMissingProjectDocumentsAndSubSheets()
     {
         var project = Project("Top.SchDoc", "Notes.SchDoc");
