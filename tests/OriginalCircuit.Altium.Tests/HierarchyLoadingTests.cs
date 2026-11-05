@@ -223,4 +223,55 @@ public sealed class HierarchyLoadingTests
 
         Assert.Equal(new[] { "C1", "R1_PA1", "R1_PA2" }, Designators(hierarchy));
     }
+
+    // ---- the disk loader resolves paths as Windows does, on every platform ----
+
+    [Fact]
+    public async Task ASheetFoundThroughADotFolderPath_LooksForItsOwnSheetsInItsFolder()
+    {
+        using var folder = new Folder(
+            ("Top.SchDoc", Sheet("Top.SchDoc", Symbol("MID", @"Sheets\Mid.SchDoc\.", "SYMMIDAA"))),
+            (@"Sheets\Mid.SchDoc", Sheet("Mid.SchDoc", Symbol("LEAF", "Leaf.SchDoc", "SYMLEAFA"))),
+            (@"Sheets\Leaf.SchDoc", Sheet("Leaf.SchDoc", Part("R1", "RONEAAAA"))),
+            ("Leaf.SchDoc", Sheet("Leaf.SchDoc", Part("C1", "COLDCOPY"))));
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(folder.Project("Top.SchDoc"));
+
+        Assert.Equal(new[] { "R1" }, Designators(hierarchy));
+        Assert.Equal(Path.Combine(folder.Root, "Sheets", "Mid.SchDoc"), hierarchy.Sheets[1].DocumentKey, ignoreCase: true);
+    }
+
+    [Fact]
+    public async Task PathsWithDotFoldersTrailingSpacesAndOtherCase_FindTheirFiles()
+    {
+        using var folder = new Folder(
+            ("Top.SchDoc", Sheet("Top.SchDoc",
+                Symbol("PA", @"Sheets.\Power.SchDoc", "SYMPOWRA", xMils: 1000),
+                Symbol("PB", "Amp.SchDoc ", "SYMAMPBB", xMils: 3000),
+                Symbol("PC", "filter.schdoc", "SYMFILTC", xMils: 5000),
+                Symbol("PD", @"Sheets\Old\..\Extra.SchDoc.", "SYMEXTRD", xMils: 7000))),
+            (@"Sheets\Power.SchDoc", Sheet("Power.SchDoc", Part("R1", "RONEAAAA"))),
+            ("Amp.SchDoc", Sheet("Amp.SchDoc", Part("C1", "CONEAAAA"))),
+            ("Filter.SchDoc", Sheet("Filter.SchDoc", Part("L1", "LONEAAAA"))),
+            (@"Sheets\Extra.SchDoc", Sheet("Extra.SchDoc", Part("D1", "DONEAAAA"))));
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(folder.Project("Top.SchDoc"));
+
+        Assert.Equal(new[] { "C1", "D1", "L1", "R1" }, Designators(hierarchy));
+        Assert.Empty(hierarchy.MissingDocuments);
+        Assert.Equal(Path.Combine(folder.Root, "Sheets", "Power.SchDoc"), hierarchy.Sheets.Single(s => s.RoomName == "PA").DocumentKey, ignoreCase: true);
+        Assert.Equal(Path.Combine(folder.Root, "Amp.SchDoc"), hierarchy.Sheets.Single(s => s.RoomName == "PB").DocumentKey, ignoreCase: true);
+    }
+
+    [Fact]
+    public void FilesAreFoundIgnoringCase_SegmentBySegment()
+    {
+        using var folder = new Folder((@"Sheets\Filter.SchDoc", Sheet("Filter.SchDoc")));
+
+        var found = ProjectHierarchy.FindIgnoringCase(Path.Combine(folder.Root, "SHEETS", "filter.schdoc"));
+
+        Assert.NotNull(found);
+        Assert.Equal(Path.Combine(folder.Root, "Sheets", "Filter.SchDoc"), found, ignoreCase: true);
+        Assert.Null(ProjectHierarchy.FindIgnoringCase(Path.Combine(folder.Root, "Other", "filter.schdoc")));
+    }
 }

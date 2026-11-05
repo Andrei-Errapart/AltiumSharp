@@ -620,21 +620,84 @@ public sealed class ProjectHierarchy
             DocumentName = path,
         };
 
-    // The first existing file for a document path: as given when absolute, else next to the sheet
-    // that uses it, else in the project folder.
+    // The first existing file for a document path, resolved as Windows resolves it (NormalizePath) on
+    // every platform: at the path when it is rooted (a drive, a share or a leading separator), else
+    // next to the sheet that uses it, else in the project folder. Returns the file's full path, so
+    // the sheets it uses are looked for in its own folder.
     private static string? FindOnDisk(AltiumProject project, string path, string? usedBy)
     {
-        var native = Path.DirectorySeparatorChar == '\\' ? path : path.Replace('\\', '/');
-        var candidates = new List<string?>();
-        if (Path.IsPathRooted(native))
-            candidates.Add(native);
-        else
+        var normalized = NormalizePath(path)!;
+        if (normalized.Length == 0 || normalized.EndsWith('\\'))
+            return null;
+        if (IsRootedOnWindows(normalized))
+            return ExistingFile(normalized);
+        var relative = Native(normalized);
+        if (Path.GetDirectoryName(usedBy) is { Length: > 0 } usedByDirectory
+            && ExistingFile(Path.Combine(usedByDirectory, relative)) is { } nextToSheet)
+            return nextToSheet;
+        return project.ProjectDirectory is { } projectDirectory ? ExistingFile(Path.Combine(projectDirectory, relative)) : null;
+    }
+
+    private static bool IsRootedOnWindows(string path) =>
+        path.StartsWith('\\') || (path.Length >= 2 && char.IsAsciiLetter(path[0]) && path[1] == ':');
+
+    private static string Native(string path) =>
+        Path.DirectorySeparatorChar == '\\' ? path : path.Replace('\\', Path.DirectorySeparatorChar);
+
+    // The full path of the file, when it exists. Off Windows, where a drive path cannot exist, file
+    // names are matched ignoring case, as Windows matches them.
+    private static string? ExistingFile(string path)
+    {
+        if (!OperatingSystem.IsWindows() && path.Length >= 2 && char.IsAsciiLetter(path[0]) && path[1] == ':')
+            return null;
+        string full;
+        try
         {
-            if (Path.GetDirectoryName(usedBy) is { Length: > 0 } usedByDirectory)
-                candidates.Add(Path.Combine(usedByDirectory, native));
-            candidates.Add(project.ResolveDocumentPath(native));
+            full = Path.GetFullPath(Native(path));
         }
-        return candidates.FirstOrDefault(File.Exists);
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+        if (File.Exists(full))
+            return full;
+        return OperatingSystem.IsWindows() ? null : FindIgnoringCase(full);
+    }
+
+    // The existing file whose path matches a full path ignoring case, segment by segment (the
+    // ordinally first match where several do), or null.
+    internal static string? FindIgnoringCase(string fullPath)
+    {
+        var root = Path.GetPathRoot(fullPath);
+        if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+            return null;
+        var current = root;
+        var segments = fullPath[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < segments.Length; i++)
+        {
+            var last = i == segments.Length - 1;
+            var exact = Path.Combine(current, segments[i]);
+            if (last ? File.Exists(exact) : Directory.Exists(exact))
+            {
+                current = exact;
+                continue;
+            }
+            string? match;
+            try
+            {
+                var entries = last ? Directory.EnumerateFiles(current) : Directory.EnumerateDirectories(current);
+                match = entries.Where(e => string.Equals(Path.GetFileName(e), segments[i], StringComparison.OrdinalIgnoreCase))
+                    .Order(StringComparer.Ordinal).FirstOrDefault();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
+            if (match is null)
+                return null;
+            current = match;
+        }
+        return File.Exists(current) ? current : null;
     }
 
     private static ProjectHierarchy Build(AltiumProject? project, List<HeldDocument> held, SheetFinder finder,
