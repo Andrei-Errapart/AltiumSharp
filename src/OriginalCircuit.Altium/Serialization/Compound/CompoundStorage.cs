@@ -14,10 +14,12 @@ namespace OriginalCircuit.Altium.Serialization.Compound;
 internal sealed class CompoundStorage
 {
     private readonly Storage _storage;
+    private readonly RootStorage _root;
 
-    internal CompoundStorage(Storage storage)
+    internal CompoundStorage(Storage storage, RootStorage root)
     {
         _storage = storage;
+        _root = root;
     }
 
     /// <summary>Gets the entry name of this storage.</summary>
@@ -30,7 +32,7 @@ internal sealed class CompoundStorage
     {
         if (_storage.TryGetEntryInfo(name, out var info) && info.Type == EntryType.Stream)
         {
-            stream = new CompoundStream(_storage, name);
+            stream = new CompoundStream(_storage, name, _root);
             return true;
         }
 
@@ -59,7 +61,7 @@ internal sealed class CompoundStorage
     {
         if (_storage.TryOpenStorage(name, out var child))
         {
-            storage = new CompoundStorage(child);
+            storage = new CompoundStorage(child, _root);
             return true;
         }
 
@@ -77,17 +79,17 @@ internal sealed class CompoundStorage
     /// Gets a child storage by name; throws if it does not exist.
     /// </summary>
     public CompoundStorage GetStorage(string name)
-        => new(_storage.OpenStorage(name));
+        => new(_storage.OpenStorage(name), _root);
 
     /// <summary>
     /// Creates a new child stream. The stream content is written via <see cref="CompoundStream.SetData"/>.
     /// </summary>
-    public CompoundStream AddStream(string name) => new(_storage, name);
+    public CompoundStream AddStream(string name) => new(_storage, name, _root);
 
     /// <summary>
     /// Creates a new child storage.
     /// </summary>
-    public CompoundStorage AddStorage(string name) => new(_storage.CreateStorage(name));
+    public CompoundStorage AddStorage(string name) => new(_storage.CreateStorage(name), _root);
 
     /// <summary>
     /// Enumerates the immediate child entries (streams and storages) of this storage.

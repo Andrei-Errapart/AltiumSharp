@@ -95,6 +95,52 @@ public sealed class DamagedDocumentTests
         Assert.True(took < TimeSpan.FromSeconds(5), $"took {took}");
     }
 
+    // Sets the size a compound file's directory entry claims for a stream.
+    private static byte[] WithClaimedSize(byte[] file, string streamName, uint size)
+    {
+        var name = System.Text.Encoding.Unicode.GetBytes(streamName + "\0");
+        for (var at = 512; at + 128 <= file.Length; at += 128)
+        {
+            if (!file.AsSpan(at, name.Length).SequenceEqual(name))
+                continue;
+            var damaged = (byte[])file.Clone();
+            BitConverter.TryWriteBytes(damaged.AsSpan(at + 120, 4), size);
+            BitConverter.TryWriteBytes(damaged.AsSpan(at + 124, 4), 0);
+            return damaged;
+        }
+        throw new InvalidOperationException($"No directory entry for {streamName}.");
+    }
+
+    [Theory]
+    [InlineData(0x7FFFFFC7u)]
+    [InlineData(0x7FFFFFFFu)]
+    [InlineData(0xFFFFFFFFu)]
+    public void AStreamClaimingMoreThanTheFile_IsRefusedBeforeItIsAllocated(uint claimed)
+    {
+        var sheet = new Models.Sch.SchDocument();
+        using var ms = new MemoryStream();
+        new SchDocWriter().Write(sheet, ms);
+        var damaged = WithClaimedSize(ms.ToArray(), "FileHeader", claimed);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var ex = Assert.ThrowsAny<AltiumCorruptFileException>(() => new SchDocReader().Read(new MemoryStream(damaged)));
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 50_000_000);
+        // OpenMcdf refuses a size past 2 GB itself; anything below is refused by the size check.
+        if (claimed <= int.MaxValue)
+            Assert.Contains("claims", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ABoardStreamClaimingMoreThanTheFile_IsRefusedBeforeItIsAllocated()
+    {
+        var damaged = WithClaimedSize(Board("R1"), "Data", 0x7FFFFFC7u);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var ex = Assert.ThrowsAny<AltiumCorruptFileException>(() => new PcbDocReader().Read(new MemoryStream(damaged)));
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 50_000_000);
+        Assert.Contains("claims", ex.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void WideTexts_AreStillReadByTheirIndex()
     {

@@ -19,10 +19,12 @@ namespace OriginalCircuit.Altium.Serialization.Compound;
 internal sealed class CompoundStream
 {
     private readonly Storage _owner;
+    private readonly RootStorage _root;
 
-    internal CompoundStream(Storage owner, string name)
+    internal CompoundStream(Storage owner, string name, RootStorage root)
     {
         _owner = owner;
+        _root = root;
         Name = name;
     }
 
@@ -34,10 +36,17 @@ internal sealed class CompoundStream
     /// <summary>
     /// Reads the entire stream content into a byte array.
     /// </summary>
+    /// <exception cref="AltiumCorruptFileException">The stream claims to be larger than the whole file.</exception>
     public byte[] GetData()
     {
         using var stream = _owner.OpenStream(Name);
-        var length = checked((int)stream.Length);
+        // A stream's data lies in the file, so a damaged directory entry claiming more than the file
+        // holds is refused before anything is allocated for it.
+        var claimed = stream.Length;
+        if (claimed > _root.BaseStream.Length || claimed > Array.MaxLength)
+            throw new AltiumCorruptFileException(
+                $"Stream '{Name}' claims {claimed:N0} bytes, more than the {_root.BaseStream.Length:N0}-byte file holds.", Name);
+        var length = (int)claimed;
         var buffer = new byte[length];
         stream.Position = 0;
         stream.ReadExactly(buffer, 0, length);

@@ -28,7 +28,7 @@ internal sealed class CompoundFileAccessor : IAsyncDisposable, IDisposable
     /// <summary>
     /// Gets the root storage of the compound file.
     /// </summary>
-    public CompoundStorage RootStorage => _rootStorage ??= new CompoundStorage(_root);
+    public CompoundStorage RootStorage => _rootStorage ??= new CompoundStorage(_root, _root);
 
     private CompoundFileAccessor(OpenMcdf.RootStorage root, Stream? stream = null, bool leaveOpen = false)
     {
