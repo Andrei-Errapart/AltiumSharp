@@ -1385,7 +1385,11 @@ public sealed class PcbLibReader
         return track;
     }
 
-    internal static PcbText? ReadText(BinaryFormatReader reader, List<string> wideStrings)
+    internal static PcbText? ReadText(BinaryFormatReader reader, List<string> wideStrings) =>
+        ReadText(reader, i => i >= 0 && i < wideStrings.Count ? wideStrings[i] : null);
+
+    // wideString gives the wide text of an index, or null when the file has none for it.
+    internal static PcbText? ReadText(BinaryFormatReader reader, Func<int, string?> wideString)
     {
         var size = reader.ReadInt32();
         var sanitizedSize = size & BinaryFormatReader.BlockSizeMask;
@@ -1459,8 +1463,8 @@ public sealed class PcbLibReader
         // Read ASCII text (SubRecord 2)
         var asciiText = reader.ReadStringBlock();
         var text = asciiText;
-        if (wideStringIndex >= 0 && wideStringIndex < wideStrings.Count)
-            text = wideStrings[wideStringIndex];
+        if (wideString(wideStringIndex) is { } wide)
+            text = wide;
         if (string.IsNullOrEmpty(text))
             return null;
 

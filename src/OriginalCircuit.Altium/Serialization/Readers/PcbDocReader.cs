@@ -97,7 +97,7 @@ public sealed class PcbDocReader
         ReadFileHeaderSix(accessor, document);
 
         // Read wide strings (used by text primitives)
-        var wideStrings = ReadWideStrings(accessor);
+        var wideStrings = ReadWideStrings(accessor, cancellationToken);
 
         // Read board-level parameters
         ReadBoard(accessor, document);
@@ -234,23 +234,32 @@ public sealed class PcbDocReader
             document.AdditionalStreams = additional;
     }
 
-    private static List<string> ReadWideStrings(CompoundFileAccessor accessor)
+    // The wide texts by their text index. An index below the highest one that has no text of its own
+    // gives an empty text, as a list padded up to the highest index would; only the texts the file
+    // holds are kept, so an index read from a damaged file costs nothing.
+    private static Func<int, string?> ReadWideStrings(CompoundFileAccessor accessor, CancellationToken cancellationToken)
     {
-        var result = new List<string>();
+        var texts = new Dictionary<int, string>();
+        var count = 0;
+        string? Lookup(int index) => index >= 0 && index < count ? texts.GetValueOrDefault(index, string.Empty) : null;
+
         var storage = accessor.TryGetStorage("WideStrings6");
         if (storage == null)
-            return result;
+            return Lookup;
 
         var dataStream = PcbLibReader.GetChildStream(storage, "Data");
         if (dataStream == null)
-            return result;
+            return Lookup;
 
         var data = dataStream.GetData();
 
         // WideStrings6 is a sequence of [u32 text_index][u32 byte_len][UTF-16LE string incl. null].
         var pos = 0;
+        var records = 0;
         while (pos + 8 <= data.Length)
         {
+            if ((++records & 0x3FF) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             var index = BitConverter.ToInt32(data, pos);
             var byteLen = BitConverter.ToInt32(data, pos + 4);
             pos += 8;
@@ -263,12 +272,11 @@ public sealed class PcbDocReader
                 s = s.Substring(0, nul);
             if (index < 0)
                 continue;
-            while (result.Count <= index)
-                result.Add(string.Empty);
-            result[index] = s;
+            texts[index] = s;
+            count = Math.Max(count, index + 1);
         }
 
-        return result;
+        return Lookup;
     }
 
     private static void ReadBoard(CompoundFileAccessor accessor, PcbDocument document)
@@ -793,7 +801,7 @@ public sealed class PcbDocReader
         }, cancellationToken);
     }
 
-    private void ReadTexts(CompoundFileAccessor accessor, PcbDocument document, List<string> wideStrings, CancellationToken cancellationToken)
+    private void ReadTexts(CompoundFileAccessor accessor, PcbDocument document, Func<int, string?> wideStrings, CancellationToken cancellationToken)
     {
         ReadPrimitiveStorage(accessor, "Texts6", reader =>
         {
