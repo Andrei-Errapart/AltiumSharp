@@ -747,6 +747,33 @@ public sealed class SchComponent : ISchComponent
             ?? FindValue(sheet?.Parameters, name)
             ?? project?.Parameters.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))?.Value);
 
+    /// <summary>
+    /// Returns a parameter's value with any parameter reference resolved against this component and
+    /// then <paramref name="scope"/>, as <see cref="GetResolvedParameterValue(string, SchDocument?, Project.AltiumProject?)"/>
+    /// does, but with the sheet's and project's parameters already indexed.
+    /// </summary>
+    public string? GetResolvedParameterValue(string name, ParameterScope scope) =>
+        ResolveParameterText(GetParameterValue(name), scope);
+
+    /// <summary>
+    /// Returns the comment with its parameter reference resolved against this component and then
+    /// <paramref name="scope"/>, as <see cref="GetResolvedComment(SchDocument?, Project.AltiumProject?)"/>
+    /// does, but with the sheet's and project's parameters already indexed: build one
+    /// <see cref="ParameterScope"/> per sheet to resolve many components.
+    /// </summary>
+    public string? GetResolvedComment(ParameterScope scope) =>
+        ResolveParameterText(Comment ?? GetParameterValue("Comment"), scope);
+
+    /// <summary>
+    /// Resolves a parameter reference against this component and then <paramref name="scope"/>, as
+    /// <see cref="ResolveParameterText(string?, SchDocument?, Project.AltiumProject?)"/> does.
+    /// </summary>
+    public string? ResolveParameterText(string? text, ParameterScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        return ParameterReference.Resolve(text, name => GetParameterValue(name) ?? scope.Find(name));
+    }
+
     private static string? FindValue(IReadOnlyList<ISchParameter>? parameters, string name)
     {
         if (parameters is null)

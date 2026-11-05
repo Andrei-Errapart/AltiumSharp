@@ -89,8 +89,11 @@ public sealed class PhysicalComponent
     /// <summary>Whether Altium lists this component in a BOM, judged by <see cref="ComponentType"/> alone.</summary>
     public bool IsInBom => ComponentType.IsInBom();
 
-    /// <summary>The comment with its <c>=Name</c> reference resolved against the component, its sheet and the project.</summary>
-    public string? Comment => Component.GetResolvedComment(Sheet.Document, _hierarchy.Project);
+    /// <summary>
+    /// The comment with its <c>=Name</c> reference resolved against the component, its sheet and the
+    /// project (whose parameters the hierarchy indexes on first use, as they are then).
+    /// </summary>
+    public string? Comment => Component.GetResolvedComment(_hierarchy.ParameterScopeFor(Sheet.Document));
 
     /// <summary>The instance paths of every part (see <see cref="PhysicalComponentPart.UniqueIdPath"/>).</summary>
     public IEnumerable<string> UniqueIdPaths => Parts.Select(p => p.UniqueIdPath);
@@ -100,7 +103,7 @@ public sealed class PhysicalComponent
     /// component, its sheet and the project; <c>null</c> when the component has no such parameter.
     /// </summary>
     public string? GetParameterValue(string name) =>
-        Component.GetResolvedParameterValue(name, Sheet.Document, _hierarchy.Project);
+        Component.GetResolvedParameterValue(name, _hierarchy.ParameterScopeFor(Sheet.Document));
 
     /// <inheritdoc/>
     public override string ToString() => Parts.Count == 1 ? Designator : $"{Designator} ({Parts.Count} parts)";

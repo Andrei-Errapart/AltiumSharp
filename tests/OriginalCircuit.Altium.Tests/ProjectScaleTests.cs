@@ -10,6 +10,73 @@ namespace OriginalCircuit.Altium.Tests;
 /// </summary>
 public sealed class ProjectScaleTests
 {
+    // ---- parameter references ----
+
+    private static AltiumProject ProjectWithParameters(int count, Func<int, (string? Name, string? Value)> parameter)
+    {
+        var project = AltiumLibrary.CreateProject();
+        for (var i = 1; i <= count; i++)
+        {
+            var section = new ProjectSection($"Parameter{i}");
+            var (name, value) = parameter(i);
+            if (name is not null)
+                section.Add("Name", name);
+            if (value is not null)
+                section.Add("Value", value);
+            project.Sections.Add(section);
+        }
+        return project;
+    }
+
+    [Fact]
+    public void ResolvingEveryComment_IsLinear()
+    {
+        var project = ProjectWithParameters(100_000, i => ($"P{i}", $"V{i}"));
+        project.AddDocument("Top.SchDoc");
+        var sheet = HierarchyDesigns.Sheet("Top.SchDoc");
+        for (var i = 1; i <= 20_000; i++)
+        {
+            var part = HierarchyDesigns.Part($"R{i}", $"R{i:D7}");
+            part.AddParameter(new Models.Sch.SchParameter { Name = "Comment", Value = i % 2 == 0 ? "=Missing" : "=P99999" });
+            sheet.AddComponent(part);
+        }
+        var hierarchy = ProjectHierarchy.Build(project, new[] { sheet });
+
+        var watch = Stopwatch.StartNew();
+        var comments = hierarchy.Components.Select(c => c.Comment).ToList();
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
+        Assert.Equal(10_000, comments.Count(c => c == "=Missing"));
+        Assert.Equal(10_000, comments.Count(c => c == "V99999"));
+    }
+
+    [Fact]
+    public void AScope_ResolvesAsTheSheetAndProjectDo()
+    {
+        var random = new Random(20261105);
+        string[] names = { "Value", "VALUE", "Part Number", "Rev", "rev", "X" };
+        string?[] values = { null, "", "10k", "=Value", "=Rev", "=X", "=Missing", "=part number", "4u7" };
+        for (var round = 0; round < 2_000; round++)
+        {
+            var project = ProjectWithParameters(random.Next(0, 6),
+                _ => (random.Next(6) == 0 ? null : names[random.Next(names.Length)], values[random.Next(values.Length)]));
+            var sheet = new Models.Sch.SchDocument();
+            for (var i = random.Next(0, 4); i > 0; i--)
+                sheet.AddPrimitive(new Models.Sch.SchParameter { Name = names[random.Next(names.Length)], Value = values[random.Next(1, values.Length)]! });
+            var component = HierarchyDesigns.Part("R1", "RONEAAAA");
+            for (var i = random.Next(0, 3); i > 0; i--)
+                component.AddParameter(new Models.Sch.SchParameter { Name = names[random.Next(names.Length)], Value = values[random.Next(1, values.Length)]! });
+            component.AddParameter(new Models.Sch.SchParameter { Name = "Comment", Value = values[random.Next(1, values.Length)]! });
+            var scope = new Models.Sch.ParameterScope(sheet, project);
+
+            Assert.Equal(component.GetResolvedComment(sheet, project), component.GetResolvedComment(scope));
+            foreach (var name in names)
+                Assert.Equal(component.GetResolvedParameterValue(name, sheet, project), component.GetResolvedParameterValue(name, scope));
+            Assert.Equal(component.GetResolvedComment(null, project), component.GetResolvedComment(new Models.Sch.ParameterScope(null, project)));
+            Assert.Equal(component.GetResolvedComment(sheet, project), component.GetResolvedComment(new Models.Sch.ParameterScope(null, project).WithSheet(sheet)));
+        }
+    }
+
     // ---- variants ----
 
     private static ProjectVariant Variant(params (string Key, string Value)[] entries)

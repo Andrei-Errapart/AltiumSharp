@@ -63,6 +63,9 @@ public sealed class ProjectHierarchy
     private readonly List<string> _missing = new();
     private readonly HashSet<string> _missingNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _unfilledTokens = new(StringComparer.OrdinalIgnoreCase);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<SchDocument, ParameterScope> _parameterScopes =
+        new(ReferenceEqualityComparer.Instance);
+    private ParameterScope? _projectParameters;
     private bool _formatHasUnknownTokens;
     private bool _formatTooLong;
     private long _plannedParts;
@@ -217,6 +220,18 @@ public sealed class ProjectHierarchy
                 return candidate.Owner;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Returns the parameters a component on <paramref name="sheet"/> resolves its <c>=Name</c>
+    /// references against after its own (the sheet's, then <see cref="Project"/>'s), indexed once per
+    /// sheet and kept: <see cref="PhysicalComponent.Comment"/> uses it. It holds the parameters as they
+    /// were when it was first asked for.
+    /// </summary>
+    public ParameterScope ParameterScopeFor(SchDocument? sheet)
+    {
+        var project = LazyInitializer.EnsureInitialized(ref _projectParameters, () => new ParameterScope(null, Project));
+        return sheet is null ? project : _parameterScopes.GetOrAdd(sheet, s => project.WithSheet(s));
     }
 
     /// <summary>Returns the sheet instance with the given <see cref="HierarchySheetInstance.UniqueIdPath"/>, or <c>null</c>.</summary>
