@@ -323,7 +323,66 @@ public sealed class ProjectHierarchy
         // Known by file name, so a name's first document stands for every path of that name.
         return LoadCoreAsync(project, pathsAreRelative: false, sameNamedListed: true, (path, _, _) =>
             ValueTask.FromResult(openDocument(path) is { } stream ? FromStream(stream, location: null, path) : null),
+            openByName: null, options ?? ProjectHierarchyOptions.Default, cancellationToken);
+    }
+
+    /// <summary>
+    /// Opens the schematic documents through <paramref name="openDocument"/> and builds the hierarchy,
+    /// knowing each document by the location the callback gives for it, as
+    /// <see cref="LoadAsync(AltiumProject, ProjectHierarchyOptions?, CancellationToken)"/> knows a file by
+    /// its path. Use it for documents that are not files on disk, such as the entries of an uploaded
+    /// zip, so that a sheet symbol's path is taken from the sheet that holds it and two documents of
+    /// one file name in different folders are two sheets.
+    /// </summary>
+    /// <remarks>
+    /// A sheet symbol places the project's document of its file name (when the project lists several of
+    /// that name, the one its path leads to, else the first); otherwise the document its path led to
+    /// from its sheet; otherwise the document <paramref name="openByFileName"/> gave for its file name.
+    /// Names that none of these found are listed in <see cref="MissingDocuments"/> and reported in
+    /// <see cref="Diagnostics"/>.
+    /// </remarks>
+    /// <param name="project">The project.</param>
+    /// <param name="openDocument">
+    /// Given a document's path as written (each schematic <see cref="ProjectDocument.DocumentPath"/> of the
+    /// project, then the file name of each sheet symbol of each sheet read, in <see cref="OrderSiblings"/>
+    /// order) and the location of the sheet whose symbol gives it (<c>null</c> for a project document),
+    /// returns the document's bytes and its location, or a <c>null</c> stream when the path leads to no
+    /// document. A path is relative to the folder of the sheet that asks for it, and then to the project's
+    /// folder; <see cref="NormalizePath"/> resolves it as Windows does. The location identifies the
+    /// document: give the same document the same location however it is reached. It becomes
+    /// <see cref="HierarchySheetInstance.DocumentKey"/>, the sheets the document's symbols use are asked
+    /// for with it, and locations are compared case-insensitively; a <c>null</c> location knows the document
+    /// by its file name. Each path is asked for once from each sheet (the project's paths with no sheet). A
+    /// stream of a location read already is disposed unread; the others are read and then disposed, and
+    /// need not be seekable.
+    /// </param>
+    /// <param name="openByFileName">
+    /// An optional last resort, asked once no path is left to try: for the first file name none of whose
+    /// paths gave a document, with that file name, its first path and the location of the sheet that asked
+    /// for it (<c>null</c> for a project document), returns a document of that file name found some other
+    /// way, as <paramref name="openDocument"/> does, or a <c>null</c> stream. The sheets its symbols use are
+    /// asked for before the next such name is. Each symbol that places it is reported as
+    /// <see cref="AltiumDiagnosticCode.SheetFoundByFileName"/>.
+    /// </param>
+    /// <param name="options">Limits on the walk; <see cref="ProjectHierarchyOptions.Default"/> when <c>null</c>.</param>
+    /// <param name="cancellationToken">Checked between documents and while the hierarchy is compiled.</param>
+    /// <exception cref="AltiumCorruptFileException">A supplied document is not a readable SchDoc; <see cref="AltiumFileException.FilePath"/> is its location (or its path when it has none).</exception>
+    /// <exception cref="AltiumUnsupportedFeatureException">A supplied document uses a format or feature the reader does not support; <see cref="AltiumFileException.FilePath"/> is its location (or its path when it has none).</exception>
+    public static ValueTask<ProjectHierarchy> LoadAsync(AltiumProject project,
+        Func<string, string?, (Stream? Stream, string? Location)> openDocument,
+        Func<string, string, string?, (Stream? Stream, string? Location)>? openByFileName = null,
+        ProjectHierarchyOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(openDocument);
+
+        return LoadCoreAsync(project, pathsAreRelative: true, sameNamedListed: false,
+            (path, usedBy, _) => ValueTask.FromResult(Source(openDocument(path, usedBy), path)),
+            openByFileName is null ? null : (name, path, usedBy, _) => ValueTask.FromResult(Source(openByFileName(name, path, usedBy), path)),
             options ?? ProjectHierarchyOptions.Default, cancellationToken);
+
+        static DocumentSource? Source((Stream? Stream, string? Location) opened, string path) =>
+            opened.Stream is { } stream ? FromStream(stream, opened.Location, opened.Location ?? path) : null;
     }
 
     // Reads a stream (buffered when it cannot seek) as a SchDoc and disposes it.
@@ -390,7 +449,7 @@ public sealed class ProjectHierarchy
                     throw WithPath(ex, file);
                 }
             }));
-        }, options ?? ProjectHierarchyOptions.Default, cancellationToken);
+        }, openByName: null, options ?? ProjectHierarchyOptions.Default, cancellationToken);
     }
 
     // Where a document comes from: its location (null to know it by its file name) and how to read
@@ -432,15 +491,24 @@ public sealed class ProjectHierarchy
         // The documents with no location, known by their file names.
         public Dictionary<string, HeldDocument> NameKeyed { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        // The documents found by file name for names none of whose paths gave one.
+        public Dictionary<string, HeldDocument> FoundByName { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public (string Path, string? UsedBy) Request(string path, HeldDocument? on) =>
             (NormalizePath(path)!, pathsAreRelative ? on?.SymbolsUsedBy : null);
 
-        public HeldDocument? Find(HeldDocument on, SchSheetSymbol symbol, string name)
+        public HeldDocument? Find(HeldDocument on, SchSheetSymbol symbol, string name) => Find(on, symbol, name, out _);
+
+        // byFileName: the document was found for the symbol's file name, not at its path.
+        public HeldDocument? Find(HeldDocument on, SchSheetSymbol symbol, string name, out bool byFileName)
         {
             var found = Found.GetValueOrDefault(Request(symbol.FileName!, on));
-            if (Listed.TryGetValue(name, out var listed))
-                return found is not null && listed.Contains(found) ? found : listed[0];
-            return found ?? NameKeyed.GetValueOrDefault(name);
+            var result = Listed.TryGetValue(name, out var listed)
+                ? found is not null && listed.Contains(found) ? found : listed[0]
+                : found ?? NameKeyed.GetValueOrDefault(name) ?? FoundByName.GetValueOrDefault(name);
+            byFileName = result is not null && !ReferenceEquals(result, found)
+                && FoundByName.TryGetValue(name, out var byName) && ReferenceEquals(byName, result);
+            return result;
         }
 
         public void AddListed(string name, HeldDocument document)
@@ -460,17 +528,27 @@ public sealed class ProjectHierarchy
     // read is not looked up, unless the project lists several of that name. A path that gave nothing
     // is not asked for again from the same sheet; when pathsAreRelative is false the callback ignores
     // the location, so it is not asked for again at all. sameNamedListed reports project documents
-    // that share a file name up front (for loaders that read one document of each name).
+    // that share a file name up front (for loaders that read one document of each name). Once no path
+    // is left, openByName (when given) is asked for the first name none of whose paths gave a
+    // document, with that name's first path and the location of the sheet that asked for it; the
+    // paths the sheet it gives uses are tried before the next such name is asked for.
     private static async ValueTask<ProjectHierarchy> LoadCoreAsync(AltiumProject project, bool pathsAreRelative, bool sameNamedListed,
         Func<string, string?, CancellationToken, ValueTask<DocumentSource?>> open,
+        Func<string, string, string?, CancellationToken, ValueTask<DocumentSource?>>? openByName,
         ProjectHierarchyOptions options, CancellationToken cancellationToken)
     {
         var diagnostics = new List<AltiumDiagnostic>();
-        var missing = new List<string>();
         var held = new List<HeldDocument>();
         var byKey = new Dictionary<string, HeldDocument>(StringComparer.OrdinalIgnoreCase);
         var finder = new SheetFinder(pathsAreRelative);
         var asked = new HashSet<(string Path, string? UsedBy)>(PathAndLocationComparer.Instance);
+        // The names some path of which gave a document; the names none of whose paths did yet, each
+        // with its first such path, in the order they came; and the project's paths that gave none,
+        // with where in the diagnostics they are reported unless their name is found by file name.
+        var opened = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var notOpened = new List<(string Name, string Path, HeldDocument? On, bool Listed)>();
+        var notOpenedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var listedNotOpened = new List<(int At, string Name, string Path)>();
         if (sameNamedListed)
             ReportSameNamedDocuments(project, diagnostics, "only one is read");
         var queue = new Queue<(string Path, HeldDocument? On, bool Listed)>();
@@ -480,51 +558,115 @@ public sealed class ProjectHierarchy
                 queue.Enqueue((document.DocumentPath, null, true));
         }
 
-        while (queue.TryDequeue(out var item))
+        var next = 0;
+        while (true)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var name = NormalizeFileName(item.Path);
-            if (name is null)
-                continue;
-            var request = finder.Request(item.Path, item.On);
-            if (!item.Listed && finder.Listed.TryGetValue(name, out var listed))
+            while (queue.TryDequeue(out var item))
             {
-                // The project's document of that name is placed: only where the path leads matters,
-                // when the project lists several of that name.
-                if (listed.Count > 1 && asked.Add(request)
-                    && await open(item.Path, item.On?.SymbolsUsedBy, cancellationToken).ConfigureAwait(false) is { } other)
+                cancellationToken.ThrowIfCancellationRequested();
+                var name = NormalizeFileName(item.Path);
+                if (name is null)
+                    continue;
+                var request = finder.Request(item.Path, item.On);
+                if (!item.Listed && finder.Listed.TryGetValue(name, out var listed))
                 {
-                    using (other)
+                    // The project's document of that name is placed: only where the path leads matters,
+                    // when the project lists several of that name.
+                    if (listed.Count > 1 && asked.Add(request)
+                        && await open(item.Path, item.On?.SymbolsUsedBy, cancellationToken).ConfigureAwait(false) is { } other)
                     {
-                        if (other.Location is { } at && byKey.TryGetValue(at, out var document) && listed.Contains(document))
-                            finder.Found[request] = document;
+                        using (other)
+                        {
+                            if (other.Location is { } at && byKey.TryGetValue(at, out var document) && listed.Contains(document))
+                                finder.Found[request] = document;
+                        }
+                    }
+                    continue;
+                }
+                if (finder.NameKeyed.ContainsKey(name) || !asked.Add(request))
+                    continue;
+
+                var source = await open(item.Path, item.On?.SymbolsUsedBy, cancellationToken).ConfigureAwait(false);
+                if (source is null)
+                {
+                    // A sheet only a symbol uses is reported by the walk, which knows which sheet uses it.
+                    if (item.Listed)
+                        listedNotOpened.Add((diagnostics.Count, name, item.Path));
+                    if (notOpenedNames.Add(name))
+                        notOpened.Add((name, item.Path, item.On, item.Listed));
+                    continue;
+                }
+                opened.Add(name);
+                if (await TakeAsync(source, item.Path, name, item.On, item.Listed, request) is not null && !item.Listed)
+                    diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Info,
+                        $"Sheet '{item.Path}' is used by a sheet symbol but is not a project document; it was loaded too.")
+                    {
+                        Code = AltiumDiagnosticCode.UnlistedSheetLoaded,
+                        DocumentName = item.Path,
+                    });
+            }
+
+            // The first name none of whose paths gave a document is looked up by its file name, and
+            // the paths the sheet found uses are tried before the next one is.
+            if (openByName is null)
+                break;
+            var found = false;
+            while (!found && next < notOpened.Count)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var (name, path, on, listed) = notOpened[next++];
+                if (opened.Contains(name)
+                    || await openByName(name, path, on?.SymbolsUsedBy, cancellationToken).ConfigureAwait(false) is not { } source)
+                    continue;
+                opened.Add(name);
+                if (await TakeAsync(source, path, name, on, listed, request: null) is { } document)
+                {
+                    finder.FoundByName[name] = document;
+                    // A symbol that places it is reported by the walk; a project document here.
+                    if (listed)
+                    {
+                        finder.AddListed(name, document);
+                        diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Info,
+                            $"Schematic document '{path}' was not found at its path; '{document.Location ?? document.Name}' was read for its file name.")
+                        {
+                            Code = AltiumDiagnosticCode.SheetFoundByFileName,
+                            DocumentName = path,
+                        });
                     }
                 }
-                continue;
+                found = true;
             }
-            if (finder.NameKeyed.ContainsKey(name) || !asked.Add(request))
-                continue;
+            if (!found)
+                break;
+        }
 
-            var source = await open(item.Path, item.On?.SymbolsUsedBy, cancellationToken).ConfigureAwait(false);
-            if (source is null)
-            {
-                // A sheet only a symbol uses is reported by the walk, which knows which sheet uses it.
-                if (item.Listed)
-                {
-                    missing.Add(item.Path);
-                    diagnostics.Add(NotSupplied(item.Path));
-                }
+        // The project's paths that gave nothing, unless a document of that name was found by file name.
+        var missing = new List<string>();
+        for (var i = listedNotOpened.Count - 1; i >= 0; i--)
+        {
+            var (at, name, path) = listedNotOpened[i];
+            if (finder.FoundByName.ContainsKey(name))
                 continue;
-            }
+            missing.Insert(0, path);
+            diagnostics.Insert(at, NotSupplied(path));
+        }
+        ReportSharedFileNames(held, diagnostics);
+        return Build(project, held, finder, diagnostics, missing, options, cancellationToken);
 
+        // Reads the document a source gives, unless one was read from its location already; returns
+        // the document read now, or the one known (null when a source of the same location was read).
+        async ValueTask<HeldDocument?> TakeAsync(DocumentSource source, string path, string name, HeldDocument? on, bool listed,
+            (string Path, string? UsedBy)? request)
+        {
             var key = source.Location ?? name;
             if (byKey.TryGetValue(key, out var known))
             {
                 source.Dispose();
-                finder.Found[request] = known;
-                if (item.Listed)
+                if (request is { } r)
+                    finder.Found[r] = known;
+                if (listed)
                     finder.AddListed(name, known);
-                continue;
+                return request is null ? known : null;
             }
             SchDocument sheet;
             try
@@ -535,22 +677,16 @@ public sealed class ProjectHierarchy
             {
                 source.Dispose();
             }
-            if (!item.Listed)
-                diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Info,
-                    $"Sheet '{item.Path}' is used by a sheet symbol but is not a project document; it was loaded too.")
-                {
-                    Code = AltiumDiagnosticCode.UnlistedSheetLoaded,
-                    DocumentName = item.Path,
-                });
 
             sheet.FileName = name;
-            var loaded = new HeldDocument(sheet, key, name, item.Path, source.Location, item.Listed);
+            var loaded = new HeldDocument(sheet, key, name, path, source.Location, listed);
             held.Add(loaded);
             byKey[key] = loaded;
-            finder.Found[request] = loaded;
+            if (request is { } asked2)
+                finder.Found[asked2] = loaded;
             if (source.Location is null)
                 finder.NameKeyed[name] = loaded;
-            if (item.Listed)
+            if (listed)
                 finder.AddListed(name, loaded);
             // In the order the walk visits them, so Documents lists unlisted sheets in walk order too.
             foreach (var symbol in OrderSiblings(sheet.SheetSymbols))
@@ -558,10 +694,8 @@ public sealed class ProjectHierarchy
                 if (!string.IsNullOrWhiteSpace(symbol.FileName))
                     queue.Enqueue((symbol.FileName, loaded, false));
             }
+            return loaded;
         }
-
-        ReportSharedFileNames(held, diagnostics);
-        return Build(project, held, finder, diagnostics, missing, options, cancellationToken);
     }
 
     // Project documents in different folders with one file name share a key, and the hierarchy
@@ -865,7 +999,7 @@ public sealed class ProjectHierarchy
                     $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' names no sheet file.", frame.Instance, symbol, fileName);
                 continue;
             }
-            if (_finder.Find(frame.Document, symbol, childName) is not { } child)
+            if (_finder.Find(frame.Document, symbol, childName, out var byFileName) is not { } child)
             {
                 AddMissing(symbol.FileName!);
                 ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SubSheetNotSupplied,
@@ -873,6 +1007,10 @@ public sealed class ProjectHierarchy
                     frame.Instance, symbol, symbol.FileName);
                 continue;
             }
+            if (byFileName)
+                ReportSymbol(DiagnosticSeverity.Info, AltiumDiagnosticCode.SheetFoundByFileName,
+                    $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' uses '{symbol.FileName}', which was not found at its path; " +
+                    $"'{child.Location ?? child.Name}' was read for its file name.", frame.Instance, symbol, symbol.FileName);
             if (ancestors.Contains(child))
             {
                 ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SheetCycle,
@@ -961,11 +1099,18 @@ public sealed class ProjectHierarchy
         Report(DiagnosticSeverity.Error, code, message, sheet, symbol, document);
     }
 
-    // Altium numbers channels by where their sheet symbols sit, not by record order: bottom to top
-    // (ascending Y), then left to right. On real boards record order misnumbers about a third of
-    // the channels while this order matches every PCB designator. (Those boards cannot tell it
-    // apart from left-to-right first, then bottom to top.)
-    internal static IEnumerable<SchSheetSymbol> OrderSiblings(IReadOnlyList<SchSheetSymbol> symbols) =>
+    /// <summary>
+    /// Returns a sheet's symbols in the order the hierarchy visits them, which is the order Altium
+    /// numbers channels in and the order the loaders ask for the sheets they use: bottom to top
+    /// (ascending <see cref="SchSheetSymbol.Location"/> Y), then left to right (ascending X), then as
+    /// the sheet holds them. Callers that read the sheets themselves can ask for them in this order.
+    /// </summary>
+    /// <remarks>
+    /// On real boards record order misnumbers about a third of the channels while this order matches
+    /// every PCB designator. (Those boards cannot tell it apart from left to right first, then bottom
+    /// to top.)
+    /// </remarks>
+    public static IEnumerable<SchSheetSymbol> OrderSiblings(IReadOnlyList<SchSheetSymbol> symbols) =>
         symbols.Select((symbol, index) => (symbol, index))
             .OrderBy(s => s.symbol.Location.Y.ToRaw())
             .ThenBy(s => s.symbol.Location.X.ToRaw())

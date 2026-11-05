@@ -263,6 +263,159 @@ public sealed class HierarchyLoadingTests
         Assert.Equal(Path.Combine(folder.Root, "Amp.SchDoc"), hierarchy.Sheets.Single(s => s.RoomName == "PB").DocumentKey, ignoreCase: true);
     }
 
+    // ---- the stream loader that is told which sheet asks ----
+
+    // An upload: paths from its root, looked up next to the asking sheet, then at the root.
+    private sealed class Upload(Dictionary<string, byte[]> files)
+    {
+        public List<string> Asked { get; } = new();
+        public List<string> AskedByName { get; } = new();
+        public int Opened { get; private set; }
+
+        public (Stream? Stream, string? Location) Open(string path, string? usedBy)
+        {
+            Asked.Add(usedBy is null ? path : $"{path} <- {usedBy}");
+            var folder = usedBy is null ? null : usedBy[..(usedBy.LastIndexOf('\\') + 1)];
+            foreach (var candidate in new[] { folder is null ? null : folder + path, path })
+            {
+                if (candidate is not null && ProjectHierarchy.NormalizePath(candidate) is { } at && files.TryGetValue(at, out var bytes))
+                {
+                    Opened++;
+                    return (new MemoryStream(bytes), at);
+                }
+            }
+            return (null, null);
+        }
+
+        public (Stream? Stream, string? Location) OpenByName(string name, string path, string? usedBy)
+        {
+            AskedByName.Add(name);
+            var at = files.Keys.FirstOrDefault(k => string.Equals(ProjectHierarchy.NormalizeFileName(k), name, StringComparison.OrdinalIgnoreCase));
+            return at is null ? (null, null) : (new MemoryStream(files[at]), at);
+        }
+    }
+
+    [Fact]
+    public async Task ASymbolsPath_IsTakenFromTheSheetThatHoldsIt()
+    {
+        var upload = new Upload(Files(
+            ("Top.SchDoc", Sheet("Top.SchDoc", Symbol("SUB", @"Sheets\Sub.SchDoc", "SYMSUBAA"))),
+            (@"Sheets\Sub.SchDoc", Sheet("Sub.SchDoc", Symbol("PWR", "Power.SchDoc", "SYMPOWER"))),
+            (@"Sheets\Power.SchDoc", Sheet("Power.SchDoc", Part("R1", "RONEAAAA"))),
+            ("Power.SchDoc", Sheet("Power.SchDoc", Part("C9", "COLDCOPY")))));
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(Project("Top.SchDoc", @"Sheets\Sub.SchDoc"), upload.Open);
+
+        Assert.Equal(new[] { "R1" }, Designators(hierarchy));
+        Assert.Contains(@"Power.SchDoc <- Sheets\Sub.SchDoc", upload.Asked);
+        Assert.Equal(new[] { "Top.SchDoc", @"Sheets\Sub.SchDoc", @"Sheets\Power.SchDoc" }, hierarchy.Sheets.Select(s => s.DocumentKey).ToArray());
+        Assert.Equal("Power.SchDoc", hierarchy.Sheets[2].FileName);
+    }
+
+    [Fact]
+    public async Task TwoPathsToOneLocation_ReadItOnce()
+    {
+        var upload = new Upload(Files(
+            ("Top.SchDoc", Sheet("Top.SchDoc",
+                Symbol("SUB", @"Sub\Sub.SchDoc", "SYMSUBAA", xMils: 1000),
+                Symbol("PA", @"Sheets\Power.SchDoc", "SYMPOWRA", xMils: 3000))),
+            (@"Sub\Sub.SchDoc", Sheet("Sub.SchDoc", Symbol("PB", @"..\Sheets\Power.SchDoc", "SYMPOWRB"))),
+            (@"Sheets\Power.SchDoc", Sheet("Power.SchDoc", Part("R1", "RONEAAAA")))));
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(Project("Top.SchDoc"), upload.Open);
+
+        Assert.Equal(new[] { "R1_PA", "R1_PB" }, Designators(hierarchy));
+        Assert.Equal(3, hierarchy.DocumentsByKey.Count);
+        Assert.Equal(4, upload.Opened);
+    }
+
+    [Fact]
+    public async Task ANameNoneOfWhosePathsOpened_IsLookedUpByFileName_OnceNoPathIsLeft()
+    {
+        var upload = new Upload(Files(
+            ("Top.SchDoc", Sheet("Top.SchDoc",
+                Symbol("PWR", @"Gone\Power.SchDoc", "SYMPOWER", xMils: 1000),
+                Symbol("AMP", "Amp.SchDoc", "SYMAMPAA", xMils: 3000))),
+            ("Amp.SchDoc", Sheet("Amp.SchDoc", Part("C1", "CONEAAAA"))),
+            (@"Elsewhere\Power.SchDoc", Sheet("Power.SchDoc", Part("R1", "RONEAAAA"), Symbol("FLT", "Filter.SchDoc", "SYMFILTR"))),
+            (@"Elsewhere\Filter.SchDoc", Sheet("Filter.SchDoc", Part("L1", "LONEAAAA")))));
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(Project("Top.SchDoc"), upload.Open, upload.OpenByName);
+
+        Assert.Equal(new[] { "C1", "L1", "R1" }, Designators(hierarchy));
+        Assert.Equal(new[] { "Power.SchDoc" }, upload.AskedByName);
+        Assert.Equal(new[] { "Top.SchDoc", @"Gone\Power.SchDoc <- Top.SchDoc", "Amp.SchDoc <- Top.SchDoc", @"Filter.SchDoc <- Elsewhere\Power.SchDoc" },
+            upload.Asked);
+        var byName = Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.SheetFoundByFileName);
+        Assert.Equal("PWR", byName.SheetSymbol!.SheetName);
+        Assert.Equal(@"Gone\Power.SchDoc", byName.DocumentName);
+        Assert.Empty(hierarchy.MissingDocuments);
+    }
+
+    [Fact]
+    public async Task ANameWithAPathThatOpened_IsNotLookedUpByFileName()
+    {
+        var upload = new Upload(Files(
+            ("Top.SchDoc", Sheet("Top.SchDoc",
+                Symbol("PA", @"Gone\Power.SchDoc", "SYMPOWRA", xMils: 1000),
+                Symbol("PB", @"B\Power.SchDoc", "SYMPOWRB", xMils: 3000))),
+            (@"B\Power.SchDoc", Sheet("Power.SchDoc", Part("R1", "RONEAAAA"))),
+            (@"Elsewhere\Power.SchDoc", Sheet("Power.SchDoc", Part("C9", "COLDCOPY")))));
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(Project("Top.SchDoc"), upload.Open, upload.OpenByName);
+
+        Assert.Equal(new[] { "R1" }, Designators(hierarchy));
+        Assert.Empty(upload.AskedByName);
+        Assert.Equal("PA", Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.SubSheetNotSupplied).SheetSymbol!.SheetName);
+    }
+
+    [Fact]
+    public async Task AProjectDocumentFoundByFileName_IsNotMissing()
+    {
+        var upload = new Upload(Files(
+            ("Top.SchDoc", Sheet("Top.SchDoc", Symbol("PWR", @"Sheets\Power.SchDoc", "SYMPOWER"))),
+            (@"Elsewhere\Power.SchDoc", Sheet("Power.SchDoc", Part("R1", "RONEAAAA")))));
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(Project("Top.SchDoc", @"Sheets\Power.SchDoc", "Gone.SchDoc"),
+            upload.Open, upload.OpenByName);
+
+        Assert.Equal(new[] { "R1" }, Designators(hierarchy));
+        Assert.Equal(new[] { "Gone.SchDoc" }, hierarchy.MissingDocuments);
+        Assert.Equal("Gone.SchDoc", Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.DocumentNotSupplied).DocumentName);
+        var byName = hierarchy.Diagnostics.Where(d => d.Code == AltiumDiagnosticCode.SheetFoundByFileName).ToList();
+        Assert.Equal(2, byName.Count);
+        Assert.Null(byName[0].SheetSymbol);
+        Assert.Equal(@"Sheets\Power.SchDoc", byName[0].DocumentName);
+        Assert.Equal("PWR", byName[1].SheetSymbol!.SheetName);
+        Assert.Equal(new[] { "Power.SchDoc", "Gone.SchDoc" }, upload.AskedByName);
+    }
+
+    [Fact]
+    public async Task WithoutALocation_ADocumentIsKnownByItsFileName()
+    {
+        var files = Files(
+            ("Top.SchDoc", Sheet("Top.SchDoc",
+                Symbol("PA", @"A\Power.SchDoc", "SYMPOWRA", xMils: 1000),
+                Symbol("PB", @"B\Power.SchDoc", "SYMPOWRB", xMils: 3000))),
+            (@"A\Power.SchDoc", Sheet("Power.SchDoc", Part("R1", "RONEAAAA"))));
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(Project("Top.SchDoc"),
+            (path, _) => files.TryGetValue(ProjectHierarchy.NormalizePath(path)!, out var bytes) ? (new MemoryStream(bytes), null) : (null, null));
+
+        Assert.Equal(new[] { "R1_PA", "R1_PB" }, Designators(hierarchy));
+        Assert.Equal(new[] { "Top.SchDoc", "Power.SchDoc" }, hierarchy.DocumentsByKey.Keys.ToArray());
+    }
+
+    [Fact]
+    public void Siblings_AreOrderedBottomToTopThenLeftToRight()
+    {
+        var a = Symbol("A", "A.SchDoc", "SYMAAAAA", xMils: 3000, yMils: 1000);
+        var b = Symbol("B", "B.SchDoc", "SYMBBBBB", xMils: 1000, yMils: 2000);
+        var c = Symbol("C", "C.SchDoc", "SYMCCCCC", xMils: 1000, yMils: 1000);
+
+        Assert.Equal(new[] { c, a, b }, ProjectHierarchy.OrderSiblings(new[] { a, b, c }));
+    }
+
     [Fact]
     public void FilesAreFoundIgnoringCase_SegmentBySegment()
     {

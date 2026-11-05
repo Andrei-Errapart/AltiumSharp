@@ -138,4 +138,12 @@ public enum AltiumDiagnosticCode
     /// <see cref="AltiumDiagnostic.DocumentName"/> is the later one's path as asked for; the message names both.
     /// </summary>
     SharedFileName,
+
+    /// <summary>
+    /// A sheet was not found at its path, and the document the loader's file-name lookup gave was read
+    /// for it. For a sheet symbol (<see cref="AltiumDiagnostic.SheetSymbol"/>, on
+    /// <see cref="AltiumDiagnostic.SheetInstance"/>) it is reported once per symbol;
+    /// <see cref="AltiumDiagnostic.DocumentName"/> is the path as written.
+    /// </summary>
+    SheetFoundByFileName,
 }
