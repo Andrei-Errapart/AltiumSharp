@@ -215,47 +215,71 @@ public sealed class ProjectStructure
     /// to give a project opened from a stream its structure:
     /// <c>project.Structure = ProjectStructure.Parse(structureStream)</c>.
     /// </summary>
-    public static ProjectStructure Parse(Stream stream)
+    public static ProjectStructure Parse(Stream stream) => Parse(stream, CancellationToken.None);
+
+    /// <summary>
+    /// Reads a <c>.PrjPcbStructure</c> file from a stream, as <see cref="Parse(Stream)"/>, checking
+    /// <paramref name="cancellationToken"/> while it parses.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    public static ProjectStructure Parse(Stream stream, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        using var buffer = new MemoryStream();
-        stream.CopyTo(buffer);
-        return Parse(buffer.ToArray());
+        return Parse(Serialization.AltiumEncoding.ReadToEnd(stream, cancellationToken), cancellationToken);
     }
 
-    internal static ProjectStructure Parse(byte[] bytes)
+    internal static ProjectStructure Parse(byte[] bytes) => Parse(bytes, CancellationToken.None);
+
+    internal static ProjectStructure Parse(ReadOnlySpan<byte> bytes, CancellationToken cancellationToken)
     {
-        var structure = Parse(Serialization.AltiumEncoding.DecodeText(bytes, out _, out var isWindows1252));
+        var structure = Parse(Serialization.AltiumEncoding.DecodeText(bytes, out _, out var isWindows1252), cancellationToken);
         structure.IsWindows1252 = isWindows1252;
         return structure;
     }
+
+    internal static ProjectStructure Parse(ArraySegment<byte> bytes, CancellationToken cancellationToken) =>
+        Parse(bytes.AsSpan(), cancellationToken);
+
+    internal static ProjectStructure Parse(byte[] bytes, CancellationToken cancellationToken) =>
+        Parse(bytes.AsSpan(), cancellationToken);
 
     /// <summary>
     /// Parses the text of a <c>.PrjPcbStructure</c> file into a <see cref="ProjectStructure"/>.
     /// A leading byte-order mark is ignored, blank lines are ignored, and each other line is one
     /// pipe-delimited record.
     /// </summary>
-    public static ProjectStructure Parse(string text)
+    public static ProjectStructure Parse(string text) => Parse(text, CancellationToken.None);
+
+    // Line by line and field by field over the text, so only the keys and values are allocated.
+    private static ProjectStructure Parse(string text, CancellationToken cancellationToken)
     {
         var structure = new ProjectStructure();
         if (string.IsNullOrEmpty(text))
             return structure;
-        if (text[0] == '﻿')
-            text = text[1..];
+        var start = text[0] == '\ufeff' ? 1 : 0;
 
-        foreach (var rawLine in text.Split('\n'))
+        var keys = new Serialization.AltiumEncoding.KeyPool();
+        var lines = 0;
+        while (start <= text.Length)
         {
-            var line = rawLine.TrimEnd('\r');
+            if ((++lines & 0xFFF) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
+            var end = text.IndexOf('\n', start);
+            if (end < 0)
+                end = text.Length;
+            var line = text.AsSpan(start, end - start).TrimEnd('\r');
+            start = end + 1;
             if (line.Length == 0)
                 continue;
 
             var fields = new List<KeyValuePair<string, string>>();
-            foreach (var segment in line.Split('|'))
+            foreach (var range in line.Split('|'))
             {
+                var segment = line[range];
                 var eq = segment.IndexOf('=');
                 fields.Add(eq < 0
-                    ? new KeyValuePair<string, string>(segment, string.Empty)
-                    : new KeyValuePair<string, string>(segment[..eq], segment[(eq + 1)..]));
+                    ? new KeyValuePair<string, string>(segment.ToString(), string.Empty)
+                    : new KeyValuePair<string, string>(keys.Get(segment[..eq]), segment[(eq + 1)..].ToString()));
             }
             structure.Records.Add(new ProjectStructureRecord(fields));
         }

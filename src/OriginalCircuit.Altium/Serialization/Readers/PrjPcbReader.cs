@@ -35,7 +35,7 @@ public sealed class PrjPcbReader
             {
                 var structureBytes = await File.ReadAllBytesAsync(structurePath, cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
-                project.Structure = ProjectStructure.Parse(structureBytes);
+                project.Structure = ProjectStructure.Parse(structureBytes, cancellationToken);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -77,18 +77,11 @@ public sealed class PrjPcbReader
     {
         ArgumentNullException.ThrowIfNull(stream);
         cancellationToken.ThrowIfCancellationRequested();
-        var project = ReadBytes(ReadAllBytes(stream), cancellationToken);
+        var project = ReadBytes(AltiumEncoding.ReadToEnd(stream, cancellationToken), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (structureStream is not null)
-            project.Structure = ProjectStructure.Parse(structureStream);
+            project.Structure = ProjectStructure.Parse(structureStream, cancellationToken);
         return project;
-    }
-
-    private static byte[] ReadAllBytes(Stream stream)
-    {
-        using var ms = new MemoryStream();
-        stream.CopyTo(ms);
-        return ms.ToArray();
     }
 
     /// <summary>Parses already-decoded <c>.PrjPcb</c> text. A leading UTF-8/UTF-16 BOM character is honoured.</summary>
@@ -103,7 +96,7 @@ public sealed class PrjPcbReader
         return project;
     }
 
-    private AltiumProject ReadBytes(byte[] bytes, CancellationToken cancellationToken)
+    private AltiumProject ReadBytes(ReadOnlySpan<byte> bytes, CancellationToken cancellationToken)
     {
         var text = AltiumEncoding.DecodeText(bytes, out var hasBom, out var isWindows1252);
         var project = ParseText(text, cancellationToken);
@@ -122,12 +115,19 @@ public sealed class PrjPcbReader
         };
 
         ProjectSection? current = null;
+        var keys = new AltiumEncoding.KeyPool();
         var lines = 0;
-        foreach (var rawLine in text.Split('\n'))
+        // Line by line over the text, so only the section names, keys and values are allocated.
+        for (var start = 0; start <= text.Length;)
         {
             if ((++lines & 0xFFF) == 0)
                 cancellationToken.ThrowIfCancellationRequested();
-            // Lines were split on '\n'; drop the matching '\r' so both CRLF and LF parse identically.
+            var end = text.IndexOf('\n', start);
+            if (end < 0)
+                end = text.Length;
+            var rawLine = text.AsSpan(start, end - start);
+            start = end + 1;
+            // Lines are split on '\n'; drop the matching '\r' so both CRLF and LF parse identically.
             var line = rawLine.Length > 0 && rawLine[^1] == '\r' ? rawLine[..^1] : rawLine;
 
             if (line.Length == 0)
@@ -135,7 +135,7 @@ public sealed class PrjPcbReader
 
             if (line[0] == '[' && line[^1] == ']')
             {
-                current = new ProjectSection(line[1..^1]);
+                current = new ProjectSection(line[1..^1].ToString());
                 project.Sections.Add(current);
                 continue;
             }
@@ -151,9 +151,9 @@ public sealed class PrjPcbReader
 
             var eq = line.IndexOf('=');
             if (eq < 0)
-                current.Entries.Add(new KeyValuePair<string, string>(line, string.Empty));
+                current.Entries.Add(new KeyValuePair<string, string>(line.ToString(), string.Empty));
             else
-                current.Entries.Add(new KeyValuePair<string, string>(line[..eq], line[(eq + 1)..]));
+                current.Entries.Add(new KeyValuePair<string, string>(keys.Get(line[..eq]), line[(eq + 1)..].ToString()));
         }
 
         project.Diagnostics = _diagnostics;

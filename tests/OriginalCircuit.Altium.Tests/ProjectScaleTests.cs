@@ -10,6 +10,98 @@ namespace OriginalCircuit.Altium.Tests;
 /// </summary>
 public sealed class ProjectScaleTests
 {
+    // ---- the project text ----
+
+    private static string ProjectText(int junkKeys)
+    {
+        var sb = new StringBuilder("[Design]\r\nVersion=1.0\r\n\r\n[Document1]\r\nDocumentPath=Top.SchDoc\r\n\r\n[Junk]\r\n");
+        for (var i = 0; i < junkKeys; i++)
+            sb.Append("Key").Append(i.ToString("D7", System.Globalization.CultureInfo.InvariantCulture)).Append('=').Append('v', 40).Append("\r\n");
+        return sb.ToString();
+    }
+
+    [Fact]
+    public void ALargeProjectFile_IsParsedWithoutCopiesOfIt()
+    {
+        var bytes = Encoding.UTF8.GetBytes(ProjectText(200_000));
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var project = new Serialization.Readers.PrjPcbReader().Read(new MemoryStream(bytes));
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(200_000, project.GetSection("Junk")!.Entries.Count);
+        Assert.Equal("Top.SchDoc", Assert.Single(project.Documents).DocumentPath);
+        // The bytes, the text (UTF-16) and the entries it holds; no array of lines or trimmed copies.
+        Assert.True(allocated < bytes.Length * 7L, $"allocated {allocated:N0} bytes for {bytes.Length:N0}");
+    }
+
+    [Fact]
+    public void ALargeStructureFile_IsParsedWithoutCopiesOfIt()
+    {
+        var sb = new StringBuilder();
+        for (var i = 0; i < 100_000; i++)
+            sb.Append("Record=SheetSymbol|ProjectPath=ACME-CTRL01|SourceDocument=Top.SchDoc|Designator=U").Append(i).Append("|FileName=Sheet.SchDoc\r\n");
+        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var structure = ProjectStructure.Parse(new MemoryStream(bytes));
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(100_000, structure.Records.Count);
+        Assert.Equal("U99999", structure.Records[^1].Designator);
+        Assert.True(allocated < bytes.Length * 9L, $"allocated {allocated:N0} bytes for {bytes.Length:N0}");
+    }
+
+    [Theory]
+    [InlineData("[A]\r\nk=v\r\n\r\n[B]\nx\n=y\r\r\nlast=1")]
+    [InlineData("﻿[A]\r\nk==v\r\n")]
+    [InlineData("before\r\n[A]\r\n")]
+    [InlineData("")]
+    [InlineData("[A]\r\n\r\n\r\n")]
+    public void ProjectText_IsParsedAsBefore(string text)
+    {
+        var project = new Serialization.Readers.PrjPcbReader().Read(text);
+
+        var expected = new List<string>();
+        string? section = null;
+        foreach (var raw in (text.Length > 0 && text[0] == '﻿' ? text[1..] : text).Split('\n'))
+        {
+            var line = raw.Length > 0 && raw[^1] == '\r' ? raw[..^1] : raw;
+            if (line.Length == 0)
+                continue;
+            if (line[0] == '[' && line[^1] == ']')
+            {
+                expected.Add("[" + (section = line[1..^1]) + "]");
+                continue;
+            }
+            if (section is null)
+                expected.Add("[" + (section = string.Empty) + "]");
+            var eq = line.IndexOf('=');
+            expected.Add(eq < 0 ? line + "=" : line[..eq] + "=" + line[(eq + 1)..]);
+        }
+        var actual = project.Sections.SelectMany(s => new[] { "[" + s.Name + "]" }.Concat(s.Entries.Select(e => e.Key + "=" + e.Value))).ToList();
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData("Record=TopLevelDocument|FileName=Top.SchDoc\r\nRecord=SheetSymbol|A|B==C\r\r\n\r\n")]
+    [InlineData("﻿Record=X\nRecord=Y")]
+    [InlineData("|||\r\n")]
+    public void StructureText_IsParsedAsBefore(string text)
+    {
+        var structure = ProjectStructure.Parse(text);
+
+        var expected = new List<string>();
+        foreach (var raw in (text[0] == '﻿' ? text[1..] : text).Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.Length == 0)
+                continue;
+            expected.Add(string.Join("|", line.Split('|').Select(s => s.IndexOf('=') is var eq and >= 0 ? s[..eq] + "=" + s[(eq + 1)..] : s + "=")));
+        }
+        Assert.Equal(expected, structure.Records.Select(r => string.Join("|", r.Fields.Select(f => f.Key + "=" + f.Value))).ToList());
+    }
+
     // ---- parameter references ----
 
     private static AltiumProject ProjectWithParameters(int count, Func<int, (string? Name, string? Value)> parameter)

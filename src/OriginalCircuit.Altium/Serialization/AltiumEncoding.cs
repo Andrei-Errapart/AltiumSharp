@@ -33,21 +33,75 @@ internal static class AltiumEncoding
     /// with a UTF-8 byte-order mark (which is dropped) or is valid UTF-8, otherwise as Windows-1252,
     /// the ANSI code page a file without a mark may have been saved in.
     /// </summary>
-    public static string DecodeText(byte[] bytes, out bool hasBom, out bool isWindows1252)
+    public static string DecodeText(byte[] bytes, out bool hasBom, out bool isWindows1252) =>
+        DecodeText(bytes.AsSpan(), out hasBom, out isWindows1252);
+
+    /// <summary>As <see cref="DecodeText(byte[], out bool, out bool)"/>, for part of a buffer.</summary>
+    public static string DecodeText(ReadOnlySpan<byte> bytes, out bool hasBom, out bool isWindows1252)
     {
         hasBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
         isWindows1252 = false;
         if (hasBom)
-            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
-        try
-        {
+            return Encoding.UTF8.GetString(bytes[3..]);
+        // Checked first, so text that is not UTF-8 is decoded once, not twice.
+        if (System.Text.Unicode.Utf8.IsValid(bytes))
             return StrictUtf8.GetString(bytes);
-        }
-        catch (DecoderFallbackException)
+        isWindows1252 = true;
+        return Windows1252.GetString(bytes);
+    }
+
+    /// <summary>
+    /// One string for each distinct key met while parsing, so a key repeated on every line of a
+    /// large project or structure file is held once. Looked up by span, so a repeat allocates nothing.
+    /// Past the first <see cref="MaxKeys"/> distinct keys, which repeated keys are among, new keys are
+    /// not kept, so a file of unique keys does not pay for the pool.
+    /// </summary>
+    public sealed class KeyPool
+    {
+        private const int MaxKeys = 4096;
+
+        private readonly HashSet<string> _keys = new(StringComparer.Ordinal);
+        private readonly HashSet<string>.AlternateLookup<ReadOnlySpan<char>> _lookup;
+
+        public KeyPool() => _lookup = _keys.GetAlternateLookup<ReadOnlySpan<char>>();
+
+        public string Get(ReadOnlySpan<char> key)
         {
-            isWindows1252 = true;
-            return Windows1252.GetString(bytes);
+            if (key.IsEmpty)
+                return string.Empty;
+            if (_lookup.TryGetValue(key, out var known))
+                return known;
+            var added = key.ToString();
+            if (_keys.Count < MaxKeys)
+                _keys.Add(added);
+            return added;
         }
+    }
+
+    /// <summary>
+    /// The rest of a stream's bytes, without the copies a <see cref="MemoryStream"/> and
+    /// <c>ToArray</c> make: read straight into an array of the right size when the stream can seek.
+    /// </summary>
+    public static ArraySegment<byte> ReadToEnd(Stream stream, CancellationToken cancellationToken = default)
+    {
+        if (stream.CanSeek && stream.Length - stream.Position is var remaining and >= 0 and <= int.MaxValue
+            && remaining <= Array.MaxLength)
+        {
+            var bytes = new byte[remaining];
+            var read = 0;
+            while (read < bytes.Length)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var n = stream.Read(bytes, read, Math.Min(bytes.Length - read, 1 << 20));
+                if (n == 0)
+                    break;
+                read += n;
+            }
+            return new ArraySegment<byte>(bytes, 0, read);
+        }
+        var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.TryGetBuffer(out var segment) ? segment : new ArraySegment<byte>(buffer.ToArray());
     }
 
     /// <summary>
