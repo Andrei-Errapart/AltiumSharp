@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.IO.Compression;
 using OriginalCircuit.Altium.Diagnostics;
 using OriginalCircuit.Eda.Enums;
@@ -7,30 +8,36 @@ namespace OriginalCircuit.Altium.Serialization.Binary;
 // Inflates zlib data without letting the data decide how much is allocated.
 internal static class Inflater
 {
-    // The inflated bytes, or null when they come to more than limit (nothing past limit is held).
+    // The inflated bytes, or null when they come to more than limit. The data is inflated twice: once
+    // into a small scratch buffer to count it, then into an array of exactly that size, so a payload
+    // past the limit allocates nothing and one within it is held once, with no growing copies.
     // Throws InvalidDataException for data that is not zlib.
     public static byte[]? Inflate(byte[] compressed, int limit)
     {
-        using var input = new MemoryStream(compressed, writable: false);
-        using var zlib = new ZLibStream(input, CompressionMode.Decompress);
-        var buffer = new byte[(int)Math.Clamp(compressed.Length * 4L, 256, limit)];
-        var length = 0;
-        while (true)
+        long total = 0;
+        var scratch = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        try
         {
-            if (length == buffer.Length)
+            using var input = new MemoryStream(compressed, writable: false);
+            using var zlib = new ZLibStream(input, CompressionMode.Decompress);
+            int read;
+            while ((read = zlib.Read(scratch, 0, scratch.Length)) > 0)
             {
-                if (buffer.Length >= limit)
-                    return zlib.ReadByte() < 0 ? buffer : null;
-                Array.Resize(ref buffer, (int)Math.Min(limit, buffer.Length * 2L));
+                total += read;
+                if (total > limit)
+                    return null;
             }
-            var read = zlib.Read(buffer, length, buffer.Length - length);
-            if (read == 0)
-                break;
-            length += read;
         }
-        if (length != buffer.Length)
-            Array.Resize(ref buffer, length);
-        return buffer;
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(scratch);
+        }
+
+        var result = new byte[total];
+        using (var input = new MemoryStream(compressed, writable: false))
+        using (var zlib = new ZLibStream(input, CompressionMode.Decompress))
+            zlib.ReadExactly(result);
+        return result;
     }
 }
 
