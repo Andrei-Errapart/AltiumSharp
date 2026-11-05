@@ -128,4 +128,14 @@ public enum AltiumDiagnosticCode
 
     /// <summary>Components on <see cref="AltiumDiagnostic.SheetInstance"/> have no designator and were left out.</summary>
     ComponentWithoutDesignator,
+
+    // ---- Added in 2.0.0-alpha.5 (kept last so earlier values do not change) ----
+
+    /// <summary>
+    /// Documents read from different locations share a file name, so each is a sheet of its own
+    /// (<see cref="Models.Project.HierarchySheetInstance.DocumentKey"/> tells them apart, and
+    /// <c>ProjectHierarchy.Documents</c>, keyed by file name, holds the first).
+    /// <see cref="AltiumDiagnostic.DocumentName"/> is the later one's path as asked for; the message names both.
+    /// </summary>
+    SharedFileName,
 }

@@ -13,12 +13,13 @@ public sealed class HierarchySheetInstance
     private readonly List<PhysicalComponentPart> _parts = new();
 
     internal HierarchySheetInstance(
-        int index, SchDocument document, string fileName, HierarchySheetInstance? parent,
+        int index, SchDocument document, string fileName, string documentKey, HierarchySheetInstance? parent,
         SchSheetSymbol? sheetSymbol, int? repeatIndex, IReadOnlyList<string> symbolUniqueIds)
     {
         Index = index;
         Document = document;
         FileName = fileName;
+        DocumentKey = documentKey;
         Parent = parent;
         SheetSymbol = sheetSymbol;
         RepeatIndex = repeatIndex;
@@ -35,6 +36,14 @@ public sealed class HierarchySheetInstance
 
     /// <summary>The document's file name (e.g. <c>"ADC.SchDoc"</c>).</summary>
     public string FileName { get; }
+
+    /// <summary>
+    /// The key the hierarchy holds the document by (see <see cref="ProjectHierarchy.DocumentsByKey"/>):
+    /// the location a loader read it from, such as its full path, or <see cref="FileName"/> for a
+    /// document known by its file name. Instances of one document share it, and it tells apart
+    /// documents in different folders that share a file name. Compare it case-insensitively.
+    /// </summary>
+    public string DocumentKey { get; }
 
     /// <summary>The instance whose sheet symbol created this one, or <c>null</c> for a root.</summary>
     public HierarchySheetInstance? Parent { get; }
@@ -75,7 +84,7 @@ public sealed class HierarchySheetInstance
     public int? ChannelIndex { get; internal set; }
 
     /// <summary>
-    /// Whether this sheet's document is instantiated more than once in the design. Its components
+    /// Whether this sheet's document (<see cref="DocumentKey"/>) is instantiated more than once in the design. Its components
     /// then get physical designators built from <see cref="RoomName"/> (see
     /// <see cref="ProjectHierarchy.DesignatorFormat"/>); otherwise they keep their logical designators.
     /// </summary>

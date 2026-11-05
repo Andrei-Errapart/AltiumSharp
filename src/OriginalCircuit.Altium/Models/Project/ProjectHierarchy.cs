@@ -44,7 +44,11 @@ public sealed class ProjectHierarchy
     public const string DefaultDesignatorFormat = "$Component_$RoomName";
 
     private readonly ProjectHierarchyOptions _options;
-    private readonly Dictionary<string, SchDocument> _documents;
+    private readonly List<HeldDocument> _held;
+    private readonly Dictionary<string, HeldDocument> _heldByKey = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SheetFinder _finder;
+    private readonly Dictionary<string, SchDocument> _documentsByName = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SchDocument> _documentsByKey = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<HierarchySheetInstance> _roots = new();
     private readonly List<HierarchySheetInstance> _sheets = new();
     private readonly List<PhysicalComponentPart> _parts = new();
@@ -66,11 +70,18 @@ public sealed class ProjectHierarchy
     private bool _stopped;
     private CancellationToken _cancellationToken;
 
-    private ProjectHierarchy(AltiumProject? project, Dictionary<string, SchDocument> documents,
+    private ProjectHierarchy(AltiumProject? project, List<HeldDocument> held, SheetFinder finder,
         List<AltiumDiagnostic> diagnostics, List<string> missing, ProjectHierarchyOptions options)
     {
         Project = project;
-        _documents = documents;
+        _held = held;
+        _finder = finder;
+        foreach (var document in held)
+        {
+            _heldByKey[document.Key] = document;
+            _documentsByKey[document.Key] = document.Document;
+            _documentsByName.TryAdd(document.Name, document.Document);
+        }
         _diagnostics = diagnostics;
         _options = options;
         foreach (var path in missing)
@@ -97,8 +108,22 @@ public sealed class ProjectHierarchy
     /// <summary>The project's <c>ChannelRoomNamingStyle</c>, trimmed (<c>"0"</c> when absent or blank). Only style 0 is modelled.</summary>
     public string RoomNamingStyle { get; }
 
-    /// <summary>The schematic documents the hierarchy was built from, keyed by file name.</summary>
-    public IReadOnlyDictionary<string, SchDocument> Documents => _documents;
+    /// <summary>
+    /// The schematic documents the hierarchy was built from, keyed by file name
+    /// (<see cref="NormalizeFileName"/>, compared case-insensitively). When documents read from
+    /// different locations share a file name (see <see cref="DocumentsByKey"/>), this holds the first.
+    /// </summary>
+    public IReadOnlyDictionary<string, SchDocument> Documents => _documentsByName;
+
+    /// <summary>
+    /// The schematic documents the hierarchy was built from, keyed by
+    /// <see cref="HierarchySheetInstance.DocumentKey"/> (compared case-insensitively): the location a
+    /// loader read each one from (the full path for <see cref="LoadAsync(AltiumProject, ProjectHierarchyOptions?, CancellationToken)"/>),
+    /// or the file name for a document known by its file name (<see cref="Build(AltiumProject?, IEnumerable{SchDocument}, ProjectHierarchyOptions?)"/>
+    /// and <see cref="LoadAsync(AltiumProject, Func{string, Stream?}, ProjectHierarchyOptions?, CancellationToken)"/>),
+    /// in the order they were read.
+    /// </summary>
+    public IReadOnlyDictionary<string, SchDocument> DocumentsByKey => _documentsByKey;
 
     /// <summary>The top-level sheet instances (usually one).</summary>
     public IReadOnlyList<HierarchySheetInstance> Roots => _roots;
@@ -204,7 +229,8 @@ public sealed class ProjectHierarchy
     /// Builds the hierarchy from schematic documents that are already open. Each document is
     /// identified by its <see cref="SchDocument.FileName"/> (or the file name of
     /// <see cref="SchDocument.FilePath"/>), which must match the name its sheet symbols use; set it
-    /// for documents opened from a stream.
+    /// for documents opened from a stream. A sheet symbol places the document of its file name, so
+    /// only one document of each file name is used.
     /// </summary>
     /// <param name="project">The project, for its structure file and channel settings; may be <c>null</c>.</param>
     /// <param name="sheets">The project's schematic documents, in project order.</param>
@@ -240,7 +266,37 @@ public sealed class ProjectHierarchy
                 }
             }
         }
-        return Build(project, list, diagnostics, missing, options ?? ProjectHierarchyOptions.Default, cancellationToken);
+
+        // Each document is known by its file name.
+        var finder = new SheetFinder(pathsAreRelative: false);
+        var held = new List<HeldDocument>();
+        foreach (var sheet in list)
+        {
+            var name = NormalizeFileName(sheet.FileName) ?? NormalizeFileName(sheet.FilePath);
+            if (name is null)
+            {
+                diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                    "A schematic document without a file name was skipped; set SchDocument.FileName to the name its sheet symbols use.")
+                {
+                    Code = AltiumDiagnosticCode.DocumentWithoutFileName,
+                });
+                continue;
+            }
+            if (finder.NameKeyed.ContainsKey(name))
+            {
+                diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
+                    $"More than one schematic document is named '{name}'; only the first is used.")
+                {
+                    Code = AltiumDiagnosticCode.DuplicateDocumentName,
+                    DocumentName = name,
+                });
+                continue;
+            }
+            var document = new HeldDocument(sheet, name, name, name, location: null, listed: false);
+            held.Add(document);
+            finder.NameKeyed[name] = document;
+        }
+        return Build(project, held, finder, diagnostics, missing, options ?? ProjectHierarchyOptions.Default, cancellationToken);
     }
 
     /// <summary>
@@ -250,9 +306,10 @@ public sealed class ProjectHierarchy
     /// the file name of each sheet a sheet symbol uses that the project does not list (such as an
     /// Altium device sheet, e.g. <c>"DeviceSheets\USB-C.SchDoc"</c>), repeating for the sheets those
     /// use until no new names appear. It returns a stream of the document's bytes, or <c>null</c>
-    /// when it is not available; those names are listed in <see cref="MissingDocuments"/> and
-    /// reported in <see cref="Diagnostics"/>. Each returned stream is read and then disposed; it need
-    /// not be seekable.
+    /// when it is not available; each path of a name is asked for in turn until one gives a
+    /// document, and only one document of each file name is read. Names no document was found for
+    /// are listed in <see cref="MissingDocuments"/> and reported in <see cref="Diagnostics"/>. Each
+    /// returned stream is read and then disposed; it need not be seekable.
     /// </summary>
     /// <exception cref="AltiumCorruptFileException">A supplied document is not a readable SchDoc; <see cref="AltiumFileException.FilePath"/> is its path as given to the callback.</exception>
     /// <exception cref="AltiumUnsupportedFeatureException">A supplied document uses a format or feature the reader does not support; <see cref="AltiumFileException.FilePath"/> is its path as given to the callback.</exception>
@@ -263,31 +320,34 @@ public sealed class ProjectHierarchy
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(openDocument);
 
-        return LoadCoreAsync(project, pathsAreRelative: false, async (path, _, ct) =>
-        {
-            var stream = openDocument(path);
-            if (stream is null)
-                return (null, null);
-            await using (stream.ConfigureAwait(false))
-            {
-                var seekable = stream;
-                if (!stream.CanSeek)
-                {
-                    seekable = new MemoryStream();
-                    await stream.CopyToAsync(seekable, ct).ConfigureAwait(false);
-                    seekable.Position = 0;
-                }
-                try
-                {
-                    return (new SchDocReader().Read(seekable), null);
-                }
-                catch (AltiumFileException ex) when (ex.FilePath is null)
-                {
-                    throw WithPath(ex, path);
-                }
-            }
-        }, options ?? ProjectHierarchyOptions.Default, cancellationToken);
+        // Known by file name, so a name's first document stands for every path of that name.
+        return LoadCoreAsync(project, pathsAreRelative: false, sameNamedListed: true, (path, _, _) =>
+            ValueTask.FromResult(openDocument(path) is { } stream ? FromStream(stream, location: null, path) : null),
+            options ?? ProjectHierarchyOptions.Default, cancellationToken);
     }
+
+    // Reads a stream (buffered when it cannot seek) as a SchDoc and disposes it.
+    private static DocumentSource FromStream(Stream stream, string? location, string path) => new(location, async ct =>
+    {
+        await using (stream.ConfigureAwait(false))
+        {
+            var seekable = stream;
+            if (!stream.CanSeek)
+            {
+                seekable = new MemoryStream();
+                await stream.CopyToAsync(seekable, ct).ConfigureAwait(false);
+                seekable.Position = 0;
+            }
+            try
+            {
+                return new SchDocReader().Read(seekable);
+            }
+            catch (AltiumFileException ex) when (ex.FilePath is null)
+            {
+                throw WithPath(ex, path);
+            }
+        }
+    }, stream);
 
     // The same kind of exception, naming the document it was thrown for.
     private static AltiumFileException WithPath(AltiumFileException ex, string path) => ex switch
@@ -302,8 +362,12 @@ public sealed class ProjectHierarchy
     /// Opens the schematic documents from disk and builds the hierarchy: the project's schematic
     /// documents next to the project file (<see cref="AltiumProject.FilePath"/> must be set), then any
     /// sheet a sheet symbol uses that the project does not list, looked for at the symbol's path if it
-    /// is absolute, else next to the sheet that uses it, else next to the project. Documents that
-    /// are not found are listed in <see cref="MissingDocuments"/> and reported in <see cref="Diagnostics"/>.
+    /// is absolute, else next to the sheet that uses it, else next to the project. Documents are
+    /// known by the file they were read from (<see cref="HierarchySheetInstance.DocumentKey"/>), so
+    /// two files of one name in different folders are two sheets; a sheet symbol places the project
+    /// document of its file name, unless its path leads to another document the project lists, and
+    /// otherwise the file its path leads to. Documents that are not found are listed in
+    /// <see cref="MissingDocuments"/> and reported in <see cref="Diagnostics"/>.
     /// </summary>
     /// <exception cref="AltiumCorruptFileException">A document is not a readable SchDoc; <see cref="AltiumFileException.FilePath"/> is the file.</exception>
     /// <exception cref="AltiumUnsupportedFeatureException">A document uses a format or feature the reader does not support; <see cref="AltiumFileException.FilePath"/> is the file.</exception>
@@ -312,41 +376,104 @@ public sealed class ProjectHierarchy
     {
         ArgumentNullException.ThrowIfNull(project);
 
-        return LoadCoreAsync(project, pathsAreRelative: true, async (path, usedBy, ct) =>
+        return LoadCoreAsync(project, pathsAreRelative: true, sameNamedListed: false, (path, usedBy, _) =>
         {
             var file = FindOnDisk(project, path, usedBy);
-            if (file is null)
-                return (null, null);
-            try
+            return ValueTask.FromResult(file is null ? null : new DocumentSource(file, async ct =>
             {
-                var sheet = (SchDocument)await AltiumLibrary.OpenSchDocAsync(file, ct).ConfigureAwait(false);
-                return (sheet, file);
-            }
-            catch (AltiumFileException ex) when (ex.FilePath is null)
-            {
-                throw WithPath(ex, file);
-            }
+                try
+                {
+                    return (SchDocument)await AltiumLibrary.OpenSchDocAsync(file, ct).ConfigureAwait(false);
+                }
+                catch (AltiumFileException ex) when (ex.FilePath is null)
+                {
+                    throw WithPath(ex, file);
+                }
+            }));
         }, options ?? ProjectHierarchyOptions.Default, cancellationToken);
     }
 
-    // Opens the project's schematic documents, then every sheet their sheet symbols use that has not
-    // been read yet, until no new names appear. Every path of a name is tried, in turn, until one
-    // gives a document. The callback gets a path as written and the location of the sheet that uses
-    // it (null for project documents), and returns the document and its own location (passed on to
-    // the sheets it uses), or no document when it is unavailable. When pathsAreRelative is false the
-    // callback ignores the location, so a path that gave nothing is not asked for again.
-    private static async ValueTask<ProjectHierarchy> LoadCoreAsync(AltiumProject project, bool pathsAreRelative,
-        Func<string, string?, CancellationToken, ValueTask<(SchDocument? Sheet, string? Location)>> open,
+    // Where a document comes from: its location (null to know it by its file name) and how to read
+    // it. A source that is not read is disposed.
+    private sealed class DocumentSource(string? location, Func<CancellationToken, ValueTask<SchDocument>> read, IDisposable? owned = null)
+        : IDisposable
+    {
+        public string? Location { get; } = location;
+        public ValueTask<SchDocument> ReadAsync(CancellationToken cancellationToken) => read(cancellationToken);
+        public void Dispose() => owned?.Dispose();
+    }
+
+    // A document the hierarchy holds. Its key is the location it was read from, or its file name when
+    // it has none; its path is the path it was first asked for by.
+    private sealed class HeldDocument(SchDocument document, string key, string name, string path, string? location, bool listed)
+    {
+        public SchDocument Document { get; } = document;
+        public string Key { get; } = key;
+        public string Name { get; } = name;
+        public string Path { get; } = path;
+        public string? Location { get; } = location;
+        public bool Listed { get; } = listed;
+
+        // What the sheets its symbols use are asked for with.
+        public string SymbolsUsedBy => Location ?? Path;
+    }
+
+    // Which document each sheet symbol places. A symbol places the project's document of its file
+    // name (the one its path leads to when the project lists several of that name); else the
+    // document its path led to from its sheet; else the document known by that file name.
+    private sealed class SheetFinder(bool pathsAreRelative)
+    {
+        // The project's documents that were read, by file name, in project order.
+        public Dictionary<string, List<HeldDocument>> Listed { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        // The document each path gave, asked for from a sheet (or by the project, with no sheet).
+        public Dictionary<(string Path, string? UsedBy), HeldDocument> Found { get; } = new(PathAndLocationComparer.Instance);
+
+        // The documents with no location, known by their file names.
+        public Dictionary<string, HeldDocument> NameKeyed { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public (string Path, string? UsedBy) Request(string path, HeldDocument? on) =>
+            (NormalizePath(path)!, pathsAreRelative ? on?.SymbolsUsedBy : null);
+
+        public HeldDocument? Find(HeldDocument on, SchSheetSymbol symbol, string name)
+        {
+            var found = Found.GetValueOrDefault(Request(symbol.FileName!, on));
+            if (Listed.TryGetValue(name, out var listed))
+                return found is not null && listed.Contains(found) ? found : listed[0];
+            return found ?? NameKeyed.GetValueOrDefault(name);
+        }
+
+        public void AddListed(string name, HeldDocument document)
+        {
+            if (!Listed.TryGetValue(name, out var list))
+                Listed[name] = list = new List<HeldDocument>();
+            if (!list.Contains(document))
+                list.Add(document);
+        }
+    }
+
+    // Opens the project's schematic documents, then the sheets their sheet symbols use, until no new
+    // path appears. The callback gets a path as written and the location of the sheet that uses it
+    // (null for project documents), and returns where the document is (its location, passed on to the
+    // sheets it uses; null to know it by its file name), or null when it is unavailable. A document is
+    // read once for each location. A symbol whose file name is that of a project document that was
+    // read is not looked up, unless the project lists several of that name. A path that gave nothing
+    // is not asked for again from the same sheet; when pathsAreRelative is false the callback ignores
+    // the location, so it is not asked for again at all. sameNamedListed reports project documents
+    // that share a file name up front (for loaders that read one document of each name).
+    private static async ValueTask<ProjectHierarchy> LoadCoreAsync(AltiumProject project, bool pathsAreRelative, bool sameNamedListed,
+        Func<string, string?, CancellationToken, ValueTask<DocumentSource?>> open,
         ProjectHierarchyOptions options, CancellationToken cancellationToken)
     {
         var diagnostics = new List<AltiumDiagnostic>();
         var missing = new List<string>();
-        var sheets = new List<SchDocument>();
-        // The names a document was read for, and the (path, location) pairs asked for already.
-        var read = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var held = new List<HeldDocument>();
+        var byKey = new Dictionary<string, HeldDocument>(StringComparer.OrdinalIgnoreCase);
+        var finder = new SheetFinder(pathsAreRelative);
         var asked = new HashSet<(string Path, string? UsedBy)>(PathAndLocationComparer.Instance);
-        ReportSameNamedDocuments(project, diagnostics, "only one is read");
-        var queue = new Queue<(string Path, string? UsedBy, bool Listed)>();
+        if (sameNamedListed)
+            ReportSameNamedDocuments(project, diagnostics, "only one is read");
+        var queue = new Queue<(string Path, HeldDocument? On, bool Listed)>();
         foreach (var document in project.SchematicDocuments)
         {
             if (!string.IsNullOrWhiteSpace(document.DocumentPath))
@@ -357,12 +484,29 @@ public sealed class ProjectHierarchy
         {
             cancellationToken.ThrowIfCancellationRequested();
             var name = NormalizeFileName(item.Path);
-            if (name is null || read.Contains(name)
-                || !asked.Add((NormalizePath(item.Path)!, pathsAreRelative ? item.UsedBy : null)))
+            if (name is null)
+                continue;
+            var request = finder.Request(item.Path, item.On);
+            if (!item.Listed && finder.Listed.TryGetValue(name, out var listed))
+            {
+                // The project's document of that name is placed: only where the path leads matters,
+                // when the project lists several of that name.
+                if (listed.Count > 1 && asked.Add(request)
+                    && await open(item.Path, item.On?.SymbolsUsedBy, cancellationToken).ConfigureAwait(false) is { } other)
+                {
+                    using (other)
+                    {
+                        if (other.Location is { } at && byKey.TryGetValue(at, out var document) && listed.Contains(document))
+                            finder.Found[request] = document;
+                    }
+                }
+                continue;
+            }
+            if (finder.NameKeyed.ContainsKey(name) || !asked.Add(request))
                 continue;
 
-            var (sheet, location) = await open(item.Path, item.UsedBy, cancellationToken).ConfigureAwait(false);
-            if (sheet is null)
+            var source = await open(item.Path, item.On?.SymbolsUsedBy, cancellationToken).ConfigureAwait(false);
+            if (source is null)
             {
                 // A sheet only a symbol uses is reported by the walk, which knows which sheet uses it.
                 if (item.Listed)
@@ -372,7 +516,25 @@ public sealed class ProjectHierarchy
                 }
                 continue;
             }
-            read.Add(name);
+
+            var key = source.Location ?? name;
+            if (byKey.TryGetValue(key, out var known))
+            {
+                source.Dispose();
+                finder.Found[request] = known;
+                if (item.Listed)
+                    finder.AddListed(name, known);
+                continue;
+            }
+            SchDocument sheet;
+            try
+            {
+                sheet = await source.ReadAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                source.Dispose();
+            }
             if (!item.Listed)
                 diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Info,
                     $"Sheet '{item.Path}' is used by a sheet symbol but is not a project document; it was loaded too.")
@@ -382,16 +544,24 @@ public sealed class ProjectHierarchy
                 });
 
             sheet.FileName = name;
-            sheets.Add(sheet);
+            var loaded = new HeldDocument(sheet, key, name, item.Path, source.Location, item.Listed);
+            held.Add(loaded);
+            byKey[key] = loaded;
+            finder.Found[request] = loaded;
+            if (source.Location is null)
+                finder.NameKeyed[name] = loaded;
+            if (item.Listed)
+                finder.AddListed(name, loaded);
             // In the order the walk visits them, so Documents lists unlisted sheets in walk order too.
             foreach (var symbol in OrderSiblings(sheet.SheetSymbols))
             {
                 if (!string.IsNullOrWhiteSpace(symbol.FileName))
-                    queue.Enqueue((symbol.FileName, location ?? item.Path, false));
+                    queue.Enqueue((symbol.FileName, loaded, false));
             }
         }
 
-        return Build(project, sheets, diagnostics, missing, options, cancellationToken);
+        ReportSharedFileNames(held, diagnostics);
+        return Build(project, held, finder, diagnostics, missing, options, cancellationToken);
     }
 
     // Project documents in different folders with one file name share a key, and the hierarchy
@@ -408,6 +578,23 @@ public sealed class ProjectHierarchy
             {
                 Code = AltiumDiagnosticCode.DuplicateDocumentName,
                 DocumentName = path,
+            });
+        }
+    }
+
+    // Documents read from different locations that share a file name are each a sheet of their own.
+    private static void ReportSharedFileNames(List<HeldDocument> held, List<AltiumDiagnostic> diagnostics)
+    {
+        var first = new Dictionary<string, HeldDocument>(StringComparer.OrdinalIgnoreCase);
+        foreach (var document in held)
+        {
+            if (first.TryAdd(document.Name, document))
+                continue;
+            diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Info,
+                $"Sheets '{first[document.Name].Path}' and '{document.Path}' have the same file name; each was read as a sheet of its own.")
+            {
+                Code = AltiumDiagnosticCode.SharedFileName,
+                DocumentName = document.Path,
             });
         }
     }
@@ -450,44 +637,15 @@ public sealed class ProjectHierarchy
         return candidates.FirstOrDefault(File.Exists);
     }
 
-    private static ProjectHierarchy Build(AltiumProject? project, IEnumerable<SchDocument> sheets,
+    private static ProjectHierarchy Build(AltiumProject? project, List<HeldDocument> held, SheetFinder finder,
         List<AltiumDiagnostic> diagnostics, List<string> missing, ProjectHierarchyOptions options, CancellationToken cancellationToken)
     {
-        var documents = new Dictionary<string, SchDocument>(StringComparer.OrdinalIgnoreCase);
-        var order = new List<string>();
-        foreach (var sheet in sheets)
-        {
-            if (sheet is null)
-                continue;
-            var name = NormalizeFileName(sheet.FileName) ?? NormalizeFileName(sheet.FilePath);
-            if (name is null)
-            {
-                diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
-                    "A schematic document without a file name was skipped; set SchDocument.FileName to the name its sheet symbols use.")
-                {
-                    Code = AltiumDiagnosticCode.DocumentWithoutFileName,
-                });
-                continue;
-            }
-            if (!documents.TryAdd(name, sheet))
-            {
-                diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning,
-                    $"More than one schematic document is named '{name}'; only the first is used.")
-                {
-                    Code = AltiumDiagnosticCode.DuplicateDocumentName,
-                    DocumentName = name,
-                });
-                continue;
-            }
-            order.Add(name);
-        }
-
-        var hierarchy = new ProjectHierarchy(project, documents, diagnostics, missing, options);
-        hierarchy.Compile(order, cancellationToken);
+        var hierarchy = new ProjectHierarchy(project, held, finder, diagnostics, missing, options);
+        hierarchy.Compile(cancellationToken);
         return hierarchy;
     }
 
-    private void Compile(IReadOnlyList<string> documentOrder, CancellationToken cancellationToken)
+    private void Compile(CancellationToken cancellationToken)
     {
         _cancellationToken = cancellationToken;
         cancellationToken.ThrowIfCancellationRequested();
@@ -504,54 +662,68 @@ public sealed class ProjectHierarchy
                 $"which are not designator keywords; channel components use {DefaultDesignatorFormat} instead.", tokens: tokens);
         }
 
-        foreach (var root in DetermineRoots(documentOrder))
+        foreach (var root in DetermineRoots())
         {
             if (_stopped)
                 break;
             Walk(root);
         }
 
-        var instantiated = new HashSet<string>(_sheets.Select(s => s.FileName), StringComparer.OrdinalIgnoreCase);
-        foreach (var name in documentOrder.Where(n => !instantiated.Contains(n)))
+        var instantiated = new HashSet<string>(_sheets.Select(s => s.DocumentKey), StringComparer.OrdinalIgnoreCase);
+        foreach (var document in _held.Where(d => !instantiated.Contains(d.Key)))
             Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.SheetNotInHierarchy,
-                $"Sheet '{name}' is not part of the hierarchy and was left out.", document: name);
+                $"Sheet '{Describe(document)}' is not part of the hierarchy and was left out.", document: document.Name);
 
         AssignRooms();
         CollectParts();
         MergeComponents();
     }
 
-    private List<string> DetermineRoots(IReadOnlyList<string> documentOrder)
+    // A document's file name, or the path it was read for when another document has that file name.
+    private string Describe(HeldDocument document) =>
+        ReferenceEquals(_documentsByName[document.Name], document.Document) && _held.Count(d => string.Equals(d.Name, document.Name, StringComparison.OrdinalIgnoreCase)) == 1
+            ? document.Name
+            : document.Path;
+
+    // The document a sheet symbol on a held document places, or null when it names no file or
+    // none was supplied for it.
+    private HeldDocument? Child(HeldDocument on, SchSheetSymbol symbol) =>
+        NormalizeFileName(symbol.FileName) is { } name ? _finder.Find(on, symbol, name) : null;
+
+    private List<HeldDocument> DetermineRoots()
     {
-        var referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in documentOrder)
+        var referenced = new HashSet<HeldDocument>(ReferenceEqualityComparer.Instance);
+        foreach (var document in _held)
         {
-            foreach (var symbol in _documents[name].SheetSymbols)
+            foreach (var symbol in document.Document.SheetSymbols)
             {
-                if (NormalizeFileName(symbol.FileName) is { } child && !string.Equals(child, name, StringComparison.OrdinalIgnoreCase))
+                if (Child(document, symbol) is { } child && !ReferenceEquals(child, document))
                     referenced.Add(child);
             }
         }
 
         // The compiled top-level document, unless the structure file is stale and another sheet now uses it.
         var top = NormalizeFileName(Project?.Structure?.TopLevelDocument);
-        if (top is not null && _documents.ContainsKey(top) && !referenced.Contains(top))
-            return new List<string> { top };
+        var topDocument = top is null ? null
+            : _held.FirstOrDefault(d => d.Listed && string.Equals(d.Name, top, StringComparison.OrdinalIgnoreCase))
+              ?? _held.FirstOrDefault(d => string.Equals(d.Name, top, StringComparison.OrdinalIgnoreCase));
+        if (topDocument is not null && !referenced.Contains(topDocument))
+            return new List<HeldDocument> { topDocument };
         if (top is not null)
             Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.StructureFileStale,
-                $"The structure file's top-level document '{top}' is {(_documents.ContainsKey(top) ? "used by a sheet symbol" : "not supplied")}; the roots are the sheets no sheet symbol uses.",
+                $"The structure file's top-level document '{top}' is {(topDocument is not null ? "used by a sheet symbol" : "not supplied")}; the roots are the sheets no sheet symbol uses.",
                 document: top);
         else if (Project is not null)
             Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.StructureFileMissing,
                 "The project has no structure file naming its top-level document; the roots are the sheets no sheet symbol uses.");
 
-        var roots = documentOrder.Where(n => !referenced.Contains(n)).ToList();
-        if (roots.Count == 0 && documentOrder.Count > 0)
+        var roots = _held.Where(d => !referenced.Contains(d)).ToList();
+        if (roots.Count == 0 && _held.Count > 0)
         {
             Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.NoRootSheet,
-                $"Every sheet is used by a sheet symbol (a cycle); the hierarchy starts from '{documentOrder[0]}'.",
-                document: documentOrder[0]);
-            roots.Add(documentOrder[0]);
+                $"Every sheet is used by a sheet symbol (a cycle); the hierarchy starts from '{Describe(_held[0])}'.",
+                document: _held[0].Name);
+            roots.Add(_held[0]);
         }
         return roots;
     }
@@ -559,29 +731,31 @@ public sealed class ProjectHierarchy
     // A sheet instance whose sheet symbols are being expanded. The walk keeps these on an explicit
     // stack rather than recursing, so a crafted chain of thousands of sheets cannot overflow the
     // call stack (which would end the process).
-    private sealed class WalkFrame(HierarchySheetInstance instance, List<SchSheetSymbol> symbols)
+    private sealed class WalkFrame(HierarchySheetInstance instance, HeldDocument document, List<SchSheetSymbol> symbols)
     {
         public HierarchySheetInstance Instance { get; } = instance;
+        public HeldDocument Document { get; } = document;
         public List<SchSheetSymbol> Symbols { get; } = symbols;
         public int NextSymbol { get; set; }
         public SchSheetSymbol? Symbol { get; set; }
-        public string ChildName { get; set; } = string.Empty;
+        public HeldDocument? Child { get; set; }
         public string SymbolUid { get; set; } = string.Empty;
         public RepeatInfo Repeat { get; set; }
         public int NextIndex { get; set; }
     }
 
     // Depth-first, each instance before its children and siblings in OrderSiblings order.
-    private void Walk(string rootName)
+    private void Walk(HeldDocument rootDocument)
     {
-        var root = Enter(rootName, parent: null, symbol: null, repeatIndex: null, Array.Empty<string>());
+        var root = Enter(rootDocument, parent: null, symbol: null, repeatIndex: null, Array.Empty<string>());
         if (root is null)
             return;
         _roots.Add(root);
 
-        var ancestors = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rootName };
+        // The documents of the instances from the root to the current one.
+        var ancestors = new HashSet<HeldDocument>(ReferenceEqualityComparer.Instance) { rootDocument };
         var stack = new Stack<WalkFrame>();
-        stack.Push(new WalkFrame(root, OrderSiblings(root.Document.SheetSymbols).ToList()));
+        stack.Push(new WalkFrame(root, rootDocument, OrderSiblings(root.Document.SheetSymbols).ToList()));
         while (stack.Count > 0 && !_stopped)
         {
             _cancellationToken.ThrowIfCancellationRequested();
@@ -590,7 +764,7 @@ public sealed class ProjectHierarchy
             {
                 stack.Pop();
                 if (frame.Instance.Parent is not null)
-                    ancestors.Remove(frame.Instance.FileName);
+                    ancestors.Remove(frame.Document);
                 continue;
             }
 
@@ -604,17 +778,18 @@ public sealed class ProjectHierarchy
 
             // Altium names a Repeat channel by its index followed by the symbol's unique id ("5ABCDEFGH").
             var segment = repeat.IsRepeated ? k.ToString(CultureInfo.InvariantCulture) + frame.SymbolUid : frame.SymbolUid;
-            var child = Enter(frame.ChildName, frame.Instance, frame.Symbol, repeat.IsRepeated ? k : null,
+            var childDocument = frame.Child!;
+            var child = Enter(childDocument, frame.Instance, frame.Symbol, repeat.IsRepeated ? k : null,
                 Append(frame.Instance.SymbolUniqueIds, segment));
             if (child is null)
                 break;
-            ancestors.Add(child.FileName);
-            stack.Push(new WalkFrame(child, OrderSiblings(child.Document.SheetSymbols).ToList()));
+            ancestors.Add(childDocument);
+            stack.Push(new WalkFrame(child, childDocument, OrderSiblings(child.Document.SheetSymbols).ToList()));
         }
     }
 
     // Moves the frame to its next sheet symbol that can be followed, reporting those that cannot.
-    private bool StartNextSymbol(WalkFrame frame, HashSet<string> ancestors)
+    private bool StartNextSymbol(WalkFrame frame, HashSet<HeldDocument> ancestors)
     {
         var fileName = frame.Instance.FileName;
         while (frame.NextSymbol < frame.Symbols.Count)
@@ -627,7 +802,7 @@ public sealed class ProjectHierarchy
                     $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' names no sheet file.", frame.Instance, symbol, fileName);
                 continue;
             }
-            if (!_documents.ContainsKey(childName))
+            if (_finder.Find(frame.Document, symbol, childName) is not { } child)
             {
                 AddMissing(symbol.FileName!);
                 ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SubSheetNotSupplied,
@@ -635,7 +810,7 @@ public sealed class ProjectHierarchy
                     frame.Instance, symbol, symbol.FileName);
                 continue;
             }
-            if (ancestors.Contains(childName))
+            if (ancestors.Contains(child))
             {
                 ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SheetCycle,
                     $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' uses '{childName}', which is one of its own parents; the cycle was skipped.",
@@ -659,7 +834,7 @@ public sealed class ProjectHierarchy
                     frame.Instance, symbol, childName);
 
             frame.Symbol = symbol;
-            frame.ChildName = childName;
+            frame.Child = child;
             frame.SymbolUid = string.IsNullOrEmpty(symbol.UniqueId) ? (symbol.SheetName ?? childName) : symbol.UniqueId;
             frame.Repeat = repeat;
             frame.NextIndex = repeat.FirstInstance;
@@ -669,28 +844,27 @@ public sealed class ProjectHierarchy
     }
 
     // Creates a sheet instance, or stops the walk (returning null) once a limit is reached.
-    private HierarchySheetInstance? Enter(string fileName, HierarchySheetInstance? parent, SchSheetSymbol? symbol,
+    private HierarchySheetInstance? Enter(HeldDocument held, HierarchySheetInstance? parent, SchSheetSymbol? symbol,
         int? repeatIndex, IReadOnlyList<string> symbolUniqueIds)
     {
         if (_sheets.Count >= _options.MaxSheetInstances)
         {
             Stop(AltiumDiagnosticCode.MaxSheetInstancesExceeded,
                 $"The hierarchy has more than {_options.MaxSheetInstances} sheet instances (ProjectHierarchyOptions.MaxSheetInstances); " +
-                "the walk stopped there.", parent, symbol, fileName);
+                "the walk stopped there.", parent, symbol, held.Name);
             return null;
         }
-        var document = _documents[fileName];
-        var parts = DesignatedComponentCount(document);
+        var parts = DesignatedComponentCount(held.Document);
         if (_plannedParts + parts > _options.MaxComponentParts)
         {
             Stop(AltiumDiagnosticCode.MaxComponentPartsExceeded,
                 $"The design places more than {_options.MaxComponentParts} component parts (ProjectHierarchyOptions.MaxComponentParts); " +
-                "the walk stopped there.", parent, symbol, fileName);
+                "the walk stopped there.", parent, symbol, held.Name);
             return null;
         }
         _plannedParts += parts;
 
-        var instance = new HierarchySheetInstance(_sheets.Count, document, fileName, parent, symbol, repeatIndex, symbolUniqueIds);
+        var instance = new HierarchySheetInstance(_sheets.Count, held.Document, held.Name, held.Key, parent, symbol, repeatIndex, symbolUniqueIds);
         _sheets.Add(instance);
         parent?.AddChild(instance);
         if (instance.UniqueIdPath.Length > 0)
@@ -741,7 +915,7 @@ public sealed class ProjectHierarchy
         var namedCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var sheet in _sheets)
         {
-            sheet.Ordinal = instancesPerFile[sheet.FileName] = instancesPerFile.GetValueOrDefault(sheet.FileName) + 1;
+            sheet.Ordinal = instancesPerFile[sheet.DocumentKey] = instancesPerFile.GetValueOrDefault(sheet.DocumentKey) + 1;
             if (sheet.Parent is null || sheet.SheetSymbol is not { } symbol)
             {
                 sheet.HierarchicalPath = Path.GetFileNameWithoutExtension(sheet.FileName);
@@ -761,7 +935,7 @@ public sealed class ProjectHierarchy
         var numbered = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var sheet in _sheets)
         {
-            sheet.IsMultiChannel = instancesPerFile[sheet.FileName] > 1;
+            sheet.IsMultiChannel = instancesPerFile[sheet.DocumentKey] > 1;
             if (sheet.ChannelName is not { } name)
                 continue;
             if (sheet.RepeatIndex is { } k)
