@@ -165,9 +165,49 @@ public sealed class ProjectFileTests
     [InlineData("Lib\\sub\\X.SCHDOC", ProjectDocumentKind.Schematic)]
     [InlineData("x.weird", ProjectDocumentKind.Other)]
     [InlineData("", ProjectDocumentKind.Unknown)]
+    [InlineData("SchDoc", ProjectDocumentKind.Schematic)]
+    [InlineData(".PcbDoc", ProjectDocumentKind.Pcb)]
+    [InlineData("Main.SchDoc ", ProjectDocumentKind.Schematic)]
+    [InlineData("Main.SchDoc.", ProjectDocumentKind.Schematic)]
+    [InlineData("Main.SchDoc\\.", ProjectDocumentKind.Schematic)]
+    [InlineData("Main.SchDoc\\Old\\..", ProjectDocumentKind.Schematic)]
+    [InlineData("Main.BomDoc ", ProjectDocumentKind.BillOfMaterials)]
+    [InlineData("Main.BomDoc.", ProjectDocumentKind.BillOfMaterials)]
+    [InlineData("Sheets\\", ProjectDocumentKind.Unknown)]
+    [InlineData(".", ProjectDocumentKind.Unknown)]
     public void DocumentKind_IsClassifiedByExtension(string path, ProjectDocumentKind expected)
     {
         Assert.Equal(expected, ProjectDocumentKinds.FromPath(path));
+    }
+
+    [Theory]
+    [InlineData("Main.SchDoc\\.")]
+    [InlineData("Main.SchDoc ")]
+    [InlineData("Main.SchDoc.")]
+    public void ListedSchematics_WhosePathsWindowsOpensAsASchDoc_AreSchematicDocuments(string path)
+    {
+        var project = AltiumLibrary.CreateProject();
+        project.AddDocument(path);
+        project.AddDocument("Main.BomDoc ");
+
+        Assert.Equal(path, Assert.Single(project.SchematicDocuments).DocumentPath);
+        Assert.Single(project.DocumentsOfKind(ProjectDocumentKind.BillOfMaterials));
+    }
+
+    [Fact]
+    public async Task AListedSchematicWhosePathEndsInASpace_IsReadAndPlaced()
+    {
+        var files = HierarchyDesigns.Files(
+            ("Top.SchDoc", HierarchyDesigns.Sheet("Top.SchDoc", HierarchyDesigns.Symbol("PWR", "Power.SchDoc", "SYMPOWER"))),
+            ("Power.SchDoc", HierarchyDesigns.Sheet("Power.SchDoc", HierarchyDesigns.Part("R1", "RONEAAAA"))));
+        var project = HierarchyDesigns.Project("Top.SchDoc", "Power.SchDoc ");
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(project,
+            path => files.TryGetValue(ProjectHierarchy.NormalizePath(path)!, out var bytes) ? new MemoryStream(bytes) : null);
+
+        Assert.Equal(new[] { "R1" }, HierarchyDesigns.Designators(hierarchy));
+        Assert.Empty(hierarchy.MissingDocuments);
+        Assert.DoesNotContain(hierarchy.Diagnostics, d => d.Code == Diagnostics.AltiumDiagnosticCode.UnlistedSheetLoaded);
     }
 
     [Fact]
