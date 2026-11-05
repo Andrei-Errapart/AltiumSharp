@@ -1077,19 +1077,32 @@ public sealed class ProjectHierarchy
     }
 
     /// <summary>
-    /// Returns the key the hierarchy knows a document by: the last segment of its path, trimmed, or
-    /// <c>null</c> when that is empty. <c>\</c>, <c>/</c> and a drive's <c>:</c> all separate segments on
-    /// every platform, and trimming comes last, so a key is its own key (<c>"Sheets\ Power.SchDoc"</c>
-    /// and <c>"Sheets\C:Power.SchDoc"</c> are both <c>"Power.SchDoc"</c>). Keys are compared
-    /// case-insensitively. They are the keys of <see cref="Documents"/> and the
+    /// Returns the file name the hierarchy knows a document by: the last segment of the path as
+    /// Windows resolves it (see <see cref="NormalizePath"/>), after a drive's <c>:</c> too, without
+    /// leading or trailing white space or trailing periods; <c>null</c> when nothing is left. So
+    /// <c>"Main.SchDoc\."</c>, <c>"Sub\Main.SchDoc\X\.."</c>, <c>"Main.SchDoc."</c> and
+    /// <c>"Main.SchDoc "</c> are all <c>"Main.SchDoc"</c>, as Windows and Altium open them, and
+    /// <c>"Sheets\C:Power.SchDoc"</c> is <c>"Power.SchDoc"</c>; <c>"."</c>, <c>"X\.."</c> and
+    /// <c>"Sheets\"</c> name no file. Unlike Windows it also drops leading spaces
+    /// (<c>"Sheets\ Power.SchDoc"</c> is <c>"Power.SchDoc"</c>). A file name is its own file name, and
+    /// file names are compared case-insensitively. They are the keys of <see cref="Documents"/> and the
     /// <see cref="HierarchySheetInstance.FileName"/> of <see cref="Sheets"/>; apply this to a path in
     /// <see cref="MissingDocuments"/> or a sheet symbol's file name to match them.
     /// </summary>
-    public static string? NormalizeFileName(string? fileName)
-    {
-        if (fileName is null)
-            return null;
-        var name = fileName.AsSpan(fileName.AsSpan().LastIndexOfAny('\\', '/', ':') + 1).Trim();
-        return name.IsEmpty ? null : name.ToString();
-    }
+    public static string? NormalizeFileName(string? fileName) =>
+        fileName is null ? null : DocumentPaths.FileName(fileName);
+
+    /// <summary>
+    /// Returns a document path as Windows (and so Altium) resolves it, the same on every platform,
+    /// without making it absolute, as <see cref="Path.GetFullPath(string)"/> does on Windows:
+    /// <c>\</c> and <c>/</c> both separate segments and runs of them count as one, <c>.</c> segments are
+    /// dropped, <c>..</c> removes the segment before it (a relative path keeps the <c>..</c> it starts
+    /// with; a rooted one never climbs above its root), a segment that ends in one period loses it
+    /// (<c>"Sheets.\Power.SchDoc"</c> is <c>"Sheets\Power.SchDoc"</c>, while <c>"Sheets..\"</c> is kept),
+    /// and the last segment loses its trailing periods and spaces. The result uses <c>\</c>, keeps a
+    /// trailing separator and the case as written, and is empty when nothing is left (<c>"."</c>).
+    /// Use it to look up a path the way the hierarchy's loaders do.
+    /// </summary>
+    public static string? NormalizePath(string? path) =>
+        path is null ? null : DocumentPaths.Normalize(path);
 }
