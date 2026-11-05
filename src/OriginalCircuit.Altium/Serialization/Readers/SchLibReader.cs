@@ -103,14 +103,26 @@ public sealed class SchLibReader
     /// <returns>The parsed schematic library.</returns>
     /// <exception cref="AltiumCorruptFileException">Thrown when the stream cannot be parsed.</exception>
     /// <remarks>This method is not thread-safe. Create a new reader instance per thread.</remarks>
-    public SchLibrary Read(Stream stream)
+    public SchLibrary Read(Stream stream) => Read(stream, CancellationToken.None);
+
+    /// <summary>
+    /// Reads a SchLib file from a stream, checking <paramref name="cancellationToken"/> between
+    /// streams and records.
+    /// </summary>
+    /// <param name="stream">A readable stream containing compound file data. The stream is not closed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <exception cref="AltiumCorruptFileException">Thrown when the stream cannot be parsed.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <remarks>This method is not thread-safe. Create a new reader instance per thread.</remarks>
+    public SchLibrary Read(Stream stream, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             using var accessor = CompoundFileAccessor.Open(stream, leaveOpen: true);
-            return Read(accessor);
+            return Read(accessor, cancellationToken);
         }
-        catch (Exception ex) when (ex is not AltiumFileException and not OutOfMemoryException)
+        catch (Exception ex) when (ex is not AltiumFileException and not OutOfMemoryException and not OperationCanceledException)
         {
             throw new AltiumCorruptFileException($"Failed to read SchLib file: {ex.Message}", innerException: ex);
         }
@@ -123,9 +135,11 @@ public sealed class SchLibReader
         var library = new SchLibrary();
 
         // Read section keys mapping
+        cancellationToken.ThrowIfCancellationRequested();
         ReadSectionKeys(accessor, library);
 
         // Read file header to get component list
+        cancellationToken.ThrowIfCancellationRequested();
         var componentNames = ReadFileHeader(accessor, library);
 
         // Read each component
@@ -1085,7 +1099,8 @@ public sealed class SchLibReader
     /// header block (C-string params) + entries (0xD0 tag, name, zlib data).
     /// Returns a list of raw image byte arrays in order.
     /// </summary>
-    internal static List<byte[]>? ParseStorageImageData(byte[] rawData, List<AltiumDiagnostic>? diagnostics = null)
+    internal static List<byte[]>? ParseStorageImageData(byte[] rawData, List<AltiumDiagnostic>? diagnostics = null,
+        CancellationToken cancellationToken = default)
     {
         if (rawData.Length == 0)
             return null;
@@ -1104,6 +1119,7 @@ public sealed class SchLibReader
             var entryIndex = 0;
             while (reader.HasMore)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var sizeHeader = reader.ReadInt32();
                 var blockSize = sizeHeader & 0x00FFFFFF;
                 if (blockSize <= 0) break;

@@ -53,14 +53,26 @@ public sealed class SchDocReader
     /// <returns>The parsed schematic document.</returns>
     /// <exception cref="AltiumCorruptFileException">Thrown when the stream cannot be parsed.</exception>
     /// <remarks>This method is not thread-safe. Create a new reader instance per thread.</remarks>
-    public SchDocument Read(Stream stream)
+    public SchDocument Read(Stream stream) => Read(stream, CancellationToken.None);
+
+    /// <summary>
+    /// Reads a SchDoc file from a stream, checking <paramref name="cancellationToken"/> between
+    /// streams and records.
+    /// </summary>
+    /// <param name="stream">A readable stream containing compound file data. The stream is not closed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <exception cref="AltiumCorruptFileException">Thrown when the stream cannot be parsed.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <remarks>This method is not thread-safe. Create a new reader instance per thread.</remarks>
+    public SchDocument Read(Stream stream, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             using var accessor = CompoundFileAccessor.Open(stream, leaveOpen: true);
-            return Read(accessor);
+            return Read(accessor, cancellationToken);
         }
-        catch (Exception ex) when (ex is not AltiumFileException and not OutOfMemoryException)
+        catch (Exception ex) when (ex is not AltiumFileException and not OutOfMemoryException and not OperationCanceledException)
         {
             throw new AltiumCorruptFileException($"Failed to read SchDoc file: {ex.Message}", innerException: ex);
         }
@@ -72,7 +84,9 @@ public sealed class SchDocReader
         var document = new SchDocument();
 
         ReadFileHeader(accessor, document, cancellationToken);
-        ReadStorageImageData(accessor, document);
+        cancellationToken.ThrowIfCancellationRequested();
+        ReadStorageImageData(accessor, document, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         ReadAdditionalStreams(accessor, document);
         ReadAdditionalHarnesses(accessor, document);
 
@@ -84,7 +98,7 @@ public sealed class SchDocReader
         return document;
     }
 
-    private static void ReadStorageImageData(CompoundFileAccessor accessor, SchDocument document)
+    private static void ReadStorageImageData(CompoundFileAccessor accessor, SchDocument document, CancellationToken cancellationToken)
     {
         var stream = accessor.TryGetStream("Storage");
         if (stream == null)
@@ -94,7 +108,7 @@ public sealed class SchDocReader
         if (data.Length == 0)
             return;
 
-        var imageDataList = SchLibReader.ParseStorageImageData(data);
+        var imageDataList = SchLibReader.ParseStorageImageData(data, cancellationToken: cancellationToken);
         if (imageDataList == null || imageDataList.Count == 0)
             return;
 

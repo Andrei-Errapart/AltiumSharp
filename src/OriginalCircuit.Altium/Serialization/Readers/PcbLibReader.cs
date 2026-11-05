@@ -65,14 +65,26 @@ public sealed class PcbLibReader
     /// <returns>The parsed PCB footprint library.</returns>
     /// <exception cref="AltiumCorruptFileException">Thrown when the stream cannot be parsed.</exception>
     /// <remarks>This method is not thread-safe. Create a new reader instance per thread.</remarks>
-    public PcbLibrary Read(Stream stream)
+    public PcbLibrary Read(Stream stream) => Read(stream, CancellationToken.None);
+
+    /// <summary>
+    /// Reads a PcbLib file from a stream, checking <paramref name="cancellationToken"/> between
+    /// streams and records.
+    /// </summary>
+    /// <param name="stream">A readable stream containing compound file data. The stream is not closed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <exception cref="AltiumCorruptFileException">Thrown when the stream cannot be parsed.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <remarks>This method is not thread-safe. Create a new reader instance per thread.</remarks>
+    public PcbLibrary Read(Stream stream, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             using var accessor = CompoundFileAccessor.Open(stream, leaveOpen: true);
-            return Read(accessor);
+            return Read(accessor, cancellationToken);
         }
-        catch (Exception ex) when (ex is not AltiumFileException and not OutOfMemoryException)
+        catch (Exception ex) when (ex is not AltiumFileException and not OutOfMemoryException and not OperationCanceledException)
         {
             throw new AltiumCorruptFileException($"Failed to read PcbLib file: {ex.Message}", innerException: ex);
         }
@@ -84,13 +96,16 @@ public sealed class PcbLibReader
         var library = new PcbLibrary();
 
         // Read and preserve FileHeader trailing data (after version string)
+        cancellationToken.ThrowIfCancellationRequested();
         ReadFileHeader(accessor, library);
 
         // Preserve additional root-level streams/storages for round-trip fidelity
         // (FileVersionInfo, etc.)
+        cancellationToken.ThrowIfCancellationRequested();
         PreserveAdditionalRootStreams(accessor, library);
 
         // Read section keys mapping
+        cancellationToken.ThrowIfCancellationRequested();
         ReadSectionKeys(accessor, library);
 
         // Read library data (components list and their primitives)

@@ -400,7 +400,7 @@ public sealed class ProjectHierarchy
             }
             try
             {
-                return new SchDocReader().Read(seekable);
+                return new SchDocReader().Read(seekable, ct);
             }
             catch (AltiumFileException ex) when (ex.FilePath is null)
             {

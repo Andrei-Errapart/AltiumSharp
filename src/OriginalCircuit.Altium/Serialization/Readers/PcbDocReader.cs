@@ -46,14 +46,26 @@ public sealed class PcbDocReader
     /// <returns>The parsed PCB document.</returns>
     /// <exception cref="AltiumCorruptFileException">Thrown when the stream cannot be parsed.</exception>
     /// <remarks>This method is not thread-safe. Create a new reader instance per thread.</remarks>
-    public PcbDocument Read(Stream stream)
+    public PcbDocument Read(Stream stream) => Read(stream, CancellationToken.None);
+
+    /// <summary>
+    /// Reads a PcbDoc file from a stream, checking <paramref name="cancellationToken"/> between
+    /// streams and records.
+    /// </summary>
+    /// <param name="stream">A readable stream containing compound file data. The stream is not closed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <exception cref="AltiumCorruptFileException">Thrown when the stream cannot be parsed.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    /// <remarks>This method is not thread-safe. Create a new reader instance per thread.</remarks>
+    public PcbDocument Read(Stream stream, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             using var accessor = CompoundFileAccessor.Open(stream, leaveOpen: true);
-            return Read(accessor);
+            return Read(accessor, cancellationToken);
         }
-        catch (Exception ex) when (ex is not AltiumFileException and not OutOfMemoryException)
+        catch (Exception ex) when (ex is not AltiumFileException and not OutOfMemoryException and not OperationCanceledException)
         {
             throw new AltiumCorruptFileException($"Failed to read PcbDoc file: {ex.Message}", innerException: ex);
         }
@@ -100,7 +112,9 @@ public sealed class PcbDocReader
         var wideStrings = ReadWideStrings(accessor, cancellationToken);
 
         // Read board-level parameters
+        cancellationToken.ThrowIfCancellationRequested();
         ReadBoard(accessor, document);
+        cancellationToken.ThrowIfCancellationRequested();
         ReadNets(accessor, document);
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -114,12 +128,16 @@ public sealed class PcbDocReader
         ReadFills(accessor, document, cancellationToken);
         ReadRegions(accessor, document, cancellationToken);
         ReadBoardRegions(accessor, document, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         ReadShapeBased(accessor, "ShapeBasedRegions6", 0x0B, document.ShapeBasedRegions);
         ReadShapeBased(accessor, "ShapeBasedComponentBodies6", 0x0C, document.ShapeBasedComponentBodies);
+        cancellationToken.ThrowIfCancellationRequested();
         ReadPrimitiveParameters(accessor, document);
         ReadExtendedPrimitiveInformation(accessor, document);
         ReadNamedParameterStorages(accessor, document);
-        ReadEmbeddedModels(accessor, document);
+        cancellationToken.ThrowIfCancellationRequested();
+        ReadEmbeddedModels(accessor, document, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         ReadDocumentPrimitiveGuids(accessor, document);
         ReadDocumentPrimitiveUniqueIds(accessor, document);
         var fviStorage = accessor.TryGetStorage("FileVersionInfo");
@@ -139,6 +157,7 @@ public sealed class PcbDocReader
         AssignPadsToComponents(document);
 
         // Read parameter-block storages
+        cancellationToken.ThrowIfCancellationRequested();
         ReadRules(accessor, document);
         ReadClasses(accessor, document);
         ReadSignalClasses(accessor, document);
@@ -148,6 +167,7 @@ public sealed class PcbDocReader
         ReadRooms(accessor, document);
 
         // Capture unknown storages for round-trip fidelity
+        cancellationToken.ThrowIfCancellationRequested();
         ReadAdditionalStreams(accessor, document);
 
         document.Diagnostics = _diagnostics;
@@ -900,7 +920,7 @@ public sealed class PcbDocReader
         });
     }
 
-    private static void ReadEmbeddedModels(CompoundFileAccessor accessor, PcbDocument document)
+    private static void ReadEmbeddedModels(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
     {
         // Root Models storage: Data = per-model metadata (length-prefixed |KEY=VALUE| blocks),
         // numbered Models/<n> streams = zlib STEP payloads. Shared parse with the PcbLib Library/Models.
@@ -909,8 +929,11 @@ public sealed class PcbDocReader
         document.ModelsStoragePresent = true;
 
         var dataBytes = PcbLibReader.GetChildStream(storage, "Data")?.GetData();
-        var models = PcbModel.ParseModels(dataBytes,
-            i => PcbLibReader.GetChildStream(storage, i.ToString(CultureInfo.InvariantCulture))?.GetData());
+        var models = PcbModel.ParseModels(dataBytes, i =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return PcbLibReader.GetChildStream(storage, i.ToString(CultureInfo.InvariantCulture))?.GetData();
+        });
         document.Models.AddRange(models);
     }
 

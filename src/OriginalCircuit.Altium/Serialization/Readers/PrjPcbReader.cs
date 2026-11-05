@@ -25,7 +25,7 @@ public sealed class PrjPcbReader
     public async ValueTask<AltiumProject> ReadAsync(string path, CancellationToken cancellationToken = default)
     {
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-        var project = ReadBytes(bytes);
+        var project = ReadBytes(bytes, cancellationToken);
         project.FilePath = Path.GetFullPath(path);
 
         var structurePath = Path.ChangeExtension(path, ".PrjPcbStructure");
@@ -34,6 +34,7 @@ public sealed class PrjPcbReader
             try
             {
                 var structureBytes = await File.ReadAllBytesAsync(structurePath, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 project.Structure = ProjectStructure.Parse(structureBytes);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -54,14 +55,30 @@ public sealed class PrjPcbReader
     public AltiumProject Read(Stream stream) => Read(stream, structureStream: null);
 
     /// <summary>
+    /// Reads a project from a stream containing <c>.PrjPcb</c> text, as <see cref="Read(Stream)"/>,
+    /// checking <paramref name="cancellationToken"/> while it parses.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    public AltiumProject Read(Stream stream, CancellationToken cancellationToken) => Read(stream, structureStream: null, cancellationToken);
+
+    /// <summary>
     /// Reads a project from a stream containing <c>.PrjPcb</c> text, together with the text of its
     /// <c>.PrjPcbStructure</c> file (the compiled sheet hierarchy) when <paramref name="structureStream"/>
     /// is not <c>null</c>. Neither stream is closed.
     /// </summary>
-    public AltiumProject Read(Stream stream, Stream? structureStream)
+    public AltiumProject Read(Stream stream, Stream? structureStream) => Read(stream, structureStream, CancellationToken.None);
+
+    /// <summary>
+    /// Reads a project and its structure file from streams, as <see cref="Read(Stream, Stream?)"/>,
+    /// checking <paramref name="cancellationToken"/> while it parses.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    public AltiumProject Read(Stream stream, Stream? structureStream, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        var project = ReadBytes(ReadAllBytes(stream));
+        cancellationToken.ThrowIfCancellationRequested();
+        var project = ReadBytes(ReadAllBytes(stream), cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         if (structureStream is not null)
             project.Structure = ProjectStructure.Parse(structureStream);
         return project;
@@ -81,21 +98,21 @@ public sealed class PrjPcbReader
         var hasBom = text.Length > 0 && text[0] == '﻿';
         if (hasBom)
             text = text[1..];
-        var project = ParseText(text);
+        var project = ParseText(text, CancellationToken.None);
         project.HasByteOrderMark = hasBom;
         return project;
     }
 
-    private AltiumProject ReadBytes(byte[] bytes)
+    private AltiumProject ReadBytes(byte[] bytes, CancellationToken cancellationToken)
     {
         var text = AltiumEncoding.DecodeText(bytes, out var hasBom, out var isWindows1252);
-        var project = ParseText(text);
+        var project = ParseText(text, cancellationToken);
         project.HasByteOrderMark = hasBom;
         project.IsWindows1252 = isWindows1252;
         return project;
     }
 
-    private AltiumProject ParseText(string text)
+    private AltiumProject ParseText(string text, CancellationToken cancellationToken)
     {
         _diagnostics = new List<AltiumDiagnostic>();
         var project = new AltiumProject
@@ -105,8 +122,11 @@ public sealed class PrjPcbReader
         };
 
         ProjectSection? current = null;
+        var lines = 0;
         foreach (var rawLine in text.Split('\n'))
         {
+            if ((++lines & 0xFFF) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             // Lines were split on '\n'; drop the matching '\r' so both CRLF and LF parse identically.
             var line = rawLine.Length > 0 && rawLine[^1] == '\r' ? rawLine[..^1] : rawLine;
 

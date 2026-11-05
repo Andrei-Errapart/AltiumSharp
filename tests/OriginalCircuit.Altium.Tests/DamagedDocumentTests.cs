@@ -141,6 +141,94 @@ public sealed class DamagedDocumentTests
         Assert.Contains("claims", ex.Message, StringComparison.Ordinal);
     }
 
+    // ---- a single read can be cancelled ----
+
+    // Cancels the token as soon as the reader starts reading the document's bytes.
+    private sealed class CancelOnRead(byte[] bytes, CancellationTokenSource cancel) : MemoryStream(bytes)
+    {
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            cancel.Cancel();
+            return base.Read(buffer, offset, count);
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            cancel.Cancel();
+            return base.Read(buffer);
+        }
+    }
+
+    private static byte[] Written(Action<Stream> write)
+    {
+        using var ms = new MemoryStream();
+        write(ms);
+        return ms.ToArray();
+    }
+
+    public static TheoryData<string> Kinds => new() { "SchDoc", "SchLib", "PcbDoc", "PcbLib" };
+
+    private static byte[] Document(string kind) => kind switch
+    {
+        "SchDoc" => Written(s => new SchDocWriter().Write(new Models.Sch.SchDocument(), s)),
+        "SchLib" => Written(s => new SchLibWriter().Write(new Models.Sch.SchLibrary(), s)),
+        "PcbDoc" => Board("R1"),
+        _ => Written(s => new PcbLibWriter().Write(new PcbLibrary(), s)),
+    };
+
+    private static Task Open(string kind, Stream stream, CancellationToken token) => kind switch
+    {
+        "SchDoc" => AltiumLibrary.OpenSchDocAsync(stream, token).AsTask(),
+        "SchLib" => AltiumLibrary.OpenSchLibAsync(stream, token).AsTask(),
+        "PcbDoc" => AltiumLibrary.OpenPcbDocAsync(stream, token).AsTask(),
+        _ => AltiumLibrary.OpenPcbLibAsync(stream, token).AsTask(),
+    };
+
+    [Theory]
+    [MemberData(nameof(Kinds))]
+    public async Task OpeningFromAStream_StopsWhenCancelledDuringTheRead(string kind)
+    {
+        using var cancel = new CancellationTokenSource();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Open(kind, new CancelOnRead(Document(kind), cancel), cancel.Token));
+    }
+
+    [Theory]
+    [MemberData(nameof(Kinds))]
+    public async Task OpeningFromAStream_StopsWhenCancelledAlready(string kind)
+    {
+        using var cancel = new CancellationTokenSource();
+        cancel.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Open(kind, new MemoryStream(Document(kind)), cancel.Token));
+    }
+
+    [Fact]
+    public async Task OpeningAProjectFromAStream_StopsWhenCancelled()
+    {
+        var text = "[Design]\r\n" + string.Concat(Enumerable.Range(0, 10_000).Select(i => $"Key{i}=Value\r\n"));
+        using var cancel = new CancellationTokenSource();
+        cancel.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            AltiumLibrary.OpenProjectAsync(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text)), cancel.Token).AsTask());
+        using var duringRead = new CancellationTokenSource();
+        Assert.ThrowsAny<OperationCanceledException>(() =>
+            new PrjPcbReader().Read(new CancelOnRead(System.Text.Encoding.UTF8.GetBytes(text), duringRead), duringRead.Token));
+    }
+
+    [Fact]
+    public async Task LoadingAHierarchyFromStreams_StopsWhenCancelledDuringASheetsRead()
+    {
+        var sheet = Written(s => new SchDocWriter().Write(new Models.Sch.SchDocument(), s));
+        using var cancel = new CancellationTokenSource();
+        var project = AltiumLibrary.CreateProject();
+        project.AddDocument("Top.SchDoc");
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await Models.Project.ProjectHierarchy.LoadAsync(project, _ => new CancelOnRead(sheet, cancel), cancellationToken: cancel.Token));
+    }
+
     [Fact]
     public void WideTexts_AreStillReadByTheirIndex()
     {

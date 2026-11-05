@@ -56,8 +56,9 @@ public static class AltiumLibrary
         Stream stream,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var reader = new PcbLibReader();
-        return new ValueTask<IPcbLibrary>(reader.Read(stream));
+        return new ValueTask<IPcbLibrary>(reader.Read(stream, cancellationToken));
     }
 
     /// <summary>
@@ -79,8 +80,9 @@ public static class AltiumLibrary
         Stream stream,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var reader = new SchLibReader();
-        return new ValueTask<ISchLibrary>(reader.Read(stream));
+        return new ValueTask<ISchLibrary>(reader.Read(stream, cancellationToken));
     }
 
     /// <summary>
@@ -102,8 +104,9 @@ public static class AltiumLibrary
         Stream stream,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var reader = new SchDocReader();
-        return new ValueTask<ISchDocument>(reader.Read(stream));
+        return new ValueTask<ISchDocument>(reader.Read(stream, cancellationToken));
     }
 
     /// <summary>
@@ -128,8 +131,9 @@ public static class AltiumLibrary
         Stream stream,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var reader = new PcbDocReader();
-        return new ValueTask<IPcbDocument>(reader.Read(stream));
+        return new ValueTask<IPcbDocument>(reader.Read(stream, cancellationToken));
     }
 
     /// <summary>
@@ -154,8 +158,9 @@ public static class AltiumLibrary
         Stream stream,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var reader = new PrjPcbReader();
-        return new ValueTask<AltiumProject>(reader.Read(stream));
+        return new ValueTask<AltiumProject>(reader.Read(stream, cancellationToken));
     }
 
     /// <summary>
@@ -169,8 +174,9 @@ public static class AltiumLibrary
         Stream? structureStream,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var reader = new PrjPcbReader();
-        return new ValueTask<AltiumProject>(reader.Read(stream, structureStream));
+        return new ValueTask<AltiumProject>(reader.Read(stream, structureStream, cancellationToken));
     }
 
     /// <summary>
