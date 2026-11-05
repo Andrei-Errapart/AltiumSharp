@@ -129,41 +129,79 @@ public sealed class ProjectVariant
     /// <summary>Whether this variant is allowed to be fabricated.</summary>
     public bool AllowFabrication => Section.GetBool("AllowFabrication");
 
-    /// <summary>The component variations (depopulated/alternate parts) defined by this variant.</summary>
+    /// <summary>
+    /// The component variations (depopulated/alternate parts) defined by this variant: the
+    /// <c>VariationN</c> entries for N from 1 to <c>VariationCount</c> that the section has, in order of N.
+    /// </summary>
     public IReadOnlyList<ProjectVariation> Variations
     {
         get
         {
-            var list = new List<ProjectVariation>();
+            var first = FirstValues();
             var count = Section.GetInt("VariationCount");
-            for (var i = 1; i <= count; i++)
-            {
-                var raw = Section.Get($"Variation{i}");
-                if (raw is null)
-                    continue;
-                list.Add(new ProjectVariation(ParseFields(raw)));
-            }
-            return list;
+            return Numbered(first, "Variation", count).Select(v => new ProjectVariation(ParseFields(v.Value))).ToList();
         }
     }
 
-    /// <summary>The per-component parameter overrides defined by this variant.</summary>
+    /// <summary>
+    /// The per-component parameter overrides defined by this variant: the <c>ParamVariationN</c>
+    /// entries for N from 1 to <c>ParamVariationCount</c> that the section has, in order of N, each with
+    /// its <c>ParamDesignatorN</c>.
+    /// </summary>
     public IReadOnlyList<ProjectParameterVariation> ParameterVariations
     {
         get
         {
-            var list = new List<ProjectParameterVariation>();
+            var first = FirstValues();
             var count = Section.GetInt("ParamVariationCount");
-            for (var i = 1; i <= count; i++)
-            {
-                var raw = Section.Get($"ParamVariation{i}");
-                if (raw is null)
-                    continue;
-                var designator = Section.Get($"ParamDesignator{i}") ?? string.Empty;
-                list.Add(new ProjectParameterVariation(designator, ParseFields(raw)));
-            }
-            return list;
+            return Numbered(first, "ParamVariation", count)
+                .Select(v => new ProjectParameterVariation(
+                    first.GetValueOrDefault("ParamDesignator" + v.Index.ToString(CultureInfo.InvariantCulture)) ?? string.Empty,
+                    ParseFields(v.Value)))
+                .ToList();
         }
+    }
+
+    // The first value of each key in the section, as ProjectSection.Get gives it (keys ignore case).
+    private Dictionary<string, string> FirstValues()
+    {
+        var first = new Dictionary<string, string>(Section.Entries.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in Section.Entries)
+            first.TryAdd(entry.Key, entry.Value);
+        return first;
+    }
+
+    // The values of the keys prefix1 .. prefix{count} that the section has, in order of their number:
+    // the keys that exist are looked at, not every number up to a count read from the file.
+    private static List<(int Index, string Value)> Numbered(Dictionary<string, string> first, string prefix, int count)
+    {
+        var numbered = new List<(int Index, string Value)>();
+        if (count <= 0)
+            return numbered;
+        foreach (var (key, value) in first)
+        {
+            if (key.Length <= prefix.Length || !key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                || CanonicalNumber(key.AsSpan(prefix.Length)) is not { } index || index > count)
+                continue;
+            numbered.Add((index, value));
+        }
+        numbered.Sort((a, b) => a.Index.CompareTo(b.Index));
+        return numbered;
+    }
+
+    // A positive whole number written as int.ToString writes it (ASCII digits, no sign or leading zero).
+    private static int? CanonicalNumber(ReadOnlySpan<char> digits)
+    {
+        if (digits.IsEmpty || digits[0] == '0' || digits.Length > 10)
+            return null;
+        long value = 0;
+        foreach (var c in digits)
+        {
+            if (!char.IsAsciiDigit(c))
+                return null;
+            value = value * 10 + (c - '0');
+        }
+        return value <= int.MaxValue ? (int)value : null;
     }
 
     // Splits a "Key=Value|Key=Value|..." entry value into ordered fields (split each segment on the
