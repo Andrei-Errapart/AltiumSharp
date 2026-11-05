@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-alpha.5] - Unreleased
+
+### Added
+
+- `ProjectHierarchy.LoadAsync(project, openDocument, openByFileName, options, cancellationToken)`: a stream loader that knows each document by the location its callback gives. The callback is given each path as written and the location of the sheet whose symbol asks for it (`null` for a project document), so it can follow paths relative to that sheet, and returns the document's stream with its location, which becomes the document's key and is passed on to the sheets that document uses. Each location is read once. The optional `openByFileName` is a last resort: once no path is left to try, it is asked for the first file name none of whose paths gave a document, and the paths of the sheet it gives are tried before the next such name is asked for. Each symbol that places such a sheet is reported as `SheetFoundByFileName`.
+- `HierarchySheetInstance.DocumentKey` and `ProjectHierarchy.DocumentsByKey`: the key the hierarchy holds a document by, the location a loader read it from (the full path for the disk loader) or its file name for a document known by its file name.
+- `ProjectHierarchy.NormalizePath`: a document path as Windows (and Altium) resolves it, on every platform, as `Path.GetFullPath` does on Windows without making it absolute (`.` dropped, `..` removing the segment before it, a segment's single trailing period and the last segment's trailing periods and spaces dropped).
+- `ProjectHierarchy.OrderSiblings` is public: the order the hierarchy visits a sheet's symbols, numbers channels in and asks for the sheets they use.
+- `ProjectHierarchyOptions.FollowSheetSymbol`: decides per sheet symbol whether the hierarchy follows it. A symbol not followed is not asked for, places nothing when the top sheets are chosen and is skipped with the new `SheetSymbolNotFollowed`, so callers need not change documents around `Build`.
+- `ProjectHierarchyOptions.MaxUniqueIdLength`, `MaxDesignatorLength` and `MaxRoomNameLength` (255 each): a sheet symbol with a longer unique id or channel name is not followed, and a component with a longer unique id or designator is left out, with an error (`MaxUniqueIdLengthExceeded`, `MaxDesignatorLengthExceeded`, `MaxRoomNameLengthExceeded`) and `IsTruncated`; a longer channel designator format is replaced by the default with a warning.
+- `ProjectHierarchyOptions.ReaderOptions`: the reader options the loaders read sheets with.
+- `AltiumReaderOptions`, taken by every binary reader's new constructor and by new `AltiumLibrary.Open*Async(Stream, AltiumReaderOptions, CancellationToken)` overloads: `MaxInflatedPayloadBytes` (512 MiB) and `MaxInflatedTotalBytes` (4 GiB) bound what one embedded image or 3D model, and all of a document's together, inflate to, leaving the rest out with a warning; `ReadEmbeddedPayloads = false` skips them unread.
+- `AltiumDiagnostic.DocumentKey`: the same string for every hierarchy diagnostic about one document (its key, or the first spelling of a missing file name; for sheet-symbol diagnostics, the document the symbol places). `AltiumDiagnostic.DocumentPath`: the path as written. `DocumentName` keeps its meaning for each code.
+- New diagnostic codes, numbered after the existing ones: `SharedFileName` (documents read from different locations share a file name; each is a sheet of its own), `SheetFoundByFileName`, `SheetSymbolNotFollowed` and the three length limits above.
+- `Read(Stream, CancellationToken)` on `SchDocReader`, `SchLibReader`, `PcbDocReader`, `PcbLibReader` and `PrjPcbReader` (also with a structure stream), and `ProjectStructure.Parse(Stream, CancellationToken)`.
+- `ParameterScope`: a sheet's and a project's parameters indexed by name once, with `SchComponent.GetResolvedComment(ParameterScope)`, `GetResolvedParameterValue(name, ParameterScope)` and `ResolveParameterText(text, ParameterScope)` overloads, and `ProjectHierarchy.ParameterScopeFor(sheet)`, which keeps one per sheet.
+
+### Changed
+
+- `ProjectHierarchy.NormalizeFileName` resolves the path as Windows does before taking its last segment, so `Main.SchDoc\.`, `Sub\Main.SchDoc\X\..`, `Main.SchDoc.` and `Main.SchDoc ` are all `Main.SchDoc` (they were `.`, `..`, `Main.SchDoc.` and `Main.SchDoc`), and a path that ends at a folder (`X\..`, `Sheets\`) names no file. Leading white space is still dropped.
+- `ProjectHierarchy.LoadAsync(project)` (from disk) knows each sheet by the file it was read from, so two files of one name in different folders are two sheets, and a symbol that places another file of an ancestor's name is no cycle. A sheet symbol places the project's document of its file name (when the project lists several of that name, the one its path leads to, else the first), otherwise the file its path leads to. `Documents` stays keyed by file name and holds the first document of each name; `IsMultiChannel` and channel numbering go by document. Project documents of one name in different folders are each read (reported as `SharedFileName`), where `DuplicateDocumentName` said only the first was read. `Build` and the stream loader that takes only a path still know documents by file name.
+- `PhysicalComponent.Comment` and `GetParameterValue` resolve against the sheet's and project's parameters as they are when first resolved through the hierarchy.
+- `HierarchySheetInstance.UniqueIdPath`, `HierarchicalPath` and `PhysicalComponentPart.UniqueIdPath` are built when first read; the unique-id lookups no longer index every path.
+
+### Fixed
+
+- `ProjectHierarchy.LoadAsync` tries every path of a sheet's name until one gives a document. It marked a name as asked for before the callback found it, so a listed path the folder lacked, or an earlier symbol's path, hid every later path of that name. A path that gave nothing is not asked for again from the same sheet, and the duplicate-name warning now says "only one is read".
+- `ProjectDocumentKinds.FromPath` (and so `AltiumProject.SchematicDocuments` and `DocumentsOfKind`) takes the extension of the file name Windows opens, so a listed `Main.SchDoc `, `Main.SchDoc.` or `Main.SchDoc\.` is a schematic, and the same for BomDocs; they were kinded `Other` and never read.
+- The disk loader resolves paths itself, the same on every platform: `.`/`..`, trailing periods and spaces, drive paths as rooted, and (off Windows) file names ignoring case. It returns the file's full path, so a sheet found through `Sheets\Mid.SchDoc\.` looks for its own sheets in `Sheets`, not under a folder named after its file.
+- A damaged board whose wide-string table names a huge text index no longer allocates a list up to it (an 8.7 KB board took 32 GB): the texts are kept by index.
+- A compound-file stream that claims more bytes than the whole file is refused with `AltiumCorruptFileException` before anything is allocated (a 4 KB document claiming 2 GB allocated 2 GB first).
+- A single document read can be cancelled: the `AltiumLibrary` stream methods and the hierarchy's stream loaders pass their token to the reader, which checks it between streams and records, and a cancellation is no longer wrapped as a corrupt-file error.
+- Embedded images no longer shift onto the wrong `SchImage` when an earlier one is left out (damaged, or now past a limit), and per-pin records inflate to at most 1 MiB.
+- `ProjectVariant.Variations` and `ParameterVariations` take the numbered entries that exist, indexing the section once, instead of looking up every number up to a count read from the file (100,000 entries took 39 s; a count of 2³¹ about 40 s).
+- Reading a `.PrjPcb` or `.PrjPcbStructure` no longer holds 8 to 16 times the file: it is read into one array, decoded once, and parsed line by line from spans, with repeated keys held once.
+
 ## [2.0.0-alpha.4] - Unreleased
 
 ### Added

@@ -626,7 +626,15 @@ var lib = await AltiumLibrary.OpenPcbLibAsync(memStream);
 ```
 
 The stream overloads need a seekable stream. They only read it, never write to it (even
-when it is writable), and leave it open.
+when it is writable), and leave it open. They check their cancellation token while they read.
+
+```csharp
+// Bound or skip embedded payloads (sheet images, 3D models) from untrusted documents
+var options = new AltiumReaderOptions { ReadEmbeddedPayloads = false };    // images and STEP data left out
+var sheet = await AltiumLibrary.OpenSchDocAsync(uploadStream, options, cancellationToken);
+var reader = new PcbDocReader(new AltiumReaderOptions { MaxInflatedPayloadBytes = 64 * 1024 * 1024 });
+var board = reader.Read(boardStream, cancellationToken);   // a model past the limit: empty StepData + a warning
+```
 
 ### Inspecting Loaded Data
 
@@ -693,29 +701,47 @@ sheet-symbol use and per `Repeat(name, first, last)` channel, Altium's room name
 designators and multi-part merging. It works from documents in memory.
 
 ```csharp
-// Sheets from a callback, given each path as written: the project's documents, then sheets that
-// symbols use but the project does not list (e.g. device sheets). Return null when a document is
-// missing (see hierarchy.MissingDocuments); streams need not be seekable.
+// Sheets from a callback, given each path as written and the location of the sheet that asks for it
+// (null for a project document): the project's documents, then the sheets their symbols use (e.g.
+// device sheets). Return the stream with the document's location (its key, passed on to the sheets
+// it uses), or a null stream when it is missing (see hierarchy.MissingDocuments). Optionally, a last
+// resort for a file name none of whose paths opened. Streams need not be seekable.
 var hierarchy = await ProjectHierarchy.LoadAsync(uploaded,
-    path => zip.GetEntry(path.Replace('\\', '/'))?.Open());
+    (path, usedBy) => upload.Find(path, nextTo: usedBy) is { } entry ? (entry.Open(), entry.FullName) : (null, null),
+    openByFileName: (name, path, usedBy) => upload.FindByName(name) is { } entry ? (entry.Open(), entry.FullName) : (null, null));
+// hierarchy.Sheets[i].DocumentKey is the entry's location; two files of one name are two sheets
 
-// Limits for untrusted input (defaults: depth 64, 10,000 sheet instances, 200,000 parts)
-var bounded = await ProjectHierarchy.LoadAsync(uploaded, open,
-    new ProjectHierarchyOptions { MaxSheetInstances = 2_000, MaxComponentParts = 100_000 });
+// The older overload is given only the path, and knows documents by file name
+var byName = await ProjectHierarchy.LoadAsync(uploaded, path => zip.GetEntry(path.Replace('\\', '/'))?.Open());
+
+// Limits for untrusted input (defaults: depth 64, 10,000 sheet instances, 200,000 parts, ids,
+// designators and channel names of 255 characters), symbols to leave out, and reader options
+var bounded = await ProjectHierarchy.LoadAsync(uploaded, open, options: new ProjectHierarchyOptions
+{
+    MaxSheetInstances = 2_000,
+    MaxComponentParts = 100_000,
+    FollowSheetSymbol = symbol => !IsExcluded(symbol.FileName),   // skipped as SheetSymbolNotFollowed
+    ReaderOptions = new AltiumReaderOptions { ReadEmbeddedPayloads = false },
+});
 if (bounded.IsTruncated) { /* a limit was reached; see Diagnostics */ }
 
-// Or from disk next to the project file, or from SchDocuments already open (set FileName)
+// Or from disk next to the project file (each sheet known by its full path), or from SchDocuments
+// already open (set FileName; known by file name)
 var fromDisk = await ProjectHierarchy.LoadAsync(project);
 var fromOpen = ProjectHierarchy.Build(project, new[] { topSheet, channelSheet }, options: null, cancellationToken);
 
-// Documents are keyed by their trimmed file name; use the same rule to match other paths
+// Paths are resolved as Windows resolves them; use the same rules to match other paths
 var key = ProjectHierarchy.NormalizeFileName(hierarchy.MissingDocuments[0]); // "Rev B\ Io.SchDoc" -> "Io.SchDoc"
+var name = ProjectHierarchy.NormalizeFileName(@"Main.SchDoc\.");               // "Main.SchDoc"
+var path = ProjectHierarchy.NormalizePath(@"Sheets.\Old\..\Power.SchDoc ");    // "Sheets\Power.SchDoc"
+var order = ProjectHierarchy.OrderSiblings(sheet.SheetSymbols);              // the order sheets are asked for
 
 foreach (var c in hierarchy.Components.Where(c => c.IsInBom))
 {
     // c.Designator        physical, e.g. "R2_CH3" ($Component_$RoomName); else the logical one
     // c.LogicalDesignator as drawn, e.g. "R2"
     // c.Comment           the Comment parameter with "=Value" / "=Part Number" resolved
+    //                     (resolve many yourself: c.Component.GetResolvedComment(hierarchy.ParameterScopeFor(sheet)))
     // c.Parts             every placed part (U1A, U1B, ...), possibly on different sheets
     // c.ComponentType     Standard, StandardNoBom (test points, fiducials), ...
     // c.GetParameterValue("Manufacturer"), c.Component (the SchComponent)
@@ -735,16 +761,22 @@ foreach (var d in hierarchy.Diagnostics)
         Console.WriteLine($"Too deep at {d.SheetSymbol?.NameLabel?.Text} on {d.SheetInstance?.FileName}");
     Console.WriteLine($"[{d.Severity}] {d.Code}: {d.Message}");
 }
+
+// Group diagnostics by document: DocumentKey is one string per document, DocumentPath the path as written
+foreach (var group in hierarchy.Diagnostics.Where(d => d.DocumentKey is not null).GroupBy(d => d.DocumentKey))
+    Console.WriteLine($"{group.Key}: {string.Join(", ", group.Select(d => d.Code))}");
 ```
 
 | Type | Key members |
 |------|-------------|
-| `ProjectHierarchy` | `Roots`, `Sheets`, `Parts`, `Components`, `DesignatorFormat`, `Diagnostics`, `IsTruncated`, `MissingDocuments`, `DuplicateDesignators`, `FindComponent`, `FindComponents`, `FindComponentByUniqueIdPath`, `FindSheetByUniqueIdPath`, `FormatDesignator`, `NormalizeFileName` |
-| `ProjectHierarchyOptions` | `MaxDepth`, `MaxSheetInstances`, `MaxComponentParts`, `Default` |
-| `HierarchySheetInstance` | `Document`, `FileName`, `Parent`, `Children`, `SheetSymbol`, `RepeatIndex`, `ChannelName`, `RoomName`, `ChannelIndex`, `IsMultiChannel`, `UniqueIdPath`, `HierarchicalPath`, `Parts` |
+| `ProjectHierarchy` | `Roots`, `Sheets`, `Parts`, `Components`, `Documents` (by file name), `DocumentsByKey`, `DesignatorFormat`, `Diagnostics`, `IsTruncated`, `MissingDocuments`, `DuplicateDesignators`, `FindComponent`, `FindComponents`, `FindComponentByUniqueIdPath`, `FindSheetByUniqueIdPath`, `ParameterScopeFor`, `FormatDesignator`, `NormalizeFileName`, `NormalizePath`, `OrderSiblings` |
+| `ProjectHierarchyOptions` | `MaxDepth`, `MaxSheetInstances`, `MaxComponentParts`, `MaxUniqueIdLength`, `MaxDesignatorLength`, `MaxRoomNameLength`, `FollowSheetSymbol`, `ReaderOptions`, `Default` |
+| `HierarchySheetInstance` | `Document`, `FileName`, `DocumentKey`, `Parent`, `Children`, `SheetSymbol`, `RepeatIndex`, `ChannelName`, `RoomName`, `ChannelIndex`, `IsMultiChannel`, `UniqueIdPath`, `HierarchicalPath`, `Parts` |
 | `PhysicalComponent` | `Designator`, `LogicalDesignator`, `Parts`, `Component`, `Sheet`, `ComponentType`, `IsInBom`, `Comment`, `UniqueIdPaths`, `GetParameterValue` |
 | `PhysicalComponentPart` | `Component`, `Sheet`, `LogicalDesignator`, `PhysicalDesignator`, `PartId`, `UniqueIdPath`, `Owner` |
-| `AltiumDiagnostic` | `Severity`, `Message`, `Code` (`AltiumDiagnosticCode`), `DocumentName`, `SheetInstance`, `SheetInstances`, `SheetSymbol`, `Designator`, `DesignatorTokens` |
+| `AltiumDiagnostic` | `Severity`, `Message`, `Code` (`AltiumDiagnosticCode`), `DocumentName`, `DocumentKey`, `DocumentPath`, `SheetInstance`, `SheetInstances`, `SheetSymbol`, `Designator`, `DesignatorTokens` |
+| `AltiumReaderOptions` | `ReadEmbeddedPayloads`, `MaxInflatedPayloadBytes`, `MaxInflatedTotalBytes`, `Default` |
+| `ParameterScope` | `Find`, `WithSheet`, `Empty`; used by `SchComponent.GetResolvedComment(scope)` and friends |
 | `RepeatInfo` (`SchSheetSymbol.Repeat`) | `IsRepeated`, `IsUnreadable`, `ChannelName`, `FirstInstance`, `LastInstance`, `InstanceCount`, `Parse`, `MentionsRepeat` |
 
 Room names follow Altium's "flat numbered" style (`ChannelRoomNamingStyle=0`): a `Repeat`
