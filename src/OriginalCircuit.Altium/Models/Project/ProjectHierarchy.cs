@@ -263,7 +263,7 @@ public sealed class ProjectHierarchy
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(openDocument);
 
-        return LoadCoreAsync(project, async (path, _, ct) =>
+        return LoadCoreAsync(project, pathsAreRelative: false, async (path, _, ct) =>
         {
             var stream = openDocument(path);
             if (stream is null)
@@ -312,7 +312,7 @@ public sealed class ProjectHierarchy
     {
         ArgumentNullException.ThrowIfNull(project);
 
-        return LoadCoreAsync(project, async (path, usedBy, ct) =>
+        return LoadCoreAsync(project, pathsAreRelative: true, async (path, usedBy, ct) =>
         {
             var file = FindOnDisk(project, path, usedBy);
             if (file is null)
@@ -330,18 +330,22 @@ public sealed class ProjectHierarchy
     }
 
     // Opens the project's schematic documents, then every sheet their sheet symbols use that has not
-    // been asked for yet, until no new names appear. The callback gets a path as written and the
-    // location of the sheet that uses it (null for project documents), and returns the document and
-    // its own location (passed on to the sheets it uses), or no document when it is unavailable.
-    private static async ValueTask<ProjectHierarchy> LoadCoreAsync(AltiumProject project,
+    // been read yet, until no new names appear. Every path of a name is tried, in turn, until one
+    // gives a document. The callback gets a path as written and the location of the sheet that uses
+    // it (null for project documents), and returns the document and its own location (passed on to
+    // the sheets it uses), or no document when it is unavailable. When pathsAreRelative is false the
+    // callback ignores the location, so a path that gave nothing is not asked for again.
+    private static async ValueTask<ProjectHierarchy> LoadCoreAsync(AltiumProject project, bool pathsAreRelative,
         Func<string, string?, CancellationToken, ValueTask<(SchDocument? Sheet, string? Location)>> open,
         ProjectHierarchyOptions options, CancellationToken cancellationToken)
     {
         var diagnostics = new List<AltiumDiagnostic>();
         var missing = new List<string>();
         var sheets = new List<SchDocument>();
-        var requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        ReportSameNamedDocuments(project, diagnostics, "only the first is read");
+        // The names a document was read for, and the (path, location) pairs asked for already.
+        var read = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var asked = new HashSet<(string Path, string? UsedBy)>(PathAndLocationComparer.Instance);
+        ReportSameNamedDocuments(project, diagnostics, "only one is read");
         var queue = new Queue<(string Path, string? UsedBy, bool Listed)>();
         foreach (var document in project.SchematicDocuments)
         {
@@ -353,7 +357,8 @@ public sealed class ProjectHierarchy
         {
             cancellationToken.ThrowIfCancellationRequested();
             var name = NormalizeFileName(item.Path);
-            if (name is null || !requested.Add(name))
+            if (name is null || read.Contains(name)
+                || !asked.Add((NormalizePath(item.Path)!, pathsAreRelative ? item.UsedBy : null)))
                 continue;
 
             var (sheet, location) = await open(item.Path, item.UsedBy, cancellationToken).ConfigureAwait(false);
@@ -367,6 +372,7 @@ public sealed class ProjectHierarchy
                 }
                 continue;
             }
+            read.Add(name);
             if (!item.Listed)
                 diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Info,
                     $"Sheet '{item.Path}' is used by a sheet symbol but is not a project document; it was loaded too.")
@@ -404,6 +410,20 @@ public sealed class ProjectHierarchy
                 DocumentName = path,
             });
         }
+    }
+
+    // Paths compared as Windows opens them (already normalized), locations as written; both ignore case.
+    private sealed class PathAndLocationComparer : IEqualityComparer<(string Path, string? UsedBy)>
+    {
+        public static PathAndLocationComparer Instance { get; } = new();
+
+        public bool Equals((string Path, string? UsedBy) x, (string Path, string? UsedBy) y) =>
+            string.Equals(x.Path, y.Path, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(x.UsedBy, y.UsedBy, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((string Path, string? UsedBy) obj) => HashCode.Combine(
+            StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Path),
+            obj.UsedBy is null ? 0 : StringComparer.OrdinalIgnoreCase.GetHashCode(obj.UsedBy));
     }
 
     private static AltiumDiagnostic NotSupplied(string path) =>

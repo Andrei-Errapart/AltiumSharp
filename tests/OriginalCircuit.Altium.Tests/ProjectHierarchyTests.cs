@@ -1092,7 +1092,7 @@ public sealed class ProjectHierarchyTests
         var duplicate = Single(loaded, AltiumDiagnosticCode.DuplicateDocumentName);
         Assert.Equal("Rev B\\Main.SchDoc", duplicate.DocumentName);
         Assert.Contains("'Rev A\\Main.SchDoc' and 'Rev B\\Main.SchDoc'", duplicate.Message, StringComparison.Ordinal);
-        Assert.Contains("only the first is read", duplicate.Message, StringComparison.Ordinal);
+        Assert.Contains("only one is read", duplicate.Message, StringComparison.Ordinal);
 
         var built = ProjectHierarchy.Build(project, new[] { Sheet("Main.SchDoc", Part("R2", "RESREVBB")) });
         Assert.Equal("Rev B\\Main.SchDoc", Single(built, AltiumDiagnosticCode.DuplicateDocumentName).DocumentName);
