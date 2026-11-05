@@ -34,6 +34,19 @@ public sealed class PcbLibReader
 {
     private readonly Dictionary<string, string> _sectionKeys = new(StringComparer.OrdinalIgnoreCase);
     private List<AltiumDiagnostic> _diagnostics = new();
+    private readonly AltiumReaderOptions _options;
+
+    /// <summary>Creates a reader with <see cref="AltiumReaderOptions.Default"/>.</summary>
+    public PcbLibReader() : this(null)
+    {
+    }
+
+    /// <summary>Creates a reader with the given options (<see cref="AltiumReaderOptions.Default"/> when <c>null</c>).</summary>
+    public PcbLibReader(AltiumReaderOptions? options)
+    {
+        _options = options ?? AltiumReaderOptions.Default;
+    }
+
 
     /// <summary>
     /// Reads a PcbLib file from the specified path.
@@ -317,14 +330,14 @@ public sealed class PcbLibReader
         // Parse 3D model streams (STEP data + metadata)
         if (libraryStorage.TryGetStorage("Models", out var modelsStorage))
         {
-            ReadModels(modelsStorage, library);
+            ReadModels(modelsStorage, library, new PayloadBudget(_options, _diagnostics));
         }
     }
 
     private static bool IsEmptyLibrarySubStorage(CompoundStorage storage)
         => storage.TryGetStream("Data") is not { } data || data.GetData().Length == 0;
 
-    private static void ReadModels(CompoundStorage modelsStorage, PcbLibrary library)
+    private static void ReadModels(CompoundStorage modelsStorage, PcbLibrary library, PayloadBudget budget)
     {
         // Data stream: parameter blocks with model metadata (EMBED, MODELSOURCE, ID, ROTX, ROTY,
         // ROTZ, DZ, CHECKSUM, NAME). STEP payloads live in numbered streams (0, 1, ...), zlib
@@ -334,9 +347,8 @@ public sealed class PcbLibReader
             : null;
 
         var models = PcbModel.ParseModels(dataBytes,
-            i => modelsStorage.TryGetStream(i.ToString(CultureInfo.InvariantCulture), out var modelStream)
-                ? modelStream.GetData()
-                : null);
+            i => modelsStorage.TryGetStream(i.ToString(CultureInfo.InvariantCulture), out var modelStream) ? modelStream : null,
+            budget);
 
         library.Models.AddRange(models);
     }

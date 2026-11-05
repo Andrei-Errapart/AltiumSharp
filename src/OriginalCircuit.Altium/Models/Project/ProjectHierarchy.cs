@@ -322,9 +322,10 @@ public sealed class ProjectHierarchy
         ArgumentNullException.ThrowIfNull(openDocument);
 
         // Known by file name, so a name's first document stands for every path of that name.
+        options ??= ProjectHierarchyOptions.Default;
         return LoadCoreAsync(project, pathsAreRelative: false, sameNamedListed: true, (path, _, _) =>
-            ValueTask.FromResult(openDocument(path) is { } stream ? FromStream(stream, location: null, path) : null),
-            openByName: null, options ?? ProjectHierarchyOptions.Default, cancellationToken);
+            ValueTask.FromResult(openDocument(path) is { } stream ? FromStream(stream, location: null, path, options.ReaderOptions) : null),
+            openByName: null, options, cancellationToken);
     }
 
     /// <summary>
@@ -377,17 +378,19 @@ public sealed class ProjectHierarchy
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(openDocument);
 
+        options ??= ProjectHierarchyOptions.Default;
+        var readerOptions = options.ReaderOptions;
         return LoadCoreAsync(project, pathsAreRelative: true, sameNamedListed: false,
             (path, usedBy, _) => ValueTask.FromResult(Source(openDocument(path, usedBy), path)),
             openByFileName is null ? null : (name, path, usedBy, _) => ValueTask.FromResult(Source(openByFileName(name, path, usedBy), path)),
-            options ?? ProjectHierarchyOptions.Default, cancellationToken);
+            options, cancellationToken);
 
-        static DocumentSource? Source((Stream? Stream, string? Location) opened, string path) =>
-            opened.Stream is { } stream ? FromStream(stream, opened.Location, opened.Location ?? path) : null;
+        DocumentSource? Source((Stream? Stream, string? Location) opened, string path) =>
+            opened.Stream is { } stream ? FromStream(stream, opened.Location, opened.Location ?? path, readerOptions) : null;
     }
 
     // Reads a stream (buffered when it cannot seek) as a SchDoc and disposes it.
-    private static DocumentSource FromStream(Stream stream, string? location, string path) => new(location, async ct =>
+    private static DocumentSource FromStream(Stream stream, string? location, string path, AltiumReaderOptions? readerOptions) => new(location, async ct =>
     {
         await using (stream.ConfigureAwait(false))
         {
@@ -400,7 +403,7 @@ public sealed class ProjectHierarchy
             }
             try
             {
-                return new SchDocReader().Read(seekable, ct);
+                return new SchDocReader(readerOptions).Read(seekable, ct);
             }
             catch (AltiumFileException ex) when (ex.FilePath is null)
             {
@@ -435,6 +438,8 @@ public sealed class ProjectHierarchy
         AltiumProject project, ProjectHierarchyOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(project);
+        options ??= ProjectHierarchyOptions.Default;
+        var readerOptions = options.ReaderOptions;
 
         return LoadCoreAsync(project, pathsAreRelative: true, sameNamedListed: false, (path, usedBy, _) =>
         {
@@ -443,14 +448,14 @@ public sealed class ProjectHierarchy
             {
                 try
                 {
-                    return (SchDocument)await AltiumLibrary.OpenSchDocAsync(file, ct).ConfigureAwait(false);
+                    return await new SchDocReader(readerOptions).ReadAsync(file, ct).ConfigureAwait(false);
                 }
                 catch (AltiumFileException ex) when (ex.FilePath is null)
                 {
                     throw WithPath(ex, file);
                 }
             }));
-        }, openByName: null, options ?? ProjectHierarchyOptions.Default, cancellationToken);
+        }, openByName: null, options, cancellationToken);
     }
 
     // Where a document comes from: its location (null to know it by its file name) and how to read

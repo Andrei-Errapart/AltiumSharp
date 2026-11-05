@@ -53,6 +53,14 @@ public sealed class ProjectHierarchyOptions
     /// </summary>
     public Func<SchSheetSymbol, bool>? FollowSheetSymbol { get; init; }
 
+    /// <summary>
+    /// The options the loaders (<c>ProjectHierarchy.LoadAsync</c>) read sheets with;
+    /// <see cref="AltiumReaderOptions.Default"/> when <c>null</c>. Set
+    /// <see cref="AltiumReaderOptions.ReadEmbeddedPayloads"/> to <c>false</c> to skip embedded images,
+    /// which the hierarchy never needs.
+    /// </summary>
+    public AltiumReaderOptions? ReaderOptions { get; init; }
+
     internal bool Follows(SchSheetSymbol symbol) => FollowSheetSymbol?.Invoke(symbol) ?? true;
 
     /// <summary>

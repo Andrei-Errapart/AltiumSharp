@@ -19,6 +19,19 @@ namespace OriginalCircuit.Altium.Serialization.Readers;
 public sealed class SchDocReader
 {
     private List<AltiumDiagnostic> _diagnostics = new();
+    private readonly AltiumReaderOptions _options;
+
+    /// <summary>Creates a reader with <see cref="AltiumReaderOptions.Default"/>.</summary>
+    public SchDocReader() : this(null)
+    {
+    }
+
+    /// <summary>Creates a reader with the given options (<see cref="AltiumReaderOptions.Default"/> when <c>null</c>).</summary>
+    public SchDocReader(AltiumReaderOptions? options)
+    {
+        _options = options ?? AltiumReaderOptions.Default;
+    }
+
 
     /// <summary>
     /// Reads a SchDoc file from the specified path.
@@ -85,7 +98,7 @@ public sealed class SchDocReader
 
         ReadFileHeader(accessor, document, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        ReadStorageImageData(accessor, document, cancellationToken);
+        ReadStorageImageData(accessor, document, new PayloadBudget(_options, _diagnostics), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         ReadAdditionalStreams(accessor, document);
         ReadAdditionalHarnesses(accessor, document);
@@ -98,7 +111,8 @@ public sealed class SchDocReader
         return document;
     }
 
-    private static void ReadStorageImageData(CompoundFileAccessor accessor, SchDocument document, CancellationToken cancellationToken)
+    private static void ReadStorageImageData(CompoundFileAccessor accessor, SchDocument document, PayloadBudget budget,
+        CancellationToken cancellationToken)
     {
         var stream = accessor.TryGetStream("Storage");
         if (stream == null)
@@ -108,7 +122,7 @@ public sealed class SchDocReader
         if (data.Length == 0)
             return;
 
-        var imageDataList = SchLibReader.ParseStorageImageData(data, cancellationToken: cancellationToken);
+        var imageDataList = SchLibReader.ParseStorageImageData(data, cancellationToken: cancellationToken, budget: budget);
         if (imageDataList == null || imageDataList.Count == 0)
             return;
 

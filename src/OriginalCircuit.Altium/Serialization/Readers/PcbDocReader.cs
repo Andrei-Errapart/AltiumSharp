@@ -16,6 +16,19 @@ namespace OriginalCircuit.Altium.Serialization.Readers;
 public sealed class PcbDocReader
 {
     private List<AltiumDiagnostic> _diagnostics = new();
+    private readonly AltiumReaderOptions _options;
+
+    /// <summary>Creates a reader with <see cref="AltiumReaderOptions.Default"/>.</summary>
+    public PcbDocReader() : this(null)
+    {
+    }
+
+    /// <summary>Creates a reader with the given options (<see cref="AltiumReaderOptions.Default"/> when <c>null</c>).</summary>
+    public PcbDocReader(AltiumReaderOptions? options)
+    {
+        _options = options ?? AltiumReaderOptions.Default;
+    }
+
     /// <summary>
     /// Reads a PcbDoc file from the specified path.
     /// </summary>
@@ -136,7 +149,7 @@ public sealed class PcbDocReader
         ReadExtendedPrimitiveInformation(accessor, document);
         ReadNamedParameterStorages(accessor, document);
         cancellationToken.ThrowIfCancellationRequested();
-        ReadEmbeddedModels(accessor, document, cancellationToken);
+        ReadEmbeddedModels(accessor, document, new PayloadBudget(_options, _diagnostics), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         ReadDocumentPrimitiveGuids(accessor, document);
         ReadDocumentPrimitiveUniqueIds(accessor, document);
@@ -920,7 +933,8 @@ public sealed class PcbDocReader
         });
     }
 
-    private static void ReadEmbeddedModels(CompoundFileAccessor accessor, PcbDocument document, CancellationToken cancellationToken)
+    private static void ReadEmbeddedModels(CompoundFileAccessor accessor, PcbDocument document, PayloadBudget budget,
+        CancellationToken cancellationToken)
     {
         // Root Models storage: Data = per-model metadata (length-prefixed |KEY=VALUE| blocks),
         // numbered Models/<n> streams = zlib STEP payloads. Shared parse with the PcbLib Library/Models.
@@ -932,8 +946,8 @@ public sealed class PcbDocReader
         var models = PcbModel.ParseModels(dataBytes, i =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return PcbLibReader.GetChildStream(storage, i.ToString(CultureInfo.InvariantCulture))?.GetData();
-        });
+            return PcbLibReader.GetChildStream(storage, i.ToString(CultureInfo.InvariantCulture));
+        }, budget);
         document.Models.AddRange(models);
     }
 

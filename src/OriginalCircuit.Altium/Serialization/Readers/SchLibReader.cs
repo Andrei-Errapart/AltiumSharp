@@ -72,6 +72,19 @@ public sealed class SchLibReader
 {
     private readonly Dictionary<string, string> _sectionKeys = new(StringComparer.OrdinalIgnoreCase);
     private List<AltiumDiagnostic> _diagnostics = new();
+    private readonly AltiumReaderOptions _options;
+
+    /// <summary>Creates a reader with <see cref="AltiumReaderOptions.Default"/>.</summary>
+    public SchLibReader() : this(null)
+    {
+    }
+
+    /// <summary>Creates a reader with the given options (<see cref="AltiumReaderOptions.Default"/> when <c>null</c>).</summary>
+    public SchLibReader(AltiumReaderOptions? options)
+    {
+        _options = options ?? AltiumReaderOptions.Default;
+    }
+
 
     /// <summary>
     /// Reads a SchLib file from the specified path.
@@ -172,7 +185,7 @@ public sealed class SchLibReader
         if (data.Length == 0)
             return;
 
-        var imageDataList = ParseStorageImageData(data, _diagnostics);
+        var imageDataList = ParseStorageImageData(data, _diagnostics, budget: new PayloadBudget(_options, _diagnostics));
         if (imageDataList == null || imageDataList.Count == 0)
             return;
 
@@ -854,6 +867,9 @@ public sealed class SchLibReader
     /// Parses the PinFrac auxiliary stream data to extract fractional coordinate values.
     /// Returns a dictionary keyed by pin index with (x, y, length) fractional values.
     /// </summary>
+    // The most a per-pin record (fractional coordinates, symbol line widths) may inflate to.
+    private const int MaxPinRecordBytes = 1024 * 1024;
+
     private Dictionary<int, (int x, int y, int length)>? ParsePinFracData(byte[]? rawData)
     {
         if (rawData == null || rawData.Length == 0)
@@ -904,11 +920,9 @@ public sealed class SchLibReader
                 {
                     try
                     {
-                        using var compressedMs = new MemoryStream(compressedData);
-                        using var zlibStream = new ZLibStream(compressedMs, CompressionMode.Decompress);
-                        using var decompressedMs = new MemoryStream();
-                        zlibStream.CopyTo(decompressedMs);
-                        var decompressed = decompressedMs.ToArray();
+                        // Three Int32s; a record that inflates to far more is damaged.
+                        var decompressed = Inflater.Inflate(compressedData, MaxPinRecordBytes)
+                            ?? throw new InvalidDataException("Pin record inflates past its limit.");
 
                         if (decompressed.Length >= 12 && int.TryParse(pinIndexStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx))
                         {
@@ -991,11 +1005,9 @@ public sealed class SchLibReader
                 {
                     try
                     {
-                        using var compressedMs = new MemoryStream(compressedData);
-                        using var zlibStream = new ZLibStream(compressedMs, CompressionMode.Decompress);
-                        using var decompressedMs = new MemoryStream();
-                        zlibStream.CopyTo(decompressedMs);
-                        var decompressed = decompressedMs.ToArray();
+                        // A small parameter block; a record that inflates to far more is damaged.
+                        var decompressed = Inflater.Inflate(compressedData, MaxPinRecordBytes)
+                            ?? throw new InvalidDataException("Pin record inflates past its limit.");
 
                         // Parse decompressed data as Unicode parameter block:
                         // int32 innerSize + UTF-16LE string data
@@ -1099,15 +1111,18 @@ public sealed class SchLibReader
     /// header block (C-string params) + entries (0xD0 tag, name, zlib data).
     /// Returns a list of raw image byte arrays in order.
     /// </summary>
-    internal static List<byte[]>? ParseStorageImageData(byte[] rawData, List<AltiumDiagnostic>? diagnostics = null,
-        CancellationToken cancellationToken = default)
+    // One entry per embedded image, in order; null for an image whose data was left out (skipped,
+    // past a limit, or damaged), so the images after it still get their own data.
+    internal static List<byte[]?>? ParseStorageImageData(byte[] rawData, List<AltiumDiagnostic>? diagnostics = null,
+        CancellationToken cancellationToken = default, PayloadBudget? budget = null)
     {
         if (rawData.Length == 0)
             return null;
+        budget ??= new PayloadBudget(AltiumReaderOptions.Default, diagnostics);
 
         try
         {
-            var result = new List<byte[]>();
+            var result = new List<byte[]?>();
             using var ms = new MemoryStream(rawData);
             using var reader = new BinaryFormatReader(ms, leaveOpen: true);
 
@@ -1137,29 +1152,35 @@ public sealed class SchLibReader
 
                 // Compressed data block: int32 size + zlib data
                 var compressedSize = reader.ReadInt32();
-                if (compressedSize <= 0 || compressedSize > 100_000_000)
+                if (compressedSize <= 0 || compressedSize > 100_000_000 || compressedSize > reader.Length - reader.Position)
                 {
-                    reader.Skip((int)(blockSize - (reader.Position - blockStart)));
+                    reader.Skip((int)Math.Min(blockSize - (reader.Position - blockStart), reader.Length - reader.Position));
+                    result.Add(null);
                     entryIndex++;
                     continue;
                 }
 
-                var compressedData = new byte[compressedSize];
-                reader.ReadExact(compressedData);
-
-                // Decompress zlib data → raw image bytes
-                try
+                if (!budget.ReadsPayloads)
                 {
-                    using var compressedMs = new MemoryStream(compressedData);
-                    using var zlibStream = new ZLibStream(compressedMs, CompressionMode.Decompress);
-                    using var decompressedMs = new MemoryStream();
-                    zlibStream.CopyTo(decompressedMs);
-                    result.Add(decompressedMs.ToArray());
+                    reader.Skip(compressedSize);
+                    result.Add(null);
                 }
-                catch (InvalidDataException)
+                else
                 {
-                    // Corrupted compressed data; skip this entry
-                    diagnostics?.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning, $"Corrupted compressed data at entry {entryIndex}", "Storage"));
+                    var compressedData = new byte[compressedSize];
+                    reader.ReadExact(compressedData);
+
+                    // Decompress zlib data → raw image bytes
+                    try
+                    {
+                        result.Add(budget.Inflate(compressedData, $"Embedded image {entryIndex}", "Storage"));
+                    }
+                    catch (InvalidDataException)
+                    {
+                        // Corrupted compressed data; skip this entry
+                        result.Add(null);
+                        diagnostics?.Add(new AltiumDiagnostic(DiagnosticSeverity.Warning, $"Corrupted compressed data at entry {entryIndex}", "Storage"));
+                    }
                 }
 
                 // Ensure we advance to end of block

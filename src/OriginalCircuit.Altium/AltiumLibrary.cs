@@ -62,6 +62,22 @@ public static class AltiumLibrary
     }
 
     /// <summary>
+    /// Opens a PCB footprint library from a stream with the given reader options, for example to skip embedded
+    /// payloads (<see cref="AltiumReaderOptions.ReadEmbeddedPayloads"/>) or bound what they inflate to.
+    /// </summary>
+    /// <remarks>The stream must be seekable. It is only read, never written to (even when writable), and is left open.</remarks>
+    public static ValueTask<IPcbLibrary> OpenPcbLibAsync(
+        Stream stream,
+        AltiumReaderOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        cancellationToken.ThrowIfCancellationRequested();
+        var reader = new PcbLibReader(options);
+        return new ValueTask<IPcbLibrary>(reader.Read(stream, cancellationToken));
+    }
+
+    /// <summary>
     /// Opens a schematic symbol library file.
     /// </summary>
     public static async ValueTask<ISchLibrary> OpenSchLibAsync(
@@ -82,6 +98,22 @@ public static class AltiumLibrary
     {
         cancellationToken.ThrowIfCancellationRequested();
         var reader = new SchLibReader();
+        return new ValueTask<ISchLibrary>(reader.Read(stream, cancellationToken));
+    }
+
+    /// <summary>
+    /// Opens a schematic library from a stream with the given reader options, for example to skip embedded
+    /// payloads (<see cref="AltiumReaderOptions.ReadEmbeddedPayloads"/>) or bound what they inflate to.
+    /// </summary>
+    /// <remarks>The stream must be seekable. It is only read, never written to (even when writable), and is left open.</remarks>
+    public static ValueTask<ISchLibrary> OpenSchLibAsync(
+        Stream stream,
+        AltiumReaderOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        cancellationToken.ThrowIfCancellationRequested();
+        var reader = new SchLibReader(options);
         return new ValueTask<ISchLibrary>(reader.Read(stream, cancellationToken));
     }
 
@@ -110,6 +142,22 @@ public static class AltiumLibrary
     }
 
     /// <summary>
+    /// Opens a schematic document from a stream with the given reader options, for example to skip embedded
+    /// payloads (<see cref="AltiumReaderOptions.ReadEmbeddedPayloads"/>) or bound what they inflate to.
+    /// </summary>
+    /// <remarks>The stream must be seekable. It is only read, never written to (even when writable), and is left open.</remarks>
+    public static ValueTask<ISchDocument> OpenSchDocAsync(
+        Stream stream,
+        AltiumReaderOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        cancellationToken.ThrowIfCancellationRequested();
+        var reader = new SchDocReader(options);
+        return new ValueTask<ISchDocument>(reader.Read(stream, cancellationToken));
+    }
+
+    /// <summary>
     /// Opens a PCB document file.
     /// </summary>
     public static async ValueTask<IPcbDocument> OpenPcbDocAsync(
@@ -133,6 +181,22 @@ public static class AltiumLibrary
     {
         cancellationToken.ThrowIfCancellationRequested();
         var reader = new PcbDocReader();
+        return new ValueTask<IPcbDocument>(reader.Read(stream, cancellationToken));
+    }
+
+    /// <summary>
+    /// Opens a PCB document from a stream with the given reader options, for example to skip embedded
+    /// payloads (<see cref="AltiumReaderOptions.ReadEmbeddedPayloads"/>) or bound what they inflate to.
+    /// </summary>
+    /// <remarks>The stream must be seekable. It is only read, never written to (even when writable), and is left open.</remarks>
+    public static ValueTask<IPcbDocument> OpenPcbDocAsync(
+        Stream stream,
+        AltiumReaderOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        cancellationToken.ThrowIfCancellationRequested();
+        var reader = new PcbDocReader(options);
         return new ValueTask<IPcbDocument>(reader.Read(stream, cancellationToken));
     }
 

@@ -94,8 +94,11 @@ public sealed class PcbModel
         => Checksum = unchecked((int)ComputeChecksum(Encoding.UTF8.GetBytes(StepData)));
 
     /// <param name="dataStreamBytes">Raw bytes of the <c>Data</c> metadata stream, or null/empty if absent.</param>
-    /// <param name="getModelStreamBytes">Returns the bytes of numbered payload stream <paramref name="getModelStreamBytes"/>(i), or null to stop.</param>
-    internal static List<PcbModel> ParseModels(byte[]? dataStreamBytes, Func<int, byte[]?> getModelStreamBytes)
+    /// <param name="getModelStream">Returns numbered payload stream i, or null to stop.</param>
+    /// <param name="budget">What the payloads may inflate to; a payload left out keeps an empty <see cref="StepData"/>.</param>
+    internal static List<PcbModel> ParseModels(byte[]? dataStreamBytes,
+        Func<int, OriginalCircuit.Altium.Serialization.Compound.CompoundStream?> getModelStream,
+        OriginalCircuit.Altium.Serialization.Binary.PayloadBudget budget)
     {
         var models = new List<PcbModel>();
 
@@ -127,8 +130,8 @@ public sealed class PcbModel
         // Read numbered STEP streams (0, 1, 2, ...) - zlib compressed STEP text.
         for (var i = 0; ; i++)
         {
-            var compressedData = getModelStreamBytes(i);
-            if (compressedData is null)
+            var modelStream = getModelStream(i);
+            if (modelStream is null)
                 break;
 
             var model = new PcbModel();
@@ -149,14 +152,9 @@ public sealed class PcbModel
                 if (meta.TryGetValue("CHECKSUM", out var cs) && int.TryParse(cs, NumberStyles.Integer, CultureInfo.InvariantCulture, out var csVal)) model.Checksum = csVal;
             }
 
-            if (compressedData.Length > 0)
-            {
-                using var ms = new MemoryStream(compressedData);
-                using var zs = new ZLibStream(ms, CompressionMode.Decompress);
-                using var outMs = new MemoryStream();
-                zs.CopyTo(outMs);
-                model.StepData = Encoding.UTF8.GetString(outMs.ToArray());
-            }
+            if (budget.ReadsPayloads && modelStream.GetData() is { Length: > 0 } compressedData
+                && budget.Inflate(compressedData, $"Embedded 3D model {i}", "Models") is { } stepBytes)
+                model.StepData = Encoding.UTF8.GetString(stepBytes);
 
             models.Add(model);
         }
