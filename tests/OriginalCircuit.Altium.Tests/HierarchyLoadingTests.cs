@@ -451,6 +451,56 @@ public sealed class HierarchyLoadingTests
         Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.SheetSymbolNotFollowed);
     }
 
+    // ---- diagnostics name their document the same way ----
+
+    [Fact]
+    public void DiagnosticsAboutOneDocument_ShareItsKey()
+    {
+        var c1 = Sheet("C1.SchDoc",
+            Symbol("A", "c1.schdoc", "SYMSELFA", xMils: 1000),
+            Symbol("B", "C1.SchDoc", "SYMSELFB", xMils: 3000));
+
+        var hierarchy = ProjectHierarchy.Build(null, new[] { c1 });
+
+        var cycles = hierarchy.Diagnostics.Where(d => d.Code == AltiumDiagnosticCode.SheetCycle).ToList();
+        Assert.Equal(new[] { "c1.schdoc", "C1.SchDoc" }, cycles.Select(d => d.DocumentName).ToArray());
+        Assert.Equal(new[] { "c1.schdoc", "C1.SchDoc" }, cycles.Select(d => d.DocumentPath).ToArray());
+        Assert.All(cycles, d => Assert.Equal("C1.SchDoc", d.DocumentKey));
+        Assert.Equal(hierarchy.Sheets[0].DocumentKey, cycles[0].DocumentKey);
+    }
+
+    [Fact]
+    public void DiagnosticsAboutOneMissingDocument_ShareItsFirstSpelling()
+    {
+        var top = Sheet("Top.SchDoc",
+            Symbol("A", @"Sub\Gone.SchDoc", "SYMGONEA", xMils: 1000),
+            Symbol("B", "gone.schdoc ", "SYMGONEB", xMils: 3000));
+
+        var hierarchy = ProjectHierarchy.Build(Project("Top.SchDoc", "GONE.SchDoc"), new[] { top });
+
+        var about = hierarchy.Diagnostics.Where(d => d.Code is AltiumDiagnosticCode.DocumentNotSupplied or AltiumDiagnosticCode.SubSheetNotSupplied).ToList();
+        Assert.Equal(3, about.Count);
+        Assert.All(about, d => Assert.Equal("GONE.SchDoc", d.DocumentKey));
+        Assert.Equal(new[] { "GONE.SchDoc", @"Sub\Gone.SchDoc", "gone.schdoc " }, about.Select(d => d.DocumentPath).ToArray());
+    }
+
+    [Fact]
+    public async Task DiagnosticsFromTheDiskLoader_UseTheFilesKey()
+    {
+        using var folder = new Folder(
+            ("Top.SchDoc", Sheet("Top.SchDoc", Symbol("SUB", @"Sheets\Sub.SchDoc", "SYMSUBAA"))),
+            (@"Sheets\Sub.SchDoc", Sheet("Sub.SchDoc", Symbol("UP", @"..\Top.SchDoc", "SYMUPAAA"))));
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(folder.Project("Top.SchDoc"));
+
+        var cycle = Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.SheetCycle);
+        Assert.Equal(hierarchy.Roots[0].DocumentKey, cycle.DocumentKey);
+        Assert.Equal(@"..\Top.SchDoc", cycle.DocumentPath);
+        var unlisted = Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.UnlistedSheetLoaded);
+        Assert.Equal(hierarchy.Sheets[1].DocumentKey, unlisted.DocumentKey);
+        Assert.Equal(@"Sheets\Sub.SchDoc", unlisted.DocumentPath);
+    }
+
     [Fact]
     public void Siblings_AreOrderedBottomToTopThenLeftToRight()
     {

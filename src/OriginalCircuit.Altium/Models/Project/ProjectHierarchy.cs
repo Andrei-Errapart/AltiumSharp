@@ -289,6 +289,7 @@ public sealed class ProjectHierarchy
                 {
                     Code = AltiumDiagnosticCode.DuplicateDocumentName,
                     DocumentName = name,
+                    DocumentKey = name,
                 });
                 continue;
             }
@@ -597,12 +598,14 @@ public sealed class ProjectHierarchy
                     continue;
                 }
                 opened.Add(name);
-                if (await TakeAsync(source, item.Path, name, item.On, item.Listed, request) is not null && !item.Listed)
+                if (await TakeAsync(source, item.Path, name, item.On, item.Listed, request) is { } read && !item.Listed)
                     diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Info,
                         $"Sheet '{item.Path}' is used by a sheet symbol but is not a project document; it was loaded too.")
                     {
                         Code = AltiumDiagnosticCode.UnlistedSheetLoaded,
                         DocumentName = item.Path,
+                        DocumentKey = read.Key,
+                        DocumentPath = item.Path,
                     });
             }
 
@@ -631,6 +634,8 @@ public sealed class ProjectHierarchy
                         {
                             Code = AltiumDiagnosticCode.SheetFoundByFileName,
                             DocumentName = path,
+                            DocumentKey = document.Key,
+                            DocumentPath = path,
                         });
                     }
                 }
@@ -712,6 +717,8 @@ public sealed class ProjectHierarchy
             {
                 Code = AltiumDiagnosticCode.DuplicateDocumentName,
                 DocumentName = path,
+                DocumentKey = name,
+                DocumentPath = path,
             });
         }
     }
@@ -729,6 +736,8 @@ public sealed class ProjectHierarchy
             {
                 Code = AltiumDiagnosticCode.SharedFileName,
                 DocumentName = document.Path,
+                DocumentKey = document.Key,
+                DocumentPath = document.Path,
             });
         }
     }
@@ -752,6 +761,8 @@ public sealed class ProjectHierarchy
         {
             Code = AltiumDiagnosticCode.DocumentNotSupplied,
             DocumentName = path,
+            DocumentKey = NormalizeFileName(path),
+            DocumentPath = path,
         };
 
     // The first existing file for a document path, resolved as Windows resolves it (NormalizePath) on
@@ -869,11 +880,12 @@ public sealed class ProjectHierarchy
         var instantiated = new HashSet<string>(_sheets.Select(s => s.DocumentKey), StringComparer.OrdinalIgnoreCase);
         foreach (var document in _held.Where(d => !instantiated.Contains(d.Key)))
             Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.SheetNotInHierarchy,
-                $"Sheet '{Describe(document)}' is not part of the hierarchy and was left out.", document: document.Name);
+                $"Sheet '{Describe(document)}' is not part of the hierarchy and was left out.", document: document.Name, key: document.Key);
 
         AssignRooms();
         CollectParts();
         MergeComponents();
+        SpellDocumentKeys();
     }
 
     // A document's file name, or the path it was read for when another document has that file name.
@@ -909,7 +921,7 @@ public sealed class ProjectHierarchy
         if (top is not null)
             Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.StructureFileStale,
                 $"The structure file's top-level document '{top}' is {(topDocument is not null ? "used by a sheet symbol" : "not supplied")}; the roots are the sheets no sheet symbol uses.",
-                document: top);
+                document: top, key: topDocument?.Key ?? top, path: Project?.Structure?.TopLevelDocument);
         else if (Project is not null)
             Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.StructureFileMissing,
                 "The project has no structure file naming its top-level document; the roots are the sheets no sheet symbol uses.");
@@ -919,7 +931,7 @@ public sealed class ProjectHierarchy
         {
             Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.NoRootSheet,
                 $"Every sheet is used by a sheet symbol (a cycle); the hierarchy starts from '{Describe(_held[0])}'.",
-                document: _held[0].Name);
+                document: _held[0].Name, key: _held[0].Key);
             roots.Add(_held[0]);
         }
         return roots;
@@ -996,14 +1008,15 @@ public sealed class ProjectHierarchy
             {
                 ReportSymbol(DiagnosticSeverity.Info, AltiumDiagnosticCode.SheetSymbolNotFollowed,
                     $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' was not followed (ProjectHierarchyOptions.FollowSheetSymbol).",
-                    frame.Instance, symbol, symbol.FileName);
+                    frame.Instance, symbol, symbol.FileName, path: symbol.FileName);
                 continue;
             }
             var childName = NormalizeFileName(symbol.FileName);
             if (childName is null)
             {
                 ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SheetSymbolWithoutFile,
-                    $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' names no sheet file.", frame.Instance, symbol, fileName);
+                    $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' names no sheet file.", frame.Instance, symbol, fileName,
+                    path: symbol.FileName);
                 continue;
             }
             if (_finder.Find(frame.Document, symbol, childName, out var byFileName) is not { } child)
@@ -1011,18 +1024,19 @@ public sealed class ProjectHierarchy
                 AddMissing(symbol.FileName!);
                 ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SubSheetNotSupplied,
                     $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' uses sub-sheet '{symbol.FileName}', which was not supplied.",
-                    frame.Instance, symbol, symbol.FileName);
+                    frame.Instance, symbol, symbol.FileName, key: childName, path: symbol.FileName);
                 continue;
             }
             if (byFileName)
                 ReportSymbol(DiagnosticSeverity.Info, AltiumDiagnosticCode.SheetFoundByFileName,
                     $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' uses '{symbol.FileName}', which was not found at its path; " +
-                    $"'{child.Location ?? child.Name}' was read for its file name.", frame.Instance, symbol, symbol.FileName);
+                    $"'{child.Location ?? child.Name}' was read for its file name.", frame.Instance, symbol, symbol.FileName,
+                    key: child.Key, path: symbol.FileName);
             if (ancestors.Contains(child))
             {
                 ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.SheetCycle,
                     $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' uses '{childName}', which is one of its own parents; the cycle was skipped.",
-                    frame.Instance, symbol, childName);
+                    frame.Instance, symbol, childName, key: child.Key, path: symbol.FileName);
                 continue;
             }
             if (frame.Instance.Depth >= _options.MaxDepth)
@@ -1030,7 +1044,7 @@ public sealed class ProjectHierarchy
                 IsTruncated = true;
                 Report(DiagnosticSeverity.Error, AltiumDiagnosticCode.MaxDepthExceeded,
                     $"The hierarchy is deeper than {_options.MaxDepth} levels (ProjectHierarchyOptions.MaxDepth); sheets below that depth were left out.",
-                    frame.Instance, symbol, childName);
+                    frame.Instance, symbol, childName, key: child.Key, path: symbol.FileName);
                 continue;
             }
 
@@ -1039,7 +1053,7 @@ public sealed class ProjectHierarchy
                 ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnreadableRepeat,
                     $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' has a Repeat(...) that cannot be read " +
                     "(it needs a name and two whole numbers at most 100,000 apart); it is treated as one instance.",
-                    frame.Instance, symbol, childName);
+                    frame.Instance, symbol, childName, key: child.Key, path: symbol.FileName);
 
             frame.Symbol = symbol;
             frame.Child = child;
@@ -1059,7 +1073,7 @@ public sealed class ProjectHierarchy
         {
             Stop(AltiumDiagnosticCode.MaxSheetInstancesExceeded,
                 $"The hierarchy has more than {_options.MaxSheetInstances} sheet instances (ProjectHierarchyOptions.MaxSheetInstances); " +
-                "the walk stopped there.", parent, symbol, held.Name);
+                "the walk stopped there.", parent, symbol, held);
             return null;
         }
         var parts = DesignatedComponentCount(held.Document);
@@ -1067,7 +1081,7 @@ public sealed class ProjectHierarchy
         {
             Stop(AltiumDiagnosticCode.MaxComponentPartsExceeded,
                 $"The design places more than {_options.MaxComponentParts} component parts (ProjectHierarchyOptions.MaxComponentParts); " +
-                "the walk stopped there.", parent, symbol, held.Name);
+                "the walk stopped there.", parent, symbol, held);
             return null;
         }
         _plannedParts += parts;
@@ -1099,11 +1113,11 @@ public sealed class ProjectHierarchy
             _missing.Add(path);
     }
 
-    private void Stop(AltiumDiagnosticCode code, string message, HierarchySheetInstance? sheet, SchSheetSymbol? symbol, string document)
+    private void Stop(AltiumDiagnosticCode code, string message, HierarchySheetInstance? sheet, SchSheetSymbol? symbol, HeldDocument document)
     {
         _stopped = true;
         IsTruncated = true;
-        Report(DiagnosticSeverity.Error, code, message, sheet, symbol, document);
+        Report(DiagnosticSeverity.Error, code, message, sheet, symbol, document.Name, key: document.Key, path: symbol?.FileName);
     }
 
     /// <summary>
@@ -1204,7 +1218,8 @@ public sealed class ProjectHierarchy
             }
             if (skipped > 0)
                 Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.ComponentWithoutDesignator,
-                    $"{skipped} component(s) on '{sheet.FileName}' have no designator and were left out.", sheet, document: sheet.FileName);
+                    $"{skipped} component(s) on '{sheet.FileName}' have no designator and were left out.", sheet, document: sheet.FileName,
+                    key: sheet.DocumentKey);
         }
     }
 
@@ -1445,24 +1460,24 @@ public sealed class ProjectHierarchy
     // Reports each message once; a problem met again keeps the location where it was first found.
     private void Report(DiagnosticSeverity severity, AltiumDiagnosticCode code, string message,
         HierarchySheetInstance? sheet = null, SchSheetSymbol? symbol = null, string? document = null, string? designator = null,
-        IReadOnlyList<string>? tokens = null, IReadOnlyList<HierarchySheetInstance>? instances = null)
+        IReadOnlyList<string>? tokens = null, IReadOnlyList<HierarchySheetInstance>? instances = null, string? key = null, string? path = null)
     {
         if (_reported.Add(message))
-            Add(severity, code, message, sheet, symbol, document, designator, tokens, instances);
+            Add(severity, code, message, sheet, symbol, document, designator, tokens, instances, key, path);
     }
 
     // Reports a problem with one sheet symbol once, however many instances of its sheet the walk
     // visits, so symbols with the same problem on one sheet are each reported.
     private void ReportSymbol(DiagnosticSeverity severity, AltiumDiagnosticCode code, string message,
-        HierarchySheetInstance sheet, SchSheetSymbol symbol, string? document)
+        HierarchySheetInstance sheet, SchSheetSymbol symbol, string? document, string? key = null, string? path = null)
     {
         if (_reportedSymbols.Add((code, symbol)))
-            Add(severity, code, message, sheet, symbol, document, designator: null, tokens: null, instances: null);
+            Add(severity, code, message, sheet, symbol, document, designator: null, tokens: null, instances: null, key, path);
     }
 
     private void Add(DiagnosticSeverity severity, AltiumDiagnosticCode code, string message,
         HierarchySheetInstance? sheet, SchSheetSymbol? symbol, string? document, string? designator, IReadOnlyList<string>? tokens,
-        IReadOnlyList<HierarchySheetInstance>? instances) =>
+        IReadOnlyList<HierarchySheetInstance>? instances, string? key, string? path) =>
         _diagnostics.Add(new AltiumDiagnostic(severity, message)
         {
             Code = code,
@@ -1470,9 +1485,29 @@ public sealed class ProjectHierarchy
             SheetInstances = instances,
             SheetSymbol = symbol,
             DocumentName = document,
+            DocumentKey = key,
+            DocumentPath = path,
             Designator = designator,
             DesignatorTokens = tokens,
         });
+
+    // Gives every diagnostic about one document the same DocumentKey string: the key the hierarchy
+    // holds the document by, else the first spelling of the file name of one it does not hold.
+    private void SpellDocumentKeys()
+    {
+        var spelling = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var document in _held)
+            spelling.TryAdd(document.Key, document.Key);
+        for (var i = 0; i < _diagnostics.Count; i++)
+        {
+            if (_diagnostics[i].DocumentKey is not { } key)
+                continue;
+            if (!spelling.TryGetValue(key, out var spelled))
+                spelling[key] = spelled = key;
+            if (!string.Equals(spelled, key, StringComparison.Ordinal))
+                _diagnostics[i] = _diagnostics[i] with { DocumentKey = spelled };
+        }
+    }
 
     private static string SymbolName(SchSheetSymbol symbol) =>
         (symbol.NameLabel?.Text ?? symbol.SheetName) is { } name && !string.IsNullOrWhiteSpace(name) ? name : "(unnamed)";

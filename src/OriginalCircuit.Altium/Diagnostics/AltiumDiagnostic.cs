@@ -29,6 +29,24 @@ public sealed record AltiumDiagnostic(
     public string? DocumentName { get; init; }
 
     /// <summary>
+    /// The document a <see cref="ProjectHierarchy"/> diagnostic is about, the same string for every
+    /// diagnostic about one document, so callers can group them without normalizing paths or folding
+    /// case: for a document the hierarchy holds, its key (<see cref="HierarchySheetInstance.DocumentKey"/>,
+    /// a key of <c>ProjectHierarchy.DocumentsByKey</c>); for one it does not hold, such as a document
+    /// that was not supplied, its file name (<c>ProjectHierarchy.NormalizeFileName</c>) as first spelled.
+    /// For a sheet-symbol diagnostic it is the document the symbol places (the missing sub-sheet, the
+    /// ancestor of a cycle); <c>null</c> when the symbol places none (no file name, not followed) and for
+    /// diagnostics about no document. <see cref="DocumentName"/> keeps its meaning for each code.
+    /// </summary>
+    public string? DocumentKey { get; init; }
+
+    /// <summary>
+    /// The path as written in the project or the sheet symbol, when a <see cref="ProjectHierarchy"/>
+    /// diagnostic is about one (e.g. <c>"Sub\Gone.SchDoc"</c> or <c>"Main.SchDoc\."</c>); <c>null</c> otherwise.
+    /// </summary>
+    public string? DocumentPath { get; init; }
+
+    /// <summary>
     /// The <see cref="ProjectHierarchy"/> sheet instance the diagnostic concerns, when there is one:
     /// for a sheet-symbol problem, the instance of the sheet the symbol is on.
     /// </summary>
