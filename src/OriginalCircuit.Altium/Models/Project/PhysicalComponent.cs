@@ -16,8 +16,9 @@ public sealed class PhysicalComponentPart
         Sheet = sheet;
         LogicalDesignator = logicalDesignator;
         PhysicalDesignator = physicalDesignator;
-        UniqueIdPath = sheet.UniqueIdPath + "\\" + component.UniqueId;
     }
+
+    private string? _uniqueIdPath;
 
     /// <summary>The component record.</summary>
     public SchComponent Component { get; }
@@ -38,8 +39,9 @@ public sealed class PhysicalComponentPart
     /// The instance path of this record, e.g. <c>"\5ABCDEFGH\IJKLMNOP"</c>: the sheet's
     /// <see cref="HierarchySheetInstance.UniqueIdPath"/> plus the component's unique id. Equal to the
     /// PCB component's <c>SourceUniqueId</c> (which carries one part's id) and a variant's <c>UniqueId</c>.
+    /// It is built when first read.
     /// </summary>
-    public string UniqueIdPath { get; }
+    public string UniqueIdPath => _uniqueIdPath ??= Sheet.UniqueIdPath + "\\" + Component.UniqueId;
 
     /// <summary>The physical component this part belongs to.</summary>
     public PhysicalComponent Owner { get; internal set; } = null!;

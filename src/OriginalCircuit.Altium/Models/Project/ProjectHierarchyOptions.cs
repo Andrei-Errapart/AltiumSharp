@@ -13,6 +13,9 @@ public sealed class ProjectHierarchyOptions
     private readonly int _maxDepth = 64;
     private readonly int _maxSheetInstances = 10_000;
     private readonly int _maxComponentParts = 200_000;
+    private readonly int _maxUniqueIdLength = 255;
+    private readonly int _maxDesignatorLength = 255;
+    private readonly int _maxRoomNameLength = 255;
 
     /// <summary>The default limits.</summary>
     public static ProjectHierarchyOptions Default { get; } = new();
@@ -52,6 +55,49 @@ public sealed class ProjectHierarchyOptions
     /// the same answer each time.
     /// </summary>
     public Func<SchSheetSymbol, bool>? FollowSheetSymbol { get; init; }
+
+    /// <summary>
+    /// The longest unique id taken: a sheet symbol's (or, for a symbol without one, the name its path
+    /// uses instead) and a component's. A sheet symbol with a longer one is not followed and a component
+    /// with a longer one is left out, with an error. Altium's unique ids have 8 characters. Default 255.
+    /// </summary>
+    public int MaxUniqueIdLength
+    {
+        get => _maxUniqueIdLength;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
+            _maxUniqueIdLength = value;
+        }
+    }
+
+    /// <summary>
+    /// The longest component designator taken; a component with a longer one is left out, and a channel
+    /// designator format longer than this is replaced by the default one, with a diagnostic. Default 255.
+    /// </summary>
+    public int MaxDesignatorLength
+    {
+        get => _maxDesignatorLength;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
+            _maxDesignatorLength = value;
+        }
+    }
+
+    /// <summary>
+    /// The longest channel name taken (a <c>Repeat</c> name, or the designator a room is named after); a
+    /// sheet symbol with a longer one is not followed, with an error. Default 255.
+    /// </summary>
+    public int MaxRoomNameLength
+    {
+        get => _maxRoomNameLength;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
+            _maxRoomNameLength = value;
+        }
+    }
 
     /// <summary>
     /// The options the loaders (<c>ProjectHierarchy.LoadAsync</c>) read sheets with;

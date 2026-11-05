@@ -58,14 +58,13 @@ public sealed class ProjectHierarchy
     private readonly HashSet<(AltiumDiagnosticCode, SchSheetSymbol)> _reportedSymbols = new();
     private readonly Dictionary<string, List<PhysicalComponent>> _byDesignator = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _duplicateDesignators = new();
-    private readonly Dictionary<string, PhysicalComponentPart> _partByUniqueIdPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<PhysicalComponentPart>> _partsByComponentUid = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, HierarchySheetInstance> _sheetByUniqueIdPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<SchDocument, int> _designatedCounts = new(ReferenceEqualityComparer.Instance);
     private readonly List<string> _missing = new();
     private readonly HashSet<string> _missingNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _unfilledTokens = new(StringComparer.OrdinalIgnoreCase);
     private bool _formatHasUnknownTokens;
+    private bool _formatTooLong;
     private long _plannedParts;
     private bool _stopped;
     private CancellationToken _cancellationToken;
@@ -197,16 +196,20 @@ public sealed class ProjectHierarchy
     public PhysicalComponent? FindComponentByUniqueIdPath(string uniqueIdPath)
     {
         ArgumentNullException.ThrowIfNull(uniqueIdPath);
-        if (_partByUniqueIdPath.TryGetValue(uniqueIdPath, out var part))
-            return part.Owner;
-
         var split = uniqueIdPath.LastIndexOf('\\');
         if (split < 0)
             return null;
+        var sheetPath = uniqueIdPath[..split];
         var componentUid = uniqueIdPath[(split + 1)..];
+        foreach (var at in SheetsAt(sheetPath))
+        {
+            if (at.PartWithUniqueId(componentUid) is { } part)
+                return part.Owner;
+        }
+
         if (!_partsByComponentUid.TryGetValue(componentUid, out var candidates))
             return null;
-        if (!_sheetByUniqueIdPath.TryGetValue(uniqueIdPath[..split], out var sheet))
+        if ((sheetPath.Length == 0 ? null : SheetsAt(sheetPath).FirstOrDefault()) is not { } sheet)
             return candidates.Count == 1 ? candidates[0].Owner : null;
         foreach (var candidate in candidates)
         {
@@ -220,7 +223,32 @@ public sealed class ProjectHierarchy
     public HierarchySheetInstance? FindSheetByUniqueIdPath(string uniqueIdPath)
     {
         ArgumentNullException.ThrowIfNull(uniqueIdPath);
-        return _sheetByUniqueIdPath.GetValueOrDefault(uniqueIdPath);
+        return uniqueIdPath.Length == 0 ? null : SheetsAt(uniqueIdPath).FirstOrDefault();
+    }
+
+    // The sheet instances whose UniqueIdPath is the path (ignoring case), in Sheets order, found from
+    // the roots segment by segment, so no instance's path need be built.
+    private IEnumerable<HierarchySheetInstance> SheetsAt(string uniqueIdPath)
+    {
+        if (uniqueIdPath.Length > 0 && uniqueIdPath[0] != '\\')
+            yield break;
+        var segments = uniqueIdPath.Length == 0 ? Array.Empty<string>() : uniqueIdPath[1..].Split('\\');
+        var pending = new Stack<(HierarchySheetInstance Sheet, int Matched)>();
+        for (var i = _roots.Count - 1; i >= 0; i--)
+            pending.Push((_roots[i], 0));
+        while (pending.TryPop(out var item))
+        {
+            if (item.Matched == segments.Length)
+            {
+                yield return item.Sheet;
+                continue;
+            }
+            if (item.Sheet.ChildrenWithSegment(segments[item.Matched]) is { } children)
+            {
+                for (var i = children.Count - 1; i >= 0; i--)
+                    pending.Push((children[i], item.Matched + 1));
+            }
+        }
     }
 
     // ---- Construction ------------------------------------------------------------------------------
@@ -865,7 +893,12 @@ public sealed class ProjectHierarchy
         if (RoomNamingStyle != "0")
             Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnsupportedRoomNamingStyle,
                 $"Channel room naming style {RoomNamingStyle} is not modelled; rooms are named as for style 0 (flat numbered).");
-        var unknownTokens = DesignatorTokens(DesignatorFormat).Where(t => !IsKnownToken(t)).ToList();
+        _formatTooLong = DesignatorFormat.Length > _options.MaxDesignatorLength;
+        if (_formatTooLong)
+            Report(DiagnosticSeverity.Warning, AltiumDiagnosticCode.MaxDesignatorLengthExceeded,
+                $"The channel designator format has {DesignatorFormat.Length:N0} characters, more than {_options.MaxDesignatorLength} " +
+                $"(ProjectHierarchyOptions.MaxDesignatorLength); channel components use {DefaultDesignatorFormat} instead.");
+        var unknownTokens = _formatTooLong ? new List<string>() : DesignatorTokens(DesignatorFormat).Where(t => !IsKnownToken(t)).ToList();
         _formatHasUnknownTokens = unknownTokens.Count > 0;
         if (_formatHasUnknownTokens)
         {
@@ -1053,7 +1086,29 @@ public sealed class ProjectHierarchy
                 continue;
             }
 
+            var symbolUid = string.IsNullOrEmpty(symbol.UniqueId) ? (symbol.SheetName ?? childName) : symbol.UniqueId;
+            if (symbolUid.Length > _options.MaxUniqueIdLength)
+            {
+                IsTruncated = true;
+                ReportSymbol(DiagnosticSeverity.Error, AltiumDiagnosticCode.MaxUniqueIdLengthExceeded,
+                    $"Sheet symbol '{Shortened(SymbolName(symbol))}' on '{fileName}' has a unique id of {symbolUid.Length:N0} characters, more than " +
+                    $"{_options.MaxUniqueIdLength} (ProjectHierarchyOptions.MaxUniqueIdLength); its sheet was left out.",
+                    frame.Instance, symbol, childName, key: child.Key, path: symbol.FileName);
+                continue;
+            }
             var repeat = symbol.Repeat;
+            var channelName = repeat.IsRepeated ? repeat.ChannelName
+                : (symbol.NameLabel?.Text ?? symbol.SheetName)?.Trim() is { Length: > 0 } designator ? designator
+                : Path.GetFileNameWithoutExtension(childName);
+            if (channelName.Length > _options.MaxRoomNameLength)
+            {
+                IsTruncated = true;
+                ReportSymbol(DiagnosticSeverity.Error, AltiumDiagnosticCode.MaxRoomNameLengthExceeded,
+                    $"Sheet symbol '{Shortened(SymbolName(symbol))}' on '{fileName}' names its channel with {channelName.Length:N0} characters, more than " +
+                    $"{_options.MaxRoomNameLength} (ProjectHierarchyOptions.MaxRoomNameLength); its sheet was left out.",
+                    frame.Instance, symbol, childName, key: child.Key, path: symbol.FileName);
+                continue;
+            }
             if (repeat.IsUnreadable)
                 ReportSymbol(DiagnosticSeverity.Warning, AltiumDiagnosticCode.UnreadableRepeat,
                     $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' has a Repeat(...) that cannot be read " +
@@ -1062,7 +1117,7 @@ public sealed class ProjectHierarchy
 
             frame.Symbol = symbol;
             frame.Child = child;
-            frame.SymbolUid = string.IsNullOrEmpty(symbol.UniqueId) ? (symbol.SheetName ?? childName) : symbol.UniqueId;
+            frame.SymbolUid = symbolUid;
             frame.Repeat = repeat;
             frame.NextIndex = repeat.FirstInstance;
             return true;
@@ -1094,8 +1149,6 @@ public sealed class ProjectHierarchy
         var instance = new HierarchySheetInstance(_sheets.Count, held.Document, held.Name, held.Key, parent, symbol, repeatIndex, symbolUniqueIds);
         _sheets.Add(instance);
         parent?.AddChild(instance);
-        if (instance.UniqueIdPath.Length > 0)
-            _sheetByUniqueIdPath.TryAdd(instance.UniqueIdPath, instance);
         return instance;
     }
 
@@ -1151,19 +1204,13 @@ public sealed class ProjectHierarchy
         {
             sheet.Ordinal = instancesPerFile[sheet.DocumentKey] = instancesPerFile.GetValueOrDefault(sheet.DocumentKey) + 1;
             if (sheet.Parent is null || sheet.SheetSymbol is not { } symbol)
-            {
-                sheet.HierarchicalPath = Path.GetFileNameWithoutExtension(sheet.FileName);
                 continue;
-            }
             var designator = sheet.SymbolDesignator?.Trim();
             sheet.ChannelName = sheet.RepeatIndex is null
                 ? (string.IsNullOrEmpty(designator) ? Path.GetFileNameWithoutExtension(sheet.FileName) : designator)
                 : symbol.Repeat.ChannelName;
             if (sheet.RepeatIndex is null)
                 namedCount[sheet.ChannelName!] = namedCount.GetValueOrDefault(sheet.ChannelName!) + 1;
-            // Parents precede children in _sheets, so the parent's path is already set.
-            sheet.HierarchicalPath = sheet.Parent.HierarchicalPath + "\\" + sheet.ChannelName
-                + (sheet.RepeatIndex is { } k ? k.ToString(CultureInfo.InvariantCulture) : string.Empty);
         }
 
         var numbered = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -1199,6 +1246,8 @@ public sealed class ProjectHierarchy
         {
             _cancellationToken.ThrowIfCancellationRequested();
             var skipped = 0;
+            var longDesignators = 0;
+            var longUniqueIds = 0;
             foreach (var component in sheet.Document.Components.OfType<SchComponent>())
             {
                 var logical = component.Designator?.Trim();
@@ -1207,13 +1256,22 @@ public sealed class ProjectHierarchy
                     skipped++;
                     continue;
                 }
+                if (logical.Length > _options.MaxDesignatorLength)
+                {
+                    longDesignators++;
+                    continue;
+                }
+                if (component.UniqueId?.Length > _options.MaxUniqueIdLength)
+                {
+                    longUniqueIds++;
+                    continue;
+                }
                 var physical = sheet.IsMultiChannel && sheet.RoomName is { } room
                     ? ChannelDesignator(sheet, logical, room)
                     : logical;
                 var part = new PhysicalComponentPart(component, sheet, logical, physical);
                 sheet.AddPart(part);
                 _parts.Add(part);
-                _partByUniqueIdPath.TryAdd(part.UniqueIdPath, part);
                 if (!string.IsNullOrEmpty(component.UniqueId))
                 {
                     if (!_partsByComponentUid.TryGetValue(component.UniqueId, out var list))
@@ -1225,6 +1283,20 @@ public sealed class ProjectHierarchy
                 Report(DiagnosticSeverity.Info, AltiumDiagnosticCode.ComponentWithoutDesignator,
                     $"{skipped} component(s) on '{sheet.FileName}' have no designator and were left out.", sheet, document: sheet.FileName,
                     key: sheet.DocumentKey);
+            if (longDesignators > 0)
+            {
+                IsTruncated = true;
+                Report(DiagnosticSeverity.Error, AltiumDiagnosticCode.MaxDesignatorLengthExceeded,
+                    $"{longDesignators} component(s) on '{sheet.FileName}' have designators longer than {_options.MaxDesignatorLength} characters " +
+                    "(ProjectHierarchyOptions.MaxDesignatorLength) and were left out.", sheet, document: sheet.FileName, key: sheet.DocumentKey);
+            }
+            if (longUniqueIds > 0)
+            {
+                IsTruncated = true;
+                Report(DiagnosticSeverity.Error, AltiumDiagnosticCode.MaxUniqueIdLengthExceeded,
+                    $"{longUniqueIds} component(s) on '{sheet.FileName}' have unique ids longer than {_options.MaxUniqueIdLength} characters " +
+                    "(ProjectHierarchyOptions.MaxUniqueIdLength) and were left out.", sheet, document: sheet.FileName, key: sheet.DocumentKey);
+            }
         }
     }
 
@@ -1285,6 +1357,8 @@ public sealed class ProjectHierarchy
     // sheet's instances.
     private string ChannelDesignator(HierarchySheetInstance sheet, string logical, string room)
     {
+        if (_formatTooLong)
+            return FormatDesignator(DefaultDesignatorFormat, logical, room);
         var channelIndex = sheet.ChannelIndex ?? sheet.Ordinal;
         if (Expand(DesignatorFormat, logical, room, sheet.ChannelName, channelIndex, out var unfilled) is { } designator
             && unfilled is null)
@@ -1513,6 +1587,9 @@ public sealed class ProjectHierarchy
                 _diagnostics[i] = _diagnostics[i] with { DocumentKey = spelled };
         }
     }
+
+    // A name cut short for a message.
+    private static string Shortened(string name) => name.Length <= 64 ? name : name[..64] + "...";
 
     private static string SymbolName(SchSheetSymbol symbol) =>
         (symbol.NameLabel?.Text ?? symbol.SheetName) is { } name && !string.IsNullOrWhiteSpace(name) ? name : "(unnamed)";

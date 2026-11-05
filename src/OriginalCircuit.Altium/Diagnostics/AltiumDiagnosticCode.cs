@@ -153,4 +153,24 @@ public enum AltiumDiagnosticCode
     /// nothing. <see cref="AltiumDiagnostic.DocumentName"/> is its path as written.
     /// </summary>
     SheetSymbolNotFollowed,
+
+    /// <summary>
+    /// A unique id is longer than <c>ProjectHierarchyOptions.MaxUniqueIdLength</c>: a sheet symbol's
+    /// (<see cref="AltiumDiagnostic.SheetSymbol"/>; its sheet was left out) or components' on
+    /// <see cref="AltiumDiagnostic.SheetInstance"/> (they were left out).
+    /// </summary>
+    MaxUniqueIdLengthExceeded,
+
+    /// <summary>
+    /// Components on <see cref="AltiumDiagnostic.SheetInstance"/> have designators longer than
+    /// <c>ProjectHierarchyOptions.MaxDesignatorLength</c> and were left out, or (a warning, with no sheet)
+    /// the channel designator format is longer and the default format is used instead.
+    /// </summary>
+    MaxDesignatorLengthExceeded,
+
+    /// <summary>
+    /// A sheet symbol's channel name (its <c>Repeat</c> name or designator) is longer than
+    /// <c>ProjectHierarchyOptions.MaxRoomNameLength</c>; its sheet was left out.
+    /// </summary>
+    MaxRoomNameLengthExceeded,
 }
