@@ -1,3 +1,5 @@
+using OriginalCircuit.Altium.Models.Sch;
+
 namespace OriginalCircuit.Altium.Models.Project;
 
 /// <summary>
@@ -39,6 +41,19 @@ public sealed class ProjectHierarchyOptions
             _maxSheetInstances = value;
         }
     }
+
+    /// <summary>
+    /// Decides whether the hierarchy follows a sheet symbol; <c>null</c> (the default) follows every
+    /// one. A symbol it does not follow places nothing: the loaders do not ask for its path, the choice
+    /// of top sheets does not count it as placing its sheet, and the walk skips it with an
+    /// <see cref="Diagnostics.AltiumDiagnosticCode.SheetSymbolNotFollowed"/> diagnostic (not
+    /// <see cref="Diagnostics.AltiumDiagnosticCode.SubSheetNotSupplied"/>). Use it to leave out symbols
+    /// without changing the documents. It may be asked more than once about a symbol and should give
+    /// the same answer each time.
+    /// </summary>
+    public Func<SchSheetSymbol, bool>? FollowSheetSymbol { get; init; }
+
+    internal bool Follows(SchSheetSymbol symbol) => FollowSheetSymbol?.Invoke(symbol) ?? true;
 
     /// <summary>
     /// The most placed component parts (<see cref="ProjectHierarchy.Parts"/>); the walk stops before a

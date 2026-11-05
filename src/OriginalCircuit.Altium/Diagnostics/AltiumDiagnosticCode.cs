@@ -146,4 +146,11 @@ public enum AltiumDiagnosticCode
     /// <see cref="AltiumDiagnostic.DocumentName"/> is the path as written.
     /// </summary>
     SheetFoundByFileName,
+
+    /// <summary>
+    /// A sheet symbol (<see cref="AltiumDiagnostic.SheetSymbol"/>, on <see cref="AltiumDiagnostic.SheetInstance"/>)
+    /// was not followed because <c>ProjectHierarchyOptions.FollowSheetSymbol</c> said so; it places
+    /// nothing. <see cref="AltiumDiagnostic.DocumentName"/> is its path as written.
+    /// </summary>
+    SheetSymbolNotFollowed,
 }

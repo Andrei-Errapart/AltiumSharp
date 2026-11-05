@@ -691,7 +691,7 @@ public sealed class ProjectHierarchy
             // In the order the walk visits them, so Documents lists unlisted sheets in walk order too.
             foreach (var symbol in OrderSiblings(sheet.SheetSymbols))
             {
-                if (!string.IsNullOrWhiteSpace(symbol.FileName))
+                if (!string.IsNullOrWhiteSpace(symbol.FileName) && options.Follows(symbol))
                     queue.Enqueue((symbol.FileName, loaded, false));
             }
             return loaded;
@@ -885,7 +885,7 @@ public sealed class ProjectHierarchy
     // The document a sheet symbol on a held document places, or null when it names no file or
     // none was supplied for it.
     private HeldDocument? Child(HeldDocument on, SchSheetSymbol symbol) =>
-        NormalizeFileName(symbol.FileName) is { } name ? _finder.Find(on, symbol, name) : null;
+        _options.Follows(symbol) && NormalizeFileName(symbol.FileName) is { } name ? _finder.Find(on, symbol, name) : null;
 
     private List<HeldDocument> DetermineRoots()
     {
@@ -992,6 +992,13 @@ public sealed class ProjectHierarchy
         while (frame.NextSymbol < frame.Symbols.Count)
         {
             var symbol = frame.Symbols[frame.NextSymbol++];
+            if (!_options.Follows(symbol))
+            {
+                ReportSymbol(DiagnosticSeverity.Info, AltiumDiagnosticCode.SheetSymbolNotFollowed,
+                    $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' was not followed (ProjectHierarchyOptions.FollowSheetSymbol).",
+                    frame.Instance, symbol, symbol.FileName);
+                continue;
+            }
             var childName = NormalizeFileName(symbol.FileName);
             if (childName is null)
             {

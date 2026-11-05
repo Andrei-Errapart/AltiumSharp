@@ -406,6 +406,51 @@ public sealed class HierarchyLoadingTests
         Assert.Equal(new[] { "Top.SchDoc", "Power.SchDoc" }, hierarchy.DocumentsByKey.Keys.ToArray());
     }
 
+    // ---- symbols the caller does not follow ----
+
+    private static readonly ProjectHierarchyOptions NotEndingInASpace = new()
+    {
+        FollowSheetSymbol = symbol => symbol.FileName is not { } path || !path.EndsWith(' '),
+    };
+
+    [Fact]
+    public void ASymbolNotFollowed_PlacesNothing_AndDoesNotMakeItsSheetAChild()
+    {
+        var top = Sheet("Top.SchDoc", Part("R9", "RNINEAAA"), Symbol("PWR", "Power.SchDoc ", "SYMPOWER"));
+        var power = Sheet("Power.SchDoc", Part("R1", "RONEAAAA"));
+
+        var hierarchy = ProjectHierarchy.Build(Project("Top.SchDoc", "Power.SchDoc"), new[] { top, power }, NotEndingInASpace);
+
+        Assert.Equal(new[] { "Top.SchDoc", "Power.SchDoc" }, hierarchy.Roots.Select(r => r.FileName).ToArray());
+        Assert.Equal(new[] { "R1", "R9" }, Designators(hierarchy));
+        var skipped = Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.SheetSymbolNotFollowed);
+        Assert.Equal("PWR", skipped.SheetSymbol!.SheetName);
+        Assert.Equal("Power.SchDoc ", skipped.DocumentName);
+        Assert.DoesNotContain(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.SubSheetNotSupplied);
+        Assert.Empty(hierarchy.MissingDocuments);
+
+        var followed = ProjectHierarchy.Build(Project("Top.SchDoc", "Power.SchDoc"), new[] { top, power });
+        Assert.Equal("PWR", followed.FindComponent("R1")!.Sheet.RoomName);
+    }
+
+    [Fact]
+    public async Task ASymbolNotFollowed_IsNotAskedFor()
+    {
+        var files = Files(
+            ("Top.SchDoc", Sheet("Top.SchDoc",
+                Symbol("PWR", "Power.SchDoc ", "SYMPOWER", xMils: 1000),
+                Symbol("AMP", "Amp.SchDoc", "SYMAMPAA", xMils: 3000))),
+            ("Power.SchDoc", Sheet("Power.SchDoc", Part("R1", "RONEAAAA"))),
+            ("Amp.SchDoc", Sheet("Amp.SchDoc", Part("C1", "CONEAAAA"))));
+        var asked = new List<string>();
+
+        var hierarchy = await ProjectHierarchy.LoadAsync(Project("Top.SchDoc"), Open(files, asked), NotEndingInASpace);
+
+        Assert.Equal(new[] { "Top.SchDoc", "Amp.SchDoc" }, asked);
+        Assert.Equal(new[] { "C1" }, Designators(hierarchy));
+        Assert.Single(hierarchy.Diagnostics, d => d.Code == AltiumDiagnosticCode.SheetSymbolNotFollowed);
+    }
+
     [Fact]
     public void Siblings_AreOrderedBottomToTopThenLeftToRight()
     {
