@@ -18,6 +18,9 @@ public sealed class SchComponentRenderer
     private readonly CoordTransform _transform;
     private SchComponent? _currentComponent;
 
+    // True while drawing a component instance placed on a sheet (vs. a bare library-symbol preview).
+    private bool _renderingPlacedInstance;
+
     // Document-level context used to resolve title-block special strings (=Title, =Revision, …).
     private IReadOnlyDictionary<string, string>? _documentParameters;
 
@@ -1258,7 +1261,7 @@ public sealed class SchComponentRenderer
         foreach (var connector in document.HarnessConnectors) RenderHarnessConnector(context, connector);
 
         // Component instances (each manages its own _currentComponent scope)
-        foreach (var component in document.Components.Cast<SchComponent>()) Render(component, context);
+        foreach (var component in document.Components.Cast<SchComponent>()) RenderPlacedComponent(component, context);
 
         // Connection points
         foreach (var junction in document.Junctions.Cast<SchJunction>()) RenderJunction(context, junction);
@@ -1270,6 +1273,28 @@ public sealed class SchComponentRenderer
         foreach (var netLabel in document.NetLabels.Cast<SchNetLabel>()) RenderNetLabel(context, netLabel);
         foreach (var parameter in document.Parameters.Cast<SchParameter>()) RenderParameter(context, parameter);
         foreach (var powerObject in document.PowerObjects.Cast<SchPowerObject>()) RenderPowerObject(context, powerObject);
+    }
+
+    /// <summary>
+    /// Renders a component instance placed on a sheet. A placed multi-part symbol (e.g. a 10-part MCU
+    /// split across several sheets) stores every part's pins and body graphics, each tagged with its
+    /// OwnerPartId; the instance shows only the part it represents (<see cref="SchComponent.CurrentPartId"/>),
+    /// like Altium, plus its component-level Designator/Comment parameters.
+    /// </summary>
+    private void RenderPlacedComponent(SchComponent component, IRenderContext context)
+    {
+        var savedFilter = PartFilter;
+        PartFilter = component.CurrentPartId > 0 ? component.CurrentPartId : savedFilter;
+        _renderingPlacedInstance = true;
+        try
+        {
+            Render(component, context);
+        }
+        finally
+        {
+            PartFilter = savedFilter;
+            _renderingPlacedInstance = false;
+        }
     }
 
     // ── Sheet frame (border + title block) ──────────────────────────
@@ -2108,43 +2133,55 @@ public sealed class SchComponentRenderer
         if (PartFilter is not { } partId || partId <= 0)
             return true;
 
-        // All schematic concrete types have OwnerPartId — use dynamic check
-        var ownerPartId = GetOwnerPartId(primitive);
+        var (ownerPartId, ownerDisplayMode) = GetOwnerPart(primitive);
+
+        // A negative OwnerPartId (-1) marks an object owned by the component as a whole rather than one
+        // part — the Designator/Comment parameters. A placed instance on a sheet shows them; a bare
+        // library-symbol preview does not draw them.
+        if (ownerPartId < 0)
+            return _renderingPlacedInstance;
+
         // OwnerPartId 0 means "all parts" (shared across all parts)
-        return ownerPartId == 0 || ownerPartId == partId;
+        if (ownerPartId != 0 && ownerPartId != partId)
+            return false;
+
+        // Alternate display modes (e.g. De Morgan / IEEE graphics) are stored alongside the normal one,
+        // each tagged with OwnerPartDisplayMode; draw only the component's current mode.
+        return _currentComponent is not { DisplayModeCount: > 1 } component
+            || ownerDisplayMode == component.DisplayMode;
     }
 
     /// <summary>
-    /// Gets the OwnerPartId from a primitive via reflection/pattern matching.
-    /// Returns 0 (visible in all parts) if the property is not found.
+    /// Gets the OwnerPartId and OwnerPartDisplayMode from a primitive via pattern matching.
+    /// Returns (0, 0) (visible in all parts, normal mode) for an unknown type.
     /// </summary>
-    private static int GetOwnerPartId(object primitive)
+    private static (int PartId, int DisplayMode) GetOwnerPart(object primitive)
     {
         // Use a type switch for the concrete schematic types
         // This avoids reflection overhead while covering all known types
         return primitive switch
         {
-            SchPin p => p.OwnerPartId,
-            SchLine p => p.OwnerPartId,
-            SchRectangle p => p.OwnerPartId,
-            SchLabel p => p.OwnerPartId,
-            SchWire p => p.OwnerPartId,
-            SchPolyline p => p.OwnerPartId,
-            SchPolygon p => p.OwnerPartId,
-            SchArc p => p.OwnerPartId,
-            SchBezier p => p.OwnerPartId,
-            SchEllipse p => p.OwnerPartId,
-            SchRoundedRectangle p => p.OwnerPartId,
-            SchPie p => p.OwnerPartId,
-            SchNetLabel p => p.OwnerPartId,
-            SchJunction p => p.OwnerPartId,
-            SchParameter p => p.OwnerPartId,
-            SchTextFrame p => p.OwnerPartId,
-            SchImage p => p.OwnerPartId,
-            SchSymbol p => p.OwnerPartId,
-            SchEllipticalArc p => p.OwnerPartId,
-            SchPowerObject p => p.OwnerPartId,
-            _ => 0 // Unknown type — treat as visible in all parts
+            SchPin p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchLine p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchRectangle p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchLabel p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchWire p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchPolyline p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchPolygon p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchArc p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchBezier p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchEllipse p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchRoundedRectangle p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchPie p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchNetLabel p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchJunction p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchParameter p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchTextFrame p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchImage p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchSymbol p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchEllipticalArc p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            SchPowerObject p => (p.OwnerPartId, p.OwnerPartDisplayMode),
+            _ => (0, 0) // Unknown type — treat as visible in all parts
         };
     }
 }
