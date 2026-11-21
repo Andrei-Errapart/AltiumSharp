@@ -102,21 +102,17 @@ public sealed class PcbDocWriter
         WriteDifferentialPairs(cf, document);
         WriteRooms(cf, document);
         WriteWideStrings(cf, document);
-        // Empty optional feature storages (no instances in the corpus) reproduced exactly: a
-        // [u32 count=0] Header + empty Data. Removing them from the AdditionalStreams catch-all.
-        WriteEmptyStorageIfPresent(cf, document, "Dimensions6");
-        WriteEmptyStorageIfPresent(cf, document, "Coordinates6");
-        WriteEmptyStorageIfPresent(cf, document, "FromTos6");
-        WriteEmptyStorageIfPresent(cf, document, "Embeddeds6");
-        WriteEmptyStorageIfPresent(cf, document, "Textures");
-        WriteEmptyStorageIfPresent(cf, document, "ModelsNoEmbed");
+        // The optional feature storages Dimensions6, Coordinates6, FromTos6, Embeddeds6, Textures,
+        // ModelsNoEmbed and PadViaLibraryLinks are not yet modeled. They are captured verbatim on read
+        // (they are no longer in the reader's KnownStorageNames, so the AdditionalStreams catch-all
+        // records their raw Header+Data) and replayed by WriteAdditionalStreams below. Re-emitting them
+        // as empty here would silently drop a board's dimension objects, drill coordinates, etc.
         WriteDocumentPrimitiveGuids(cf, document);
         WriteDocumentPrimitiveUniqueIds(cf, document);
         PcbLibWriter.WriteFileVersionInfo(cf.RootStorage, document.FileVersionInfo);
         if (document.LayerKindMapping is { } lkm) PcbLibWriter.WriteLayerKindMapping(cf.RootStorage, lkm);
         if (document.PadViaLibrary is { } pvl) PcbLibWriter.WritePadViaLibrary(cf.RootStorage, pvl, "PadViaLibrary");
         if (document.PadViaLibraryCache is { } pvlc) PcbLibWriter.WritePadViaLibrary(cf.RootStorage, pvlc, "PadViaLibraryCache");
-        WriteEmptyStorageIfPresent(cf, document, "PadViaLibraryLinks");
         WriteAdditionalStreams(cf, document);
 
         cf.Save(stream);
