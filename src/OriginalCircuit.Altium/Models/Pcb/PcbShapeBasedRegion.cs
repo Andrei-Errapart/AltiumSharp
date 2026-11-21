@@ -107,6 +107,18 @@ public sealed class PcbShapeBasedRegion : IPrimitive
     }
 
     /// <summary>
+    /// Replaces the outline with a straight-segment polygon through the given points (arc data dropped),
+    /// keeping the holes. Used to mirror a <see cref="PcbRegion.SetOutline"/> onto this shape-based twin so
+    /// the two stored copies of the region stay consistent.
+    /// </summary>
+    internal void SetLineOutline(IReadOnlyList<CoordPoint> points)
+    {
+        Outline.Clear();
+        foreach (var p in points)
+            Outline.Add(new PcbExtendedVertex { X = p.X.ToRaw(), Y = p.Y.ToRaw() }); // IsRoundRaw = 0 (line segment)
+    }
+
+    /// <summary>
     /// Moves this shape-based region/body by the given offset, shifting every outline and hole vertex
     /// (arc centers included) and the linked 3D-model placement (the <c>MODEL.2D.X</c>/<c>MODEL.2D.Y</c>
     /// properties, when present) so the 2D shape and the 3D model stay aligned.

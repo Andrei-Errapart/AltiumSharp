@@ -187,8 +187,26 @@ public sealed class PcbDocReader
         // source ordinals are still valid, so edits carry identity and the writer rebuilds the streams.
         PcbIdentityReconciler.Attach(document);
 
+        // Link each region to its arc-exact shape-based twin so a geometry edit to one copy mirrors onto
+        // the other (the two stores otherwise diverge into two outlines for one region).
+        LinkShapeBasedTwins(document);
+
         document.Diagnostics = _diagnostics;
         return document;
+    }
+
+    // Regions6 and ShapeBasedRegions6 are parallel 1:1 stores of the same regions (verified across the
+    // corpus: equal counts, matching layer and net at each position), so each region[i] pairs with
+    // shapeBasedRegion[i]. Linking them lets a geometry edit on the region mirror onto the twin. Only when
+    // the counts match, so a malformed file with a mismatched pair falls back to no linkage rather than
+    // mis-pairing.
+    private static void LinkShapeBasedTwins(PcbDocument document)
+    {
+        if (document.Regions.Count != document.ShapeBasedRegions.Count)
+            return;
+        for (var i = 0; i < document.Regions.Count; i++)
+            if (document.Regions[i] is PcbRegion region)
+                region.ShapeBasedTwin = document.ShapeBasedRegions[i];
     }
 
     private static void ReadFileHeaderSix(CompoundFileAccessor accessor, PcbDocument document)

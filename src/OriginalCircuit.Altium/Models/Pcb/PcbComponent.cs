@@ -663,7 +663,8 @@ public sealed class PcbComponent : IPcbComponent
             case PcbArc arc: arc.Translate(dx, dy); break;
             case PcbText text: text.Translate(dx, dy); break;
             case PcbFill fill: fill.Translate(dx, dy); break;
-            case PcbRegion region: region.Translate(dx, dy); break;
+            // propagateTwin:false — the twin is moved on its own below (it is an owned primitive too).
+            case PcbRegion region: region.Translate(dx, dy, propagateTwin: false); break;
             case PcbComponentBody body: body.Translate(dx, dy); break;
             case PcbShapeBasedRegion shape: shape.Translate(dx, dy); break;
         }
@@ -679,7 +680,8 @@ public sealed class PcbComponent : IPcbComponent
             case PcbArc arc: arc.Rotate(degrees, pivot); break;
             case PcbText text: text.Rotate(degrees, pivot); break;
             case PcbFill fill: fill.Rotate(degrees, pivot); break;
-            case PcbRegion region: region.Rotate(degrees, pivot); break;
+            // propagateTwin:false — the twin is rotated on its own below (it is an owned primitive too).
+            case PcbRegion region: region.Rotate(degrees, pivot, propagateTwin: false); break;
             case PcbComponentBody body: body.Rotate(degrees, pivot); break;
             case PcbShapeBasedRegion shape: shape.Rotate(degrees, pivot); break;
         }

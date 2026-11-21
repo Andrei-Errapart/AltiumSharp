@@ -320,6 +320,16 @@ public sealed class PcbRegion : IPcbRegion
     public List<List<CoordPoint>> Holes { get; set; } = new();
 
     /// <summary>
+    /// The shape-based twin of this region. A PcbDoc stores every region twice — once here (Regions6,
+    /// arcs flattened) and once as an arc-exact <see cref="PcbShapeBasedRegion"/> (ShapeBasedRegions6) —
+    /// so an edit to one copy must be mirrored onto the other or the file ends up holding two different
+    /// outlines for one region. Linked positionally when a document is read; null for a from-scratch
+    /// region. Geometry edits (<see cref="SetOutline"/>/<see cref="Translate"/>/<see cref="Rotate"/>)
+    /// propagate here automatically.
+    /// </summary>
+    internal PcbShapeBasedRegion? ShapeBasedTwin { get; set; }
+
+    /// <summary>
     /// Adds a point to the region outline.
     /// </summary>
     internal void AddPoint(CoordPoint point) => _outline.Add(point);
@@ -327,7 +337,9 @@ public sealed class PcbRegion : IPcbRegion
     /// <summary>
     /// Replaces the region outline with the given vertices. Clears any captured sub-coordinate
     /// (<see cref="OutlineExact"/>) shadow so the new integer outline is authoritative on write.
-    /// Hole contours are left unchanged.
+    /// Hole contours are left unchanged. The new outline is mirrored onto the
+    /// <see cref="ShapeBasedTwin"/> as straight segments (any arc data in the twin is dropped, matching
+    /// the explicit polygon supplied here).
     /// </summary>
     /// <param name="points">The new outline vertices, in order.</param>
     public void SetOutline(IEnumerable<CoordPoint> points)
@@ -336,16 +348,21 @@ public sealed class PcbRegion : IPcbRegion
         _outline.Clear();
         _outline.AddRange(points);
         OutlineExact = null; // the integer outline now defines the region; drop the stale exact shadow
+        ShapeBasedTwin?.SetLineOutline(_outline);
     }
 
     /// <summary>
     /// Moves this region by the given offset, shifting every outline and hole vertex (including the
     /// captured sub-coordinate <see cref="OutlineExact"/>/<see cref="HolesExact"/> shadows the writer
-    /// emits, so the move survives a byte-faithful round-trip).
+    /// emits, so the move survives a byte-faithful round-trip) and its <see cref="ShapeBasedTwin"/>.
     /// </summary>
     /// <param name="dx">The X offset.</param>
     /// <param name="dy">The Y offset.</param>
-    public void Translate(Coord dx, Coord dy)
+    public void Translate(Coord dx, Coord dy) => Translate(dx, dy, propagateTwin: true);
+
+    // Component moves translate the shape-based twin as its own owned primitive, so they call this with
+    // propagateTwin:false to avoid moving the twin twice; standalone callers propagate.
+    internal void Translate(Coord dx, Coord dy, bool propagateTwin)
     {
         for (var i = 0; i < _outline.Count; i++)
             _outline[i] = _outline[i].Offset(dx, dy);
@@ -365,6 +382,9 @@ public sealed class PcbRegion : IPcbRegion
             foreach (var hole in he)
                 for (var i = 0; i < hole.Count; i++)
                     hole[i] = (hole[i].X + rx, hole[i].Y + ry);
+
+        if (propagateTwin)
+            ShapeBasedTwin?.Translate(dx, dy);
     }
 
     /// <summary>
@@ -375,7 +395,11 @@ public sealed class PcbRegion : IPcbRegion
     /// </summary>
     /// <param name="degrees">The rotation angle in degrees (counter-clockwise).</param>
     /// <param name="pivot">The point to rotate about.</param>
-    public void Rotate(double degrees, CoordPoint pivot)
+    public void Rotate(double degrees, CoordPoint pivot) => Rotate(degrees, pivot, propagateTwin: true);
+
+    // Component rotations turn the shape-based twin as its own owned primitive, so they call this with
+    // propagateTwin:false to avoid rotating the twin twice; standalone callers propagate.
+    internal void Rotate(double degrees, CoordPoint pivot, bool propagateTwin)
     {
         for (var i = 0; i < _outline.Count; i++)
             _outline[i] = _outline[i].RotateAround(pivot, degrees);
@@ -395,6 +419,9 @@ public sealed class PcbRegion : IPcbRegion
             foreach (var hole in he)
                 for (var i = 0; i < hole.Count; i++)
                     hole[i] = PcbRotation.RotateRaw(hole[i].X, hole[i].Y, cx, cy, cos, sin);
+
+        if (propagateTwin)
+            ShapeBasedTwin?.Rotate(degrees, pivot);
     }
 
     /// <summary>
