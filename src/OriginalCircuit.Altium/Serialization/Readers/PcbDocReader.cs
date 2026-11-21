@@ -183,6 +183,10 @@ public sealed class PcbDocReader
         cancellationToken.ThrowIfCancellationRequested();
         ReadAdditionalStreams(accessor, document);
 
+        // Pin each primitive's object identity (GUID / short-id / mask override) to its instance while the
+        // source ordinals are still valid, so edits carry identity and the writer rebuilds the streams.
+        PcbIdentityReconciler.Attach(document);
+
         document.Diagnostics = _diagnostics;
         return document;
     }

@@ -649,15 +649,18 @@ public sealed class PcbDocWriter
 
     private static void WriteDocumentPrimitiveGuids(CompoundFileAccessor cf, PcbDocument document)
     {
-        if (document.PrimitiveGuids.Count == 0)
+        // Rebuilt from the current collections so add/remove/reorder keeps the ordinal binding correct;
+        // identical to the source list for an unedited document.
+        var guids = PcbIdentityReconciler.BuildPrimitiveGuids(document);
+        if (guids.Count == 0)
         {
             WriteEmptyStorageIfPresent(cf, document, "PrimitiveGuids");
             return;
         }
         var storage = cf.RootStorage.AddStorage("PrimitiveGuids");
-        PcbLibWriter.WriteStorageHeader(storage, document.PrimitiveGuids.Count);
+        PcbLibWriter.WriteStorageHeader(storage, guids.Count);
         using var ms = new MemoryStream();
-        foreach (var g in document.PrimitiveGuids)
+        foreach (var g in guids)
         {
             ms.Write(BitConverter.GetBytes(g.TypeId));
             ms.Write(BitConverter.GetBytes(g.Index));
@@ -668,14 +671,17 @@ public sealed class PcbDocWriter
 
     private static void WriteDocumentPrimitiveUniqueIds(CompoundFileAccessor cf, PcbDocument document)
     {
-        if (document.PrimitiveUniqueIds.Count == 0)
+        // Rebuilt from the current pad order so a pad add/remove re-ordinals the short-id records;
+        // identical to the source list for an unedited document.
+        var uniqueIds = PcbIdentityReconciler.BuildPrimitiveUniqueIds(document);
+        if (uniqueIds.Count == 0)
         {
             WriteEmptyStorageIfPresent(cf, document, "UniqueIDPrimitiveInformation");
             return;
         }
         var storage = cf.RootStorage.AddStorage("UniqueIDPrimitiveInformation");
-        PcbLibWriter.WriteStorageHeader(storage, document.PrimitiveUniqueIds.Count);
-        storage.AddStream("Data").SetData(PcbLibWriter.BuildPrimitiveUniqueIdData(document.PrimitiveUniqueIds));
+        PcbLibWriter.WriteStorageHeader(storage, uniqueIds.Count);
+        storage.AddStream("Data").SetData(PcbLibWriter.BuildPrimitiveUniqueIdData(uniqueIds));
     }
 
     private static void WritePrimitiveParameters(CompoundFileAccessor cf, PcbDocument document)
@@ -698,17 +704,20 @@ public sealed class PcbDocWriter
 
     private static void WriteExtendedPrimitiveInformation(CompoundFileAccessor cf, PcbDocument document)
     {
-        if (document.ExtendedPrimitiveInfo.Count == 0)
+        // Rebuilt so each mask override re-ordinals to its primitive's current position (orphans dropped);
+        // identical to the source list for an unedited document.
+        var extended = PcbIdentityReconciler.BuildExtendedPrimitiveInfo(document);
+        if (extended.Count == 0)
         {
             WriteEmptyStorageIfPresent(cf, document, "ExtendedPrimitiveInformation");
             return;
         }
         // Header is the record count; Data is one length-prefixed C-string parameter block per record.
         var storage = cf.RootStorage.AddStorage("ExtendedPrimitiveInformation");
-        PcbLibWriter.WriteStorageHeader(storage, document.ExtendedPrimitiveInfo.Count);
+        PcbLibWriter.WriteStorageHeader(storage, extended.Count);
         using var ms = new MemoryStream();
         using var writer = new BinaryFormatWriter(ms, leaveOpen: true);
-        foreach (var info in document.ExtendedPrimitiveInfo)
+        foreach (var info in extended)
             writer.WriteCStringParameterBlockRaw(BuildParamText(info.OrderedParameters, info.ToParameters()));
         writer.Flush();
         storage.AddStream("Data").SetData(ms.ToArray());

@@ -40,6 +40,12 @@ public sealed class PcbExtendedPrimitiveInfo
     /// </summary>
     public List<KeyValuePair<string, string>>? OrderedParameters { get; set; }
 
+    /// <summary>
+    /// The primitive instance this record was bound to when the document was read; null for an unbound /
+    /// from-scratch record. See <see cref="Serialization.PcbIdentityReconciler"/>.
+    /// </summary>
+    internal object? BoundPrimitive { get; set; }
+
     /// <summary>Builds the parameter dictionary used for from-scratch serialization.</summary>
     public Dictionary<string, string> ToParameters()
     {

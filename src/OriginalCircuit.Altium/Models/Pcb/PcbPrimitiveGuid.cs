@@ -16,6 +16,14 @@ public sealed class PcbPrimitiveGuid
 
     /// <summary>The primitive's object GUID (random; Altium regenerates these on demand).</summary>
     public Guid Guid { get; set; }
+
+    /// <summary>
+    /// The primitive instance this entry was bound to when the document was read (by its then-valid
+    /// ordinal), or null for an unmanaged entry / from-scratch record. Lets the writer re-ordinal and
+    /// drop/keep the entry as its primitive moves, is removed or survives an edit. See
+    /// <see cref="Serialization.PcbIdentityReconciler"/>.
+    /// </summary>
+    internal object? BoundPrimitive { get; set; }
 }
 
 /// <summary>
@@ -39,6 +47,12 @@ public sealed class PcbPrimitiveUniqueId
     /// preserving key order/duplicates. Written verbatim when set; null falls back to the typed fields.
     /// </summary>
     public List<KeyValuePair<string, string>>? OrderedParameters { get; set; }
+
+    /// <summary>
+    /// The primitive instance this record was bound to when the document was read; null for an unbound /
+    /// from-scratch record. See <see cref="Serialization.PcbIdentityReconciler"/>.
+    /// </summary>
+    internal object? BoundPrimitive { get; set; }
 
     /// <summary>The canonical record text (used when no captured order exists).</summary>
     internal string ToText() =>
