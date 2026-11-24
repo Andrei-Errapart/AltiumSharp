@@ -96,7 +96,10 @@ internal sealed class SheetGraph
 
                 var tip = SchDesignators.PinTip(pin);
                 var e = NewElement(ElementKind.Pin, pin, global);
-                e.Points.Add(tip);
+                // A hidden pin has no drawn tip to wire to: Altium connects it by name alone, so it
+                // must not join whatever conductor its stored position happens to touch.
+                if (!pin.IsHidden)
+                    e.Points.Add(tip);
                 e.ComponentDesignator = designator;
                 e.PinDesignator = pin.Designator;
                 e.NetPin = new NetPin(
@@ -111,10 +114,11 @@ internal sealed class SheetGraph
                     sc,
                     SheetId);
 
-                // Hidden pins with an explicit net name join that named net globally (implicit power pins).
-                if (pin.IsHidden && !string.IsNullOrEmpty(pin.HiddenNetName))
+                // A hidden pin joins its named net globally (implicit power pins): the explicit
+                // "Connect To" net when set, otherwise the net named after the pin, as Altium does.
+                if (pin.IsHidden)
                 {
-                    e.IntrinsicName = pin.HiddenNetName;
+                    e.IntrinsicName = string.IsNullOrEmpty(pin.HiddenNetName) ? pin.Name : pin.HiddenNetName;
                     e.IntrinsicScope = NetScope.Power;
                 }
             }

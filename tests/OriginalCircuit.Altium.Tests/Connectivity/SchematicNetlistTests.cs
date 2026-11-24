@@ -198,6 +198,95 @@ public class SchematicNetlistTests
         Assert.Equal(net, nl.NetForPin("U1", "7"));
     }
 
+    private static SchComponent HiddenPinComp(string designator, string pin, string? name, string? hiddenNet, int x, int y)
+    {
+        var c = new SchComponent { Name = designator, PartCount = 1 };
+        c.AddParameter(new SchParameter { Name = "Designator", Value = designator });
+        var p = SchPin.Create(pin).At(Coord.FromMils(x), Coord.FromMils(y))
+            .Length(Coord.FromMils(0)).Orient(PinOrientation.Right).Build();
+        if (name is not null) p.Name = name;
+        p.IsHidden = true;
+        p.HiddenNetName = hiddenNet;
+        c.AddPin(p);
+        return c;
+    }
+
+    [Fact]
+    public void Hidden_Pin_Does_Not_Join_The_Wire_Under_Its_Tip()
+    {
+        // U1.7 is a hidden VCC pin whose stored tip lies on the interior of the U2.1-U3.1 wire. Altium
+        // connects a hidden pin by name only, so that wire must stay its own net and U1.7 joins VCC.
+        var u1 = HiddenPinComp("U1", "7", "VCC", "VCC", 50, 0);
+        var signal = Wire((0, 0), (100, 0));
+        var u2 = Comp("U2", ("1", 0, 0));
+        var u3 = Comp("U3", ("1", 100, 0));
+        var rail = Wire((0, 500), (100, 500));
+        var u4 = Comp("U4", ("1", 100, 500));
+        var nl = Solve(u1, u2, u3, u4, signal, rail, Power("VCC", 0, 500));
+
+        var signalNet = nl.NetForPin("U2", "1");
+        Assert.NotNull(signalNet);
+        Assert.Equal(signalNet, nl.NetForPin("U3", "1"));
+        Assert.NotEqual("VCC", signalNet!.Name);
+        Assert.DoesNotContain(signalNet.Pins, p => p.Key == "U1.7");
+
+        var vcc = nl.NetForPin("U1", "7");
+        Assert.NotNull(vcc);
+        Assert.Equal("VCC", vcc!.Name);
+        Assert.Equal(vcc, nl.NetForPin("U4", "1"));
+    }
+
+    [Fact]
+    public void Hidden_Pin_Without_HiddenNetName_Joins_The_Net_Named_After_It()
+    {
+        // No "Connect To" name: the hidden pin's own name is the net it belongs to.
+        var u1 = HiddenPinComp("U1", "8", "VDD", null, 1000, 1000);
+        var w = Wire((0, 0), (100, 0));
+        var u2 = Comp("U2", ("1", 100, 0));
+        var nl = Solve(u1, u2, w, Power("VDD", 0, 0));
+
+        var net = nl.NetForPin("U2", "1");
+        Assert.NotNull(net);
+        Assert.Equal("VDD", net!.Name);
+        Assert.Equal(net, nl.NetForPin("U1", "8"));
+    }
+
+    [Fact]
+    public void Hidden_Duplicate_Pad_Pin_Does_Not_Short_Its_Visible_Twin_Net()
+    {
+        // TES0746-PSU POWER_MCU U18: pad 6 is drawn twice, as a visible IGND pin on the GND port and as a
+        // hidden "DNC (GND)" pin whose stored tip sits on the wire between two other pins. The pad is
+        // one physical node, so it must be GND - and the wire under the hidden tip must not become GND.
+        var u1 = new SchComponent { Name = "U1", PartCount = 1, CurrentPartId = 1 };
+        u1.AddParameter(new SchParameter { Name = "Designator", Value = "U1" });
+        var visible = SchPin.Create("6").At(Coord.FromMils(0), Coord.FromMils(200))
+            .Length(Coord.FromMils(0)).Orient(PinOrientation.Right).Build();
+        visible.Name = "IGND";
+        u1.AddPin(visible);
+        var hidden = SchPin.Create("6").At(Coord.FromMils(50), Coord.FromMils(0))
+            .Length(Coord.FromMils(0)).Orient(PinOrientation.Right).Build();
+        hidden.Name = "DNC (GND)";
+        hidden.IsHidden = true;
+        u1.AddPin(hidden);
+
+        var signal = Wire((0, 0), (100, 0));
+        var u2 = Comp("U2", ("1", 0, 0));
+        var u3 = Comp("U3", ("1", 100, 0));
+        var nl = Solve(u1, u2, u3, signal, Power("GND", 0, 200));
+
+        var signalNet = nl.NetForPin("U2", "1");
+        Assert.NotNull(signalNet);
+        Assert.Equal(signalNet, nl.NetForPin("U3", "1"));
+        Assert.NotEqual("GND", signalNet!.Name);
+        Assert.DoesNotContain(signalNet.Pins, p => p.Key == "U1.6");
+
+        var gnd = nl.NetForPin("U1", "6");
+        Assert.NotNull(gnd);
+        Assert.Equal("GND", gnd!.Name);
+        Assert.Contains(gnd.Pins, p => p.Key == "U1.6");
+        Assert.Single(nl.Nets, n => n.Name == "GND");
+    }
+
     // ---- unconnected pins -----------------------------------------------------------------------
 
     [Fact]
