@@ -121,13 +121,11 @@ internal sealed class NetlistAssembler
             }
         }
 
-        // Priority 2: power object / hidden power-pin name.
-        var powerName = group
-            .Where(e => e.IntrinsicScope == NetScope.Power && !string.IsNullOrEmpty(e.IntrinsicName))
-            .Select(e => e.IntrinsicName!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
+        // Priority 2: power object name, else a hidden power-pin's net name. A hidden pin merely joins
+        // the rail its name denotes; when a power object is on the net the rail keeps the object's
+        // name (a hidden "DNC (GND)" pad on a GND port does not rename GND).
+        var powerName = PowerName(group, e => e.Kind == ElementKind.Power)
+            ?? PowerName(group, e => e.Kind != ElementKind.Power);
         if (powerName is not null)
             return (powerName, NetScope.Power, true);
 
@@ -144,6 +142,13 @@ internal sealed class NetlistAssembler
         // Priority 4: deterministic auto-name.
         return (AutoName(group, pins), NetScope.Auto, false);
     }
+
+    private static string? PowerName(List<Element> group, Func<Element, bool> kind) => group
+        .Where(e => e.IntrinsicScope == NetScope.Power && !string.IsNullOrEmpty(e.IntrinsicName) && kind(e))
+        .Select(e => e.IntrinsicName!)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
+        .FirstOrDefault();
 
     private static string AutoName(List<Element> group, List<NetPin> pins)
     {

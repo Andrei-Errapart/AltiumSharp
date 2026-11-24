@@ -688,7 +688,7 @@ public sealed class SchDocReader
         pin.Color = dto.Color;
         pin.AreaColor = dto.AreaColor;
         pin.DefaultValue = dto.DefaultValue;
-        pin.IsHidden = dto.IsHidden;
+        pin.IsHidden = dto.IsHidden || (cong & 0x04) != 0; // hidden flag lives in the conglomerate for binary pins
         pin.DesignatorCustomColor = dto.DesignatorCustomColor;
         pin.DesignatorCustomPositionMargin = dto.DesignatorCustomPositionMargin;
         pin.DesignatorCustomPositionRotationAnchor = dto.DesignatorCustomPositionRotationAnchor;
@@ -707,11 +707,13 @@ public sealed class SchDocReader
         pin.HiddenNetName = dto.HiddenNetName;
         pin.PinPackageLength = CoordFromDxp(dto.PinPackageLength, 0);
         pin.OwnerIndex = dto.OwnerIndex;
-        pin.IsNotAccessible = dto.IsNotAccessible;
+        // For binary pins these flags live in the conglomerate byte (like IsHidden at 0x04 above),
+        // not in separate params, so OR them in so the writer re-encodes the exact byte.
+        pin.IsNotAccessible = dto.IsNotAccessible || (cong & 0x20) != 0;
         pin.IndexInSheet = dto.IndexInSheet;
         pin.OwnerPartId = dto.OwnerPartId;
         pin.OwnerPartDisplayMode = dto.OwnerPartDisplayMode;
-        pin.GraphicallyLocked = dto.GraphicallyLocked;
+        pin.GraphicallyLocked = dto.GraphicallyLocked || (cong & 0x40) != 0;
         pin.Disabled = dto.Disabled;
         pin.Dimmed = dto.Dimmed;
         pin.UniqueId = dto.UniqueId;
