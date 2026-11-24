@@ -2,6 +2,8 @@ using OriginalCircuit.Altium.Models.Sch;
 using OriginalCircuit.Eda.Primitives;
 using OriginalCircuit.Altium.Serialization.Readers;
 using OriginalCircuit.Altium.Serialization.Writers;
+using OriginalCircuit.Altium.Serialization.Compound;
+using System.Text;
 
 namespace OriginalCircuit.Altium.Tests.RoundTrip;
 
@@ -722,6 +724,93 @@ public sealed class SchDocRoundTripTests
             Assert.Equal(original.Components[i].Name, rt.Components[i].Name);
             Assert.Equal(original.Components[i].Pins.Count, rt.Components[i].Pins.Count);
         }
+    }
+
+    [Fact]
+    public void Read_DecodesHiddenNotAccessibleAndLockedPinFlagsFromTheConglomerate()
+    {
+        // A SchDoc pin keeps hidden / not-accessible / graphically-locked in the PINCONGLOMERATE byte
+        // (0x04 / 0x20 / 0x40); Altium writes no ISHIDDEN-style parameter for them. Strip the
+        // parameters our writer adds and the flags must still come back from the conglomerate, as
+        // they already do for a SchLib pin.
+        var original = new SchDocument();
+        var comp = new SchComponent { Name = "U1", PartCount = 1 };
+        var pin = SchPin.Create("6")
+            .WithName("DNC (GND)")
+            .At(Coord.FromMils(0), Coord.FromMils(0))
+            .Length(Coord.FromMils(200))
+            .Orient(PinOrientation.Left)
+            .Build();
+        pin.IsHidden = true;
+        pin.IsNotAccessible = true;
+        pin.GraphicallyLocked = true;
+        comp.AddPin(pin);
+        original.AddComponent(comp);
+
+        using var written = new MemoryStream();
+        new SchDocWriter().Write(original, written);
+        written.Position = 0;
+
+        using var patched = new MemoryStream();
+        using (var source = CompoundFileAccessor.Open(written, leaveOpen: true))
+        using (var target = CompoundFileAccessor.Create())
+        {
+            CopyStreams(source.RootStorage, target.RootStorage, patchFileHeader: true);
+            target.Save(patched);
+        }
+        patched.Position = 0;
+
+        var readBack = new SchDocReader().Read(patched);
+        var read = Assert.IsType<SchPin>(Assert.Single(Assert.Single(readBack.Components).Pins));
+        Assert.True(read.IsHidden);
+        Assert.True(read.IsNotAccessible);
+        Assert.True(read.GraphicallyLocked);
+        Assert.Equal(PinOrientation.Left, read.Orientation);
+    }
+
+    private static void CopyStreams(CompoundStorage from, CompoundStorage to, bool patchFileHeader)
+    {
+        foreach (var stream in from.EnumerateStreams())
+        {
+            var data = stream.GetData();
+            if (patchFileHeader && stream.Name == "FileHeader")
+                data = WithoutPinFlagParameters(data);
+            to.AddStream(stream.Name).SetData(data);
+        }
+        foreach (var storage in from.EnumerateStorages())
+            CopyStreams(storage, to.AddStorage(storage.Name), patchFileHeader: false);
+    }
+
+    // Removes the ISHIDDEN / ISNOTACCESIBLE / GRAPHICALLYLOCKED parameters from every pin record of a
+    // FileHeader stream. Records are a little-endian ushort length, a pad byte, a kind byte (0 = text)
+    // and the payload.
+    private static byte[] WithoutPinFlagParameters(byte[] stream)
+    {
+        var output = new MemoryStream();
+        var position = 0;
+        while (position + 4 <= stream.Length)
+        {
+            var length = stream[position] | (stream[position + 1] << 8);
+            var kind = stream[position + 3];
+            var payload = stream.AsSpan(position + 4, length).ToArray();
+            position += 4 + length;
+            if (kind == 0)
+            {
+                var text = Encoding.Latin1.GetString(payload);
+                if (text.Contains("|RECORD=2|", StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var parameter in new[] { "|ISHIDDEN=T", "|ISNOTACCESIBLE=T", "|GRAPHICALLYLOCKED=T" })
+                        text = text.Replace(parameter, string.Empty, StringComparison.OrdinalIgnoreCase);
+                    payload = Encoding.Latin1.GetBytes(text);
+                }
+            }
+            output.WriteByte((byte)(payload.Length & 0xFF));
+            output.WriteByte((byte)(payload.Length >> 8));
+            output.WriteByte(0);
+            output.WriteByte(kind);
+            output.Write(payload);
+        }
+        return output.ToArray();
     }
 
     private static SchDocument RoundTrip(SchDocument original)
