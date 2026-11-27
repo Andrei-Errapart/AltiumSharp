@@ -49,6 +49,56 @@ public class PcbStackupTests
     }
 
     [Fact]
+    public void FromBoardParameters_TakesEachLayersIdFromItsLayerId_NotItsStackPosition()
+    {
+        // As on TE0965: the table starts at 0, the second copper layer from the top is Mid-Layer 8
+        // (id 9), the third an internal plane, and the bottom layer's id has the low word 0xFFFF.
+        var bp = new Dictionary<string, string>();
+        void Stack(int n, string name, long id, string? copper = null, string? dielectric = null)
+        {
+            bp[$"V9_STACK_LAYER{n}_NAME"] = name;
+            bp[$"V9_STACK_LAYER{n}_LAYERID"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (copper is not null) bp[$"V9_STACK_LAYER{n}_COPTHICK"] = copper;
+            if (dielectric is not null) bp[$"V9_STACK_LAYER{n}_DIELHEIGHT"] = dielectric;
+        }
+        Stack(0, "Top Paste", 0x0103_0008);
+        Stack(1, "Top Solder", 0x0103_000A, dielectric: "0.4mil");
+        Stack(2, "L01", 0x0100_0001, copper: "1.4mil");
+        Stack(3, "Dielectric 1", 0x0104_0001, dielectric: "4mil");
+        Stack(4, "L02 GND", 0x0100_0009, copper: "1.4mil");
+        Stack(5, "Dielectric 2", 0x0104_0002, dielectric: "4mil");
+        Stack(6, "L03 PWR", 0x0101_0002, copper: "1.4mil");
+        Stack(7, "Dielectric 3", 0x0104_0003, dielectric: "4mil");
+        Stack(8, "L04", 0x0100_FFFF, copper: "1.4mil");
+        Stack(9, "Bottom Solder", 0x0103_000B, dielectric: "0.4mil");
+
+        var stack = PcbStackup.FromBoardParameters(bp)!;
+
+        Assert.Equal("Top Paste", stack.Layers[0].Name);     // entry 0 is read
+        Assert.Equal(new[] { 1, 9, 40, 32 }, stack.CopperLayers.Select(l => l.Layer!.Value).ToArray());
+        Assert.Equal("L02 GND", stack.ForLayer(9)!.Name);
+        Assert.Null(stack.ForLayer(2));                       // no Mid-Layer 1 on this board
+        Assert.Equal("L03 PWR", stack.ForLayer(40)!.Name);
+        Assert.Equal("Top Solder", stack.ForLayer(37)!.Name);
+        Assert.Equal("Bottom Solder", stack.ForLayer(38)!.Name);
+        Assert.True(stack.ForLayer(1)!.CenterZMm > stack.ForLayer(9)!.CenterZMm);
+        Assert.True(stack.ForLayer(9)!.CenterZMm > stack.ForLayer(40)!.CenterZMm);
+        Assert.True(stack.ForLayer(40)!.CenterZMm > stack.ForLayer(32)!.CenterZMm);
+    }
+
+    [Theory]
+    [InlineData(0x0100_0001L, 1)]
+    [InlineData(0x0100_0009L, 9)]
+    [InlineData(0x0100_FFFFL, 32)]
+    [InlineData(0x0101_0001L, 39)]
+    [InlineData(0x0103_0006L, 33)]
+    [InlineData(0x0103_000BL, 38)]
+    [InlineData(0x0104_0001L, null)]
+    [InlineData(0L, null)]
+    public void LayerFromStackId_DecodesAltiumsPackedIds(long stackId, int? layer)
+        => Assert.Equal(layer, PcbStackup.LayerFromStackId(stackId));
+
+    [Fact]
     public void FromBoardParameters_Null_ReturnsNull()
         => Assert.Null(PcbStackup.FromBoardParameters(null));
 

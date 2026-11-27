@@ -90,17 +90,22 @@ public sealed class PcbStackup
 
     private PcbStackup(List<PcbStackupLayer> layers, bool isFallback)
     {
-        // Assign small-integer layer ids to copper entries by stack position: the top-most copper is
-        // the Top Layer (1), the bottom-most is the Bottom Layer (32), and any layers in between are
-        // Mid-Layer 1..30 (2..31) in top-to-bottom order. (Verified against real boards.)
+        // A copper entry whose LAYERID did not give its layer id (a stack built from scratch) is
+        // numbered by stack position: the top-most copper is the Top Layer (1), the bottom-most the
+        // Bottom Layer (32), and those between Mid-Layer 1..30 (2..31) top to bottom. A board read
+        // from a file names each entry's id in its LAYERID, which is not in stack order on a board
+        // whose layers were added out of order (TE0965's second layer from the top is Mid-Layer 8).
         var copper = layers.Where(l => l.IsCopper).ToList();
-        for (int i = 0; i < copper.Count; i++)
+        if (copper.Any(l => l.Layer is null))
         {
-            if (i == 0) copper[i].Layer = 1;
-            else if (i == copper.Count - 1) copper[i].Layer = 32;
-            else copper[i].Layer = i + 1; // Mid-Layer i -> id i+1
+            for (int i = 0; i < copper.Count; i++)
+            {
+                if (i == 0) copper[i].Layer = 1;
+                else if (i == copper.Count - 1) copper[i].Layer = 32;
+                else copper[i].Layer = i + 1; // Mid-Layer i -> id i+1
+            }
+            if (copper.Count == 1) copper[0].Layer = 1;
         }
-        if (copper.Count == 1) copper[0].Layer = 1;
 
         // Compute absolute Z from the top down so the bottom face lands on Z=0.
         TotalThicknessMm = layers.Sum(l => l.ThicknessMm);
@@ -131,11 +136,12 @@ public sealed class PcbStackup
         if (bp is null) return null;
 
         var raw = new List<PcbStackupLayer>();
-        for (int n = 1; ; n++)
+        for (int n = 0; ; n++)
         {
             var prefix = $"V9_STACK_LAYER{n}_";
             if (!bp.TryGetValue(prefix + "NAME", out var name))
             {
+                if (n == 0) continue;        // the table starts at 0 on most boards, at 1 on some
                 if (n == 1) return null;     // no V9 stack at all
                 break;                        // reached the end of a contiguous stack
             }
@@ -173,6 +179,7 @@ public sealed class PcbStackup
                 thickness = ParseLengthMm(dielHeight);
             }
 
+            var layerId = long.TryParse(Field("LAYERID"), out var lid) ? lid : 0;
             raw.Add(new PcbStackupLayer
             {
                 Name = name,
@@ -180,8 +187,8 @@ public sealed class PcbStackup
                 ThicknessMm = thickness,
                 Material = Field("DIELMATERIAL"),
                 DielectricConstant = ParseDouble(Field("DIELCONST")),
-                LayerId = long.TryParse(Field("LAYERID"), out var lid) ? lid : 0,
-                Layer = MapNamedLayer(name, kind),
+                LayerId = layerId,
+                Layer = LayerFromStackId(layerId) ?? MapNamedLayer(name, kind),
             });
         }
 
@@ -224,6 +231,26 @@ public sealed class PcbStackup
 
     // Maps the well-known surface layers by name to their classic small-integer ids. Copper ids are
     // assigned positionally in the constructor, so copper returns null here.
+    /// <summary>
+    /// The primitive layer id a <c>V9_STACK_LAYERn_LAYERID</c> stands for: <c>0x0100_0000 + id</c> for
+    /// a signal layer (low word <c>0xFFFF</c> for the Bottom Layer), <c>0x0101_0000 + n</c> for internal
+    /// plane n (39..54), and <c>0x0103_0000 + 6..11</c> for the overlays, pastes and solder masks
+    /// (33..38, top before bottom). Null for a dielectric (<c>0x0104_0000 + n</c>) or an id it does
+    /// not know.
+    /// </summary>
+    internal static int? LayerFromStackId(long stackId)
+    {
+        var low = (int)(stackId & 0xFFFF);
+        return (stackId >> 16) switch
+        {
+            0x0100 when low == 0xFFFF => 32,
+            0x0100 when low is >= 1 and <= 32 => low,
+            0x0101 when low is >= 1 and <= 16 => 38 + low,
+            0x0103 when low is >= 6 and <= 11 => 27 + low,
+            _ => null,
+        };
+    }
+
     private static int? MapNamedLayer(string name, PcbStackupLayerKind kind) => kind switch
     {
         PcbStackupLayerKind.Overlay => name.Contains("Bottom", StringComparison.OrdinalIgnoreCase) ? 34 : 33,
