@@ -142,6 +142,54 @@ public class ProjectNetlistTests : IDisposable
     }
 
     [Fact]
+    public async Task Two_Sheets_Of_One_File_Name_In_Two_Folders_Are_Not_Channels()
+    {
+        // A\Power.SchDoc and B\Power.SchDoc are two different sheets, each placed once. Taken by
+        // file name for one sheet placed twice, they became two channels with channel-private power,
+        // and GND fell apart into one net per sheet.
+        Directory.CreateDirectory(Path.Combine(_dir, "A"));
+        Directory.CreateDirectory(Path.Combine(_dir, "B"));
+        await WriteDoc("parent.SchDoc", doc =>
+        {
+            doc.AddPrimitive(new SchSheetSymbol
+            {
+                Location = new CoordPoint(Coord.FromMils(1000), Coord.FromMils(2000)),
+                XSize = Coord.FromMils(500),
+                YSize = Coord.FromMils(400),
+                FileName = @"A\Power.SchDoc",
+                SheetName = "U_A",
+            });
+            doc.AddPrimitive(new SchSheetSymbol
+            {
+                Location = new CoordPoint(Coord.FromMils(2000), Coord.FromMils(2000)),
+                XSize = Coord.FromMils(500),
+                YSize = Coord.FromMils(400),
+                FileName = @"B\Power.SchDoc",
+                SheetName = "U_B",
+            });
+        });
+        foreach (var (folder, designator) in new[] { ("A", "R1"), ("B", "R2") })
+        {
+            await WriteDoc(Path.Combine(folder, "Power.SchDoc"), doc =>
+            {
+                doc.AddPrimitive(Wire(500, 500, 700, 500));
+                doc.AddComponent(Comp(designator, "1", 500, 500));
+                doc.AddPrimitive(new SchPowerObject { Text = "GND", Location = new CoordPoint(Coord.FromMils(700), Coord.FromMils(500)) });
+            });
+        }
+
+        var project = await Project("parent.SchDoc", @"A\Power.SchDoc", @"B\Power.SchDoc");
+        var pnl = await ProjectNetlistBuilder.BuildAsync(project);
+
+        var gnd = pnl.NetForPin("R1", "1");
+        Assert.NotNull(gnd);
+        Assert.Equal("GND", gnd!.Name);
+        Assert.Same(gnd, pnl.NetForPin("R2", "1"));
+        Assert.All(pnl.Sheets.Where(s => s.FileName == "Power.SchDoc"), s => Assert.False(s.IsRepeated));
+        Assert.DoesNotContain(pnl.Diagnostics, d => d.Message.Contains("multi-channel", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task NetLabel_Scope_Flat_Merges_But_Hierarchical_Does_Not()
     {
         // Two sheets (parent references child), each with a wire+pin labelled "SIG", not otherwise joined.
