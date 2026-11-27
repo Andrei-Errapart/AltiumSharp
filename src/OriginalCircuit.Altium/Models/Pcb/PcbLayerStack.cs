@@ -31,7 +31,7 @@ public sealed class PcbLayerEntry
     public bool CopperEnabled { get; set; }
 
     /// <summary>
-    /// Dielectric material name.
+    /// Dielectric material name (<c>DIELMATERIAL</c>) of the dielectric below this layer.
     /// </summary>
     public string DielectricMaterial { get; set; } = string.Empty;
 
@@ -58,33 +58,49 @@ public sealed class PcbLayerStack
     }
 
     /// <summary>
-    /// Parses a layer stack from Board6 parameters.
-    /// Returns null if no layer stack data is present.
+    /// Parses a layer stack from Board6 parameters, or returns null when there is none.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The legacy stack is one <c>LAYER{n}*</c> group per Altium layer id (<c>NAME</c>,
+    /// <c>PREV</c>, <c>NEXT</c>, <c>COPTHICK</c>, <c>DIELTYPE</c>, <c>DIELMATERIAL</c>, ...),
+    /// written with a <c>V7_</c> prefix by some Altium versions and without it by the boards
+    /// seen so far (13 company boards checked; none had a <c>V7_</c> key, so this was null on
+    /// every one of them). Either spelling is read, the prefixed one first.
+    /// </para>
+    /// <para>
+    /// Every one of Altium's layers has a group, the unused mid-layers and the mechanical
+    /// layers included (82 on TES0761); the stack is the chain that starts at the Top Layer
+    /// (id 1) and follows <c>NEXT</c> until it ends, as KiCad's importer walks it - L01, L02,
+    /// L03, L04 on TES0761 (ids 1, 4, 5, 32). Groups off the chain are not part of the stack.
+    /// Only a board with no Top Layer group falls back to listing every group by id.
+    /// </para>
+    /// </remarks>
     public static PcbLayerStack? FromBoardParameters(Dictionary<string, string>? parameters)
     {
         if (parameters == null)
             return null;
 
-        var entries = new Dictionary<int, PcbLayerEntry>();
+        string? Get(int i, string key) =>
+            parameters.TryGetValue($"V7_LAYER{i}{key}", out var prefixed) ? prefixed
+            : parameters.TryGetValue($"LAYER{i}{key}", out var plain) ? plain
+            : null;
 
-        // Scan for V7_LAYER{N}NAME pattern
+        var entries = new Dictionary<int, PcbLayerEntry>();
         for (var i = 1; i <= 100; i++)
         {
-            if (!parameters.TryGetValue($"V7_LAYER{i}NAME", out var name))
+            if (Get(i, "NAME") is not { } name)
                 continue;
 
             var entry = new PcbLayerEntry { Index = i, Name = name };
-
-            if (parameters.TryGetValue($"V7_LAYER{i}PREV", out var prev) && int.TryParse(prev, out var prevIdx))
+            if (int.TryParse(Get(i, "PREV"), out var prevIdx))
                 entry.PreviousIndex = prevIdx;
-            if (parameters.TryGetValue($"V7_LAYER{i}NEXT", out var next) && int.TryParse(next, out var nextIdx))
+            if (int.TryParse(Get(i, "NEXT"), out var nextIdx))
                 entry.NextIndex = nextIdx;
-            if (parameters.TryGetValue($"V7_LAYER{i}COPTHICK", out var cop))
+            if (Get(i, "COPTHICK") is { } cop)
                 entry.CopperEnabled = cop != "0";
-            if (parameters.TryGetValue($"V7_LAYER{i}DIELTYPE", out var diel))
-                entry.DielectricMaterial = diel;
-            if (parameters.TryGetValue($"V7_LAYER{i}COLOR", out var color) && int.TryParse(color, out var c))
+            entry.DielectricMaterial = Get(i, "DIELMATERIAL") ?? string.Empty;
+            if (int.TryParse(Get(i, "COLOR"), out var c))
                 entry.Color = c;
 
             entries[i] = entry;
@@ -93,31 +109,19 @@ public sealed class PcbLayerStack
         if (entries.Count == 0)
             return null;
 
-        // Build ordered list by following PREV/NEXT chain
-        // Find the first layer (no valid previous)
-        var ordered = new List<PcbLayerEntry>();
-        var first = entries.Values.FirstOrDefault(e => e.PreviousIndex == 0 || !entries.ContainsKey(e.PreviousIndex));
-        if (first != null)
+        // The stack is the chain from the Top Layer along NEXT.
+        if (entries.TryGetValue(1, out var top))
         {
-            var current = first;
+            var chain = new List<PcbLayerEntry>();
             var visited = new HashSet<int>();
-            while (current != null && visited.Add(current.Index))
+            for (PcbLayerEntry? current = top; current != null && visited.Add(current.Index);)
             {
-                ordered.Add(current);
-                entries.TryGetValue(current.NextIndex, out current);
+                chain.Add(current);
+                current = current.NextIndex != 0 && entries.TryGetValue(current.NextIndex, out var next) ? next : null;
             }
+            return new PcbLayerStack(chain);
         }
 
-        // If chain traversal missed some entries, add them at the end
-        if (ordered.Count < entries.Count)
-        {
-            foreach (var entry in entries.Values.OrderBy(e => e.Index))
-            {
-                if (!ordered.Contains(entry))
-                    ordered.Add(entry);
-            }
-        }
-
-        return new PcbLayerStack(ordered);
+        return new PcbLayerStack(entries.Values.OrderBy(e => e.Index).ToList());
     }
 }
