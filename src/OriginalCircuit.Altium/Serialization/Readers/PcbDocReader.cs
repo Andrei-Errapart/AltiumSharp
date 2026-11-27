@@ -461,6 +461,24 @@ public sealed class PcbDocReader
     // value as a UNICODE__<KEY>=<comma-decimal UTF-16 code units> companion (the inline value has the
     // >255 codepoints stripped). Replace each base key with its true decoded value and drop the
     // UNICODE markers, so downstream typed parsing sees the real strings.
+    /// <summary>
+    /// A rule's parameters as stored, in their order, with the <c>UNICODE</c> flag and the
+    /// <c>UNICODE__</c> companions folded into the keys they carry (the writer regenerates them).
+    /// </summary>
+    private static List<KeyValuePair<string, string>> StoredRuleParameters(
+        List<KeyValuePair<string, string>> ordered, Dictionary<string, string> decoded)
+    {
+        var stored = new List<KeyValuePair<string, string>>(ordered.Count);
+        foreach (var (key, value) in ordered)
+        {
+            if (key.Equals("UNICODE", StringComparison.OrdinalIgnoreCase)
+                || key.StartsWith("UNICODE__", StringComparison.OrdinalIgnoreCase))
+                continue;
+            stored.Add(new KeyValuePair<string, string>(key, decoded.TryGetValue(key, out var text) ? text : value));
+        }
+        return stored;
+    }
+
     internal static void DecodeUnicodeParameters(Dictionary<string, string> p)
     {
         if (!p.TryGetValue("UNICODE", out var flag) || !flag.Equals("EXISTS", StringComparison.OrdinalIgnoreCase))
@@ -554,8 +572,10 @@ public sealed class PcbDocReader
             rule.ReadCommonHeader(parameters);
             if (rule.IsModeled)
             {
+                var ordered = PcbLibReader.ParseParametersOrdered(text);
                 rule.ReadBody(parameters);
-                rule.ReadOrdered(PcbLibReader.ParseParametersOrdered(text));
+                rule.ReadOrdered(ordered);
+                rule.CaptureSource(StoredRuleParameters(ordered, parameters));
             }
             else
                 rule.RawParametersOrdered = PcbLibReader.ParseParametersOrdered(text); // kind not yet typed
