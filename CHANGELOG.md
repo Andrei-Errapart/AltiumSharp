@@ -23,6 +23,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- `SchComponentRenderer.RenderPort` draws a port of style 4-6 (Top, Bottom, Top & Bottom) along Y, `Width` tall from its `Location`, with the hexagon's points at its two ends and its name reading bottom to top. Every port was drawn along X, so a vertical one lay on its side over whatever was drawn east of it.
+
 - `ProjectHierarchy.NormalizeFileName` resolves the path as Windows does before taking its last segment, so `Main.SchDoc\.`, `Sub\Main.SchDoc\X\..`, `Main.SchDoc.` and `Main.SchDoc ` are all `Main.SchDoc` (they were `.`, `..`, `Main.SchDoc.` and `Main.SchDoc`), and a path that ends at a folder (`X\..`, `Sheets\`) names no file. Leading white space is still dropped.
 - `ProjectHierarchy.LoadAsync(project)` (from disk) knows each sheet by the file it was read from, so two files of one name in different folders are two sheets, and a symbol that places another file of an ancestor's name is no cycle. A sheet symbol places the project's document of its file name (when the project lists several of that name, the one its path leads to, else the first), otherwise the file its path leads to. `Documents` stays keyed by file name and holds the first document of each name; `IsMultiChannel` and channel numbering go by document. Project documents of one name in different folders are each read (reported as `SharedFileName`), where `DuplicateDocumentName` said only the first was read. `Build` and the stream loader that takes only a path still know documents by file name.
 - `PhysicalComponent.Comment` and `GetParameterValue` resolve against the sheet's and project's parameters as they are when first resolved through the hierarchy.

@@ -1615,20 +1615,32 @@ public sealed class SchComponentRenderer
     {
         var w = port.Width > Coord.Zero ? port.Width : Coord.FromMils(100);
         var h = port.Height > Coord.Zero ? port.Height : Coord.FromMils(20);
-        // The port's Location is the wire connection point: it sits at the vertical centre of the
-        // port body's end, so the body is centred on Location.Y (was drawn upward from it, leaving
-        // the wire attached to the bottom edge ~½·height = 50 mil too low).
+        // The port's Location is the wire connection point at one end of the body, centred across
+        // it. Width is the body's length along its own axis: X for styles 0-3 (None, Left, Right,
+        // Left & Right), Y for 4-6 (Top, Bottom, Top & Bottom), so a vertical port is Width tall.
+        // Drawing every port along X laid a vertical one on its side, over whatever lay east of it.
+        var vertical = port.Style is >= 4 and <= 6;
         var half = Coord.FromRaw(h.ToRaw() / 2);
-        var (sx0, sy0) = _transform.WorldToScreen(port.Location.X, port.Location.Y - half);
-        var (sx1, sy1) = _transform.WorldToScreen(port.Location.X + w, port.Location.Y + half);
+        var (sx0, sy0) = vertical
+            ? _transform.WorldToScreen(port.Location.X - half, port.Location.Y)
+            : _transform.WorldToScreen(port.Location.X, port.Location.Y - half);
+        var (sx1, sy1) = vertical
+            ? _transform.WorldToScreen(port.Location.X + half, port.Location.Y + w)
+            : _transform.WorldToScreen(port.Location.X + w, port.Location.Y + half);
 
         double left = Math.Min(sx0, sx1), right = Math.Max(sx0, sx1);
         double top = Math.Min(sy0, sy1), bottom = Math.Max(sy0, sy1);
+        double midX = (left + right) / 2.0;
         double midY = (top + bottom) / 2.0;
         double cham = Math.Min((bottom - top) / 2.0, (right - left) / 2.0);
 
-        var xs = new[] { left + cham, right - cham, right, right - cham, left + cham, left };
-        var ys = new[] { top, top, midY, bottom, bottom, midY };
+        // The hexagon's points sit at the two ends of the body's long axis.
+        var xs = vertical
+            ? new[] { left, midX, right, right, midX, left }
+            : new[] { left + cham, right - cham, right, right - cham, left + cham, left };
+        var ys = vertical
+            ? new[] { top + cham, top, top + cham, bottom - cham, bottom, bottom - cham }
+            : new[] { top, top, midY, bottom, bottom, midY };
 
         // A harness port (one carrying a HarnessType) is drawn in the harness colour — a light blue —
         // not the yellow signal-port colour, so it visually matches its bundle and connector.
@@ -1648,19 +1660,30 @@ public sealed class SchComponentRenderer
 
         if (!string.IsNullOrEmpty(port.Name))
         {
-            var (cx, cy) = _transform.WorldToScreen(port.Location.X + w, port.Location.Y + h);
             var textColor = port.TextColor != 0 ? ColorHelper.BgrToArgb(port.TextColor) : ColorHelper.Black;
             var font = GetFont(port.FontId);
             var fontSize = GetFontSize(port.FontId);
-            context.DrawText(port.Name, (left + right) / 2.0, midY, fontSize, textColor,
-                new TextRenderOptions
-                {
-                    FontFamily = font.FontName,
-                    Bold = font.Bold,
-                    Italic = font.Italic,
-                    HorizontalAlignment = TextHAlign.Center,
-                    VerticalAlignment = TextVAlign.Middle
-                });
+            var options = new TextRenderOptions
+            {
+                FontFamily = font.FontName,
+                Bold = font.Bold,
+                Italic = font.Italic,
+                HorizontalAlignment = TextHAlign.Center,
+                VerticalAlignment = TextVAlign.Middle
+            };
+            if (vertical)
+            {
+                // Along the body, reading bottom to top as Altium draws it.
+                context.SaveState();
+                context.Translate(midX, midY);
+                context.Rotate(-90);
+                context.DrawText(port.Name, 0, 0, fontSize, textColor, options);
+                context.RestoreState();
+            }
+            else
+            {
+                context.DrawText(port.Name, midX, midY, fontSize, textColor, options);
+            }
         }
     }
 
