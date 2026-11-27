@@ -6,6 +6,7 @@ using OriginalCircuit.Altium.Serialization.Binary;
 using OriginalCircuit.Altium.Serialization.Compound;
 using OriginalCircuit.Altium.Serialization.Dto.Sch;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using PinElectricalType = OriginalCircuit.Altium.Models.Sch.PinElectricalType;
 
@@ -367,7 +368,10 @@ public sealed class SchDocReader
         // A placed component's comment is its "Comment" child parameter, as in a SchLib. It is
         // usually a reference such as "=Value", resolved by SchComponent.GetResolvedComment.
         foreach (var component in components.Values)
+        {
             component.Comment = component.GetParameterValue("Comment");
+            component.CommentAsRead = component.Comment;   // the baseline the writers compare edits against
+        }
     }
 
     private static SchComponent CreateComponent(Dictionary<string, string> parameters)
