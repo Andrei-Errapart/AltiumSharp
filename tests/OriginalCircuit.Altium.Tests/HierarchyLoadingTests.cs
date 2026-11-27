@@ -406,6 +406,44 @@ public sealed class HierarchyLoadingTests
         Assert.Equal(new[] { "Top.SchDoc", "Power.SchDoc" }, hierarchy.DocumentsByKey.Keys.ToArray());
     }
 
+    // ---- each sheet placed once (flat and global scope) ----
+
+    private static readonly ProjectHierarchyOptions PlacedOnce = new() { PlaceSheetsOnce = true };
+
+    [Fact]
+    public void PlaceSheetsOnce_SkipsASecondPlainSymbolOfTheSameSheet()
+    {
+        // An overview page placing the working sheet a second time for navigation.
+        var top = Sheet("Top.SchDoc",
+            Symbol("PWR", "Power.SchDoc", "SYMPWRAA", xMils: 1000),
+            Symbol("PWR_OVERVIEW", "Power.SchDoc", "SYMPWRBB", xMils: 3000));
+        var power = Sheet("Power.SchDoc", Part("R1", "RONEAAAA"));
+
+        var cloned = ProjectHierarchy.Build(Project("Top.SchDoc", "Power.SchDoc"), new[] { top, power });
+        Assert.Equal(new[] { "R1_PWR", "R1_PWR_OVERVIEW" }, Designators(cloned));
+
+        var once = ProjectHierarchy.Build(Project("Top.SchDoc", "Power.SchDoc"), new[] { top, power }, PlacedOnce);
+
+        Assert.Equal(new[] { "R1" }, Designators(once));
+        Assert.Equal(2, once.Sheets.Count);
+        Assert.False(once.Sheets[1].IsMultiChannel);
+        var skipped = Assert.Single(once.Diagnostics, d => d.Code == AltiumDiagnosticCode.SheetReferencedAgain);
+        Assert.Equal(DiagnosticSeverity.Info, skipped.Severity);
+        Assert.Equal("PWR_OVERVIEW", skipped.SheetSymbol!.SheetName);
+    }
+
+    [Fact]
+    public void PlaceSheetsOnce_LeavesRepeatChannelsAlone()
+    {
+        var top = Sheet("Top.SchDoc", Symbol("Repeat(CH,1,3)", "Channel.SchDoc", "SYMCHANL"));
+        var channel = Sheet("Channel.SchDoc", Part("R1", "RONEAAAA"));
+
+        var once = ProjectHierarchy.Build(Project("Top.SchDoc", "Channel.SchDoc"), new[] { top, channel }, PlacedOnce);
+
+        Assert.Equal(new[] { "R1_CH1", "R1_CH2", "R1_CH3" }, Designators(once));
+        Assert.DoesNotContain(once.Diagnostics, d => d.Code == AltiumDiagnosticCode.SheetReferencedAgain);
+    }
+
     // ---- symbols the caller does not follow ----
 
     private static readonly ProjectHierarchyOptions NotEndingInASpace = new()
