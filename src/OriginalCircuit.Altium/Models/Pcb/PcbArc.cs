@@ -72,7 +72,7 @@ public sealed class PcbArc : IPcbArc
 
     /// <summary>
     /// The index of the polygon piece this arc was poured as, within the polygon its
-    /// record names; 0 for a arc that is not polygon copper. Bytes 45-46 of the record.
+    /// record names; 0 for an arc that is not polygon copper. Bytes 45-46 of the record.
     /// </summary>
     public int SubPolyIndex { get; set; }
 
@@ -171,19 +171,19 @@ public sealed class PcbArc : IPcbArc
     public int ReliefEntries { get; set; }
 
     /// <summary>
-    /// Not a property of a arc: the bytes this was read from are the subpolygon index, an
+    /// Not a property of an arc: the bytes this was read from are the subpolygon index, an
     /// unknown byte and the union index (see <see cref="SubPolyIndex"/> and <see cref="UnionIndex"/>).
     /// Neither read nor written.
     /// </summary>
-    [Obsolete("A arc has no mask expansion; the bytes this was read from are SubPolyIndex and UnionIndex.")]
+    [Obsolete("An arc has no mask expansion; the bytes this was read from are SubPolyIndex and UnionIndex.")]
     public Coord SolderMaskExpansion { get; set; }
 
     /// <summary>
-    /// Not a property of a arc: the bytes this was read from are the subpolygon index, an
+    /// Not a property of an arc: the bytes this was read from are the subpolygon index, an
     /// unknown byte and the union index (see <see cref="SubPolyIndex"/> and <see cref="UnionIndex"/>).
     /// Neither read nor written.
     /// </summary>
-    [Obsolete("A arc has no mask expansion; the bytes this was read from are SubPolyIndex and UnionIndex.")]
+    [Obsolete("An arc has no mask expansion; the bytes this was read from are SubPolyIndex and UnionIndex.")]
     public Coord PasteMaskExpansion { get; set; }
 
     /// <summary>
