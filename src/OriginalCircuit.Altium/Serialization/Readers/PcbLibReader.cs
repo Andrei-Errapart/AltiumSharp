@@ -990,7 +990,10 @@ public sealed class PcbLibReader
         arc.NetIndex = U16(3);                                  // 3-4 net index
         var arcComp = U16(7);                                   // 7-8 component index
         arc.ComponentIndex = arcComp == 0xFFFF ? -1 : arcComp;
-        arc.SolderMaskExpansion = Coord.FromRaw(I32(47)); // 47-50
+        // 45-46 subpolygon index, 47 unknown, 48-51 union index (KiCad's AARC6).
+        if (Has(45, 2)) arc.SubPolyIndex = BitConverter.ToUInt16(sr, 45);
+        arc.UnionIndex = I32(48);
+        if (Has(47, 1)) arc.RawTailBytes = new[] { B(47) };
         arc.KeepoutRestrictions = B(56);                  // 56
 
         // Decode flags
@@ -1398,7 +1401,10 @@ public sealed class PcbLibReader
         var trackComp = U16(7);                                   // 7-8 component index
         track.ComponentIndex = trackComp == 0xFFFF ? -1 : trackComp;
 
-        track.SolderMaskExpansion = Coord.FromRaw(I32(35)); // 35-38
+        // 33-34 subpolygon index, 35 unknown, 36-39 union index, 40 unknown (KiCad's ATRACK6).
+        if (Has(33, 2)) track.SubPolyIndex = BitConverter.ToUInt16(sr, 33);
+        track.UnionIndex = I32(36);
+        if (Has(40, 1)) track.RawTailBytes = new[] { B(35), B(40) };
         track.KeepoutRestrictions = B(45);                  // 45
         track.RawFlags = flags;
 
