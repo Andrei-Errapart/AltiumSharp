@@ -229,6 +229,53 @@ public class ProjectNetlistTests : IDisposable
     }
 
     [Fact]
+    public async Task NetLabel_Joins_The_Power_Net_Of_Its_Name()
+    {
+        // TE0965: VCC_FSIO_BANK1 is a net label on two sheets and a power port on a third; Altium's
+        // board has one net. Flat scope joins the label to the rail anywhere; hierarchical scope only
+        // through a power port of that name on the label's own sheet.
+        await WriteDoc("parent.SchDoc", doc =>
+        {
+            doc.AddPrimitive(new SchSheetSymbol
+            {
+                Location = new CoordPoint(Coord.FromMils(1000), Coord.FromMils(2000)),
+                XSize = Coord.FromMils(500),
+                YSize = Coord.FromMils(400),
+                FileName = "child.SchDoc",
+                SheetName = "U_CHILD",
+            });
+            doc.AddPrimitive(Wire(3000, 3000, 3200, 3000));
+            doc.AddComponent(Comp("P1", "1", 3000, 3000));
+            doc.AddPrimitive(new SchNetLabel { Text = "VCC_IO", Location = new CoordPoint(Coord.FromMils(3000), Coord.FromMils(3000)) });
+            doc.AddPrimitive(Wire(4000, 3000, 4200, 3000));
+            doc.AddComponent(Comp("P2", "1", 4000, 3000));
+            doc.AddPrimitive(new SchNetLabel { Text = "VCC_LOCAL", Location = new CoordPoint(Coord.FromMils(4000), Coord.FromMils(3000)) });
+            doc.AddPrimitive(Wire(5000, 3000, 5200, 3000));
+            doc.AddComponent(Comp("P3", "1", 5000, 3000));
+            doc.AddPrimitive(new SchPowerObject { Text = "vcc_local", Location = new CoordPoint(Coord.FromMils(5200), Coord.FromMils(3000)) });
+        });
+
+        await WriteDoc("child.SchDoc", doc =>
+        {
+            doc.AddPrimitive(Wire(500, 500, 700, 500));
+            doc.AddComponent(Comp("C1", "1", 500, 500));
+            doc.AddPrimitive(new SchPowerObject { Text = "VCC_IO", Location = new CoordPoint(Coord.FromMils(700), Coord.FromMils(500)) });
+        });
+
+        var project = await Project("parent.SchDoc", "child.SchDoc");
+
+        var flat = await ProjectNetlistBuilder.BuildAsync(project,
+            new NetlistOptions { Scope = NetIdentifierScope.Flat, ScopeIsExplicit = true });
+        Assert.Equal(flat.NetForPin("P1", "1"), flat.NetForPin("C1", "1"));
+        Assert.Equal(flat.NetForPin("P2", "1"), flat.NetForPin("P3", "1"));
+
+        var hier = await ProjectNetlistBuilder.BuildAsync(project,
+            new NetlistOptions { Scope = NetIdentifierScope.Hierarchical, ScopeIsExplicit = true });
+        Assert.NotEqual(hier.NetForPin("P1", "1"), hier.NetForPin("C1", "1"));
+        Assert.Equal(hier.NetForPin("P2", "1"), hier.NetForPin("P3", "1"));
+    }
+
+    [Fact]
     public async Task Repeat_Sheet_Symbol_Instantiates_Distinct_Channels()
     {
         // Child sheet with one component pin on a sheet-local net "SIG".
