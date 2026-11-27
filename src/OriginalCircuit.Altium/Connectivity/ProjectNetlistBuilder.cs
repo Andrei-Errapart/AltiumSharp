@@ -61,7 +61,7 @@ public static class ProjectNetlistBuilder
         {
             diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Error, "Could not determine a root schematic."));
             return new ProjectNetlist(Array.Empty<SchematicNet>(), Array.Empty<NetPin>(),
-                Array.Empty<ProjectSheetInstance>(), scope, diagnostics);
+                Array.Empty<ProjectSheetInstance>(), scope, diagnostics, hierarchy);
         }
 
         // Surface multi-channel (repeated) sheets: each channel instance is solved with its own net
@@ -135,7 +135,7 @@ public static class ProjectNetlistBuilder
                 i.SymbolUidPath, i.ChannelName, i.ChannelIndex, i.IsRepeated))
             .ToList();
 
-        return new ProjectNetlist(result.Nets, result.Unconnected, publicSheets, scope, diagnostics);
+        return new ProjectNetlist(result.Nets, result.Unconnected, publicSheets, scope, diagnostics, hierarchy);
     }
 
     // Maps the hierarchy's sheet instances (parents first) onto the solver's, keeping the netlist's
