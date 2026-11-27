@@ -70,6 +70,8 @@ public sealed class ProjectHierarchy
     private bool _formatTooLong;
     private long _plannedParts;
     private bool _stopped;
+    // The documents a plain sheet symbol has placed, for ProjectHierarchyOptions.PlaceSheetsOnce.
+    private readonly HashSet<HeldDocument> _placedByPlainSymbol = new(ReferenceEqualityComparer.Instance);
     private CancellationToken _cancellationToken;
 
     private ProjectHierarchy(AltiumProject? project, List<HeldDocument> held, SheetFinder finder,
@@ -1129,6 +1131,16 @@ public sealed class ProjectHierarchy
                     $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' has a Repeat(...) that cannot be read " +
                     "(it needs a name and two whole numbers at most 100,000 apart); it is treated as one instance.",
                     frame.Instance, symbol, childName, key: child.Key, path: symbol.FileName);
+
+            // Last, so a symbol skipped for another reason does not count as placing its sheet.
+            if (_options.PlaceSheetsOnce && !repeat.IsRepeated && !_placedByPlainSymbol.Add(child))
+            {
+                ReportSymbol(DiagnosticSeverity.Info, AltiumDiagnosticCode.SheetReferencedAgain,
+                    $"Sheet symbol '{SymbolName(symbol)}' on '{fileName}' places '{childName}' again; " +
+                    "each sheet is placed once (ProjectHierarchyOptions.PlaceSheetsOnce).",
+                    frame.Instance, symbol, symbol.FileName, key: child.Key, path: symbol.FileName);
+                continue;
+            }
 
             frame.Symbol = symbol;
             frame.Child = child;

@@ -770,7 +770,7 @@ foreach (var group in hierarchy.Diagnostics.Where(d => d.DocumentKey is not null
 | Type | Key members |
 |------|-------------|
 | `ProjectHierarchy` | `Roots`, `Sheets`, `Parts`, `Components`, `Documents` (by file name), `DocumentsByKey`, `DesignatorFormat`, `Diagnostics`, `IsTruncated`, `MissingDocuments`, `DuplicateDesignators`, `FindComponent`, `FindComponents`, `FindComponentByUniqueIdPath`, `FindSheetByUniqueIdPath`, `ParameterScopeFor`, `FormatDesignator`, `NormalizeFileName`, `NormalizePath`, `OrderSiblings` |
-| `ProjectHierarchyOptions` | `MaxDepth`, `MaxSheetInstances`, `MaxComponentParts`, `MaxUniqueIdLength`, `MaxDesignatorLength`, `MaxRoomNameLength`, `FollowSheetSymbol`, `ReaderOptions`, `Default` |
+| `ProjectHierarchyOptions` | `MaxDepth`, `MaxSheetInstances`, `MaxComponentParts`, `MaxUniqueIdLength`, `MaxDesignatorLength`, `MaxRoomNameLength`, `FollowSheetSymbol`, `PlaceSheetsOnce`, `ReaderOptions`, `Default` |
 | `HierarchySheetInstance` | `Document`, `FileName`, `DocumentKey`, `Parent`, `Children`, `SheetSymbol`, `RepeatIndex`, `ChannelName`, `RoomName`, `ChannelIndex`, `IsMultiChannel`, `UniqueIdPath`, `HierarchicalPath`, `Parts` |
 | `PhysicalComponent` | `Designator`, `LogicalDesignator`, `Parts`, `Component`, `Sheet`, `ComponentType`, `IsInBom`, `Comment`, `UniqueIdPaths`, `GetParameterValue` |
 | `PhysicalComponentPart` | `Component`, `Sheet`, `LogicalDesignator`, `PhysicalDesignator`, `PartId`, `UniqueIdPath`, `Owner` |

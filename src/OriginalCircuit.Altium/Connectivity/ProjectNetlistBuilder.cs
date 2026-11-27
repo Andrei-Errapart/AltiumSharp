@@ -22,13 +22,28 @@ public static class ProjectNetlistBuilder
         AltiumProject project, NetlistOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(project);
-        var hierarchy = await ProjectHierarchy.LoadAsync(project, cancellationToken: cancellationToken).ConfigureAwait(false);
+        options ??= NetlistOptions.Default;
+
+        // Under the flat and global scopes Altium does not clone channels for a sheet placed by
+        // several plain symbols (a block-diagram overview page placing the working sheets again):
+        // identifiers merge by name and each component exists once per document. Instantiating
+        // every placement made each one a channel with channel-private power nets, and GND fell
+        // apart into per-sheet islands. Automatic scope resolves to flat only for a project
+        // without sheet symbols, where nothing is placed twice, so the raw scope decides.
+        var rawScope = options.ScopeIsExplicit ? options.Scope : NetIdentifierScopeReader.Read(project);
+        var hierarchyOptions = new ProjectHierarchyOptions
+        {
+            PlaceSheetsOnce = rawScope is NetIdentifierScope.Flat or NetIdentifierScope.Global,
+        };
+        var hierarchy = await ProjectHierarchy.LoadAsync(project, hierarchyOptions, cancellationToken).ConfigureAwait(false);
         return Build(hierarchy, options, cancellationToken);
     }
 
     /// <summary>
     /// Builds the merged netlist for a hierarchy whose documents are already in memory, for example
-    /// one that <see cref="ProjectHierarchy"/> loaded through a document callback.
+    /// one that <see cref="ProjectHierarchy"/> loaded through a document callback. Load it with
+    /// <see cref="ProjectHierarchyOptions.PlaceSheetsOnce"/> set when the project's scope is flat or
+    /// global, as <see cref="BuildAsync"/> does.
     /// </summary>
     /// <param name="hierarchy">The project's compiled sheet hierarchy.</param>
     /// <param name="options">Solver options; defaults are used when <see langword="null"/>.</param>

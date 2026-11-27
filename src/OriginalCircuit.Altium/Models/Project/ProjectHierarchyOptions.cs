@@ -57,6 +57,19 @@ public sealed class ProjectHierarchyOptions
     public Func<SchSheetSymbol, bool>? FollowSheetSymbol { get; init; }
 
     /// <summary>
+    /// Places each sheet once: a plain sheet symbol (no <c>Repeat(...)</c>) whose sheet a plain symbol
+    /// already placed is skipped with an
+    /// <see cref="Diagnostics.AltiumDiagnosticCode.SheetReferencedAgain"/> diagnostic, so its sheet is
+    /// not a channel and its components keep their logical designators. This is what Altium compiles
+    /// under the flat and global net-identifier scopes, where a block-diagram overview page commonly
+    /// places the working sheets a second time for navigation (one company project places one sheet
+    /// 17 times): identifiers merge by name and each component exists once per document.
+    /// <c>Repeat(...)</c> channels are unaffected. <see cref="Connectivity.ProjectNetlistBuilder.BuildAsync"/>
+    /// sets it for a project whose scope is flat or global. Default <c>false</c>.
+    /// </summary>
+    public bool PlaceSheetsOnce { get; init; }
+
+    /// <summary>
     /// The longest unique id taken: a sheet symbol's (or, for a symbol without one, the name its path
     /// uses instead) and a component's. A sheet symbol with a longer one is not followed and a component
     /// with a longer one is left out, with an error. Altium's unique ids have 8 characters. Default 255.

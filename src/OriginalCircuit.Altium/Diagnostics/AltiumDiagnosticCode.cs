@@ -173,4 +173,12 @@ public enum AltiumDiagnosticCode
     /// <c>ProjectHierarchyOptions.MaxRoomNameLength</c>; its sheet was left out.
     /// </summary>
     MaxRoomNameLengthExceeded,
+
+    /// <summary>
+    /// A plain sheet symbol (<see cref="AltiumDiagnostic.SheetSymbol"/>, on
+    /// <see cref="AltiumDiagnostic.SheetInstance"/>) places a sheet a plain symbol already placed and
+    /// was skipped, because <c>ProjectHierarchyOptions.PlaceSheetsOnce</c> is set (the flat and global
+    /// net-identifier scopes). <see cref="AltiumDiagnostic.DocumentName"/> is its path as written.
+    /// </summary>
+    SheetReferencedAgain,
 }
