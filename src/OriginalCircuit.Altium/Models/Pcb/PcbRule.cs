@@ -65,6 +65,74 @@ public class PcbRule
     /// <summary>True when this rule is a fully typed per-kind subclass (no ordered-param replay needed).</summary>
     internal virtual bool IsModeled => false;
 
+    /// <summary>
+    /// A typed rule read from a file: its parameters as stored, in their order, with Altium's
+    /// <c>UNICODE__</c> companions folded into the keys they carry; and what the typed writer
+    /// produced for it right after reading. The writer keeps every stored key, with the stored
+    /// text unless the typed property behind it was changed, and adds a typed key the file did
+    /// not have only when its property was changed. Null for a rule built from scratch, which
+    /// writes the canonical key set.
+    /// </summary>
+    internal List<KeyValuePair<string, string>>? SourceParameters { get; private set; }
+
+    private Dictionary<string, string>? _baseline;
+
+    /// <summary>Records the stored parameters and the typed writer's output for them (see <see cref="SourceParameters"/>).</summary>
+    internal void CaptureSource(List<KeyValuePair<string, string>> stored)
+    {
+        SourceParameters = stored;
+        _baseline = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in TypedParameters())
+            _baseline.TryAdd(key, value);
+    }
+
+    /// <summary>The common header and the kind body, as the typed properties stand, in canonical order.</summary>
+    internal List<KeyValuePair<string, string>> TypedParameters()
+    {
+        var pairs = new List<KeyValuePair<string, string>>();
+        void Add(string k, string v) => pairs.Add(new KeyValuePair<string, string>(k, v));
+        WriteCommonHeader(Add);
+        WriteBody(Add);
+        return pairs;
+    }
+
+    /// <summary>
+    /// The parameters to write for a typed rule: the canonical set for one built from scratch;
+    /// for one read from a file, its stored keys in their order (the stored text unless the
+    /// property behind a key was changed) followed by the typed keys it did not have whose
+    /// property was changed. A writer that rebuilt every rule from its typed properties dropped
+    /// the keys a kind does not model (<c>SOLDERMASKFROMHOLE</c>, <c>CHECKBADCONNECTIONS</c>,
+    /// <c>VALID</c>) and added defaults the file never had (<c>USEDELAYUNITS</c>, <c>DELAYTOLERANCE</c>).
+    /// </summary>
+    internal List<KeyValuePair<string, string>> ParametersToWrite()
+    {
+        var typed = TypedParameters();
+        if (SourceParameters is not { } stored || _baseline is not { } baseline)
+            return typed;
+
+        var current = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in typed)
+            current.TryAdd(key, value);
+
+        bool Changed(string key) =>
+            current.TryGetValue(key, out var now) && (!baseline.TryGetValue(key, out var then) || !string.Equals(now, then, StringComparison.Ordinal));
+
+        var result = new List<KeyValuePair<string, string>>(stored.Count);
+        var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in stored)
+        {
+            if (!written.Add(key))
+                continue;
+            result.Add(new KeyValuePair<string, string>(key, Changed(key) ? current[key] : value));
+        }
+        foreach (var (key, value) in typed)
+        {
+            if (written.Add(key) && Changed(key))
+                result.Add(new KeyValuePair<string, string>(key, value));
+        }
+        return result;
+    }
+
     /// <summary>Reads the kind-specific constraint keys from the parsed parameter dictionary.</summary>
     internal virtual void ReadBody(Dictionary<string, string> p) { }
 

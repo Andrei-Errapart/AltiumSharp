@@ -315,17 +315,14 @@ public sealed class PcbDocWriter
         using var ms = new MemoryStream();
         foreach (var rule in document.Rules)
         {
-            // Typed rule kinds serialize from named properties (common header + kind body) in canonical
-            // order; not-yet-modeled kinds replay the captured ordered list. Framed as
-            // [2-byte leader][4-byte length][text][null].
+            // Typed rule kinds serialize from named properties (common header + kind body); one read
+            // from a file keeps its stored keys and their text unless a property was changed (see
+            // PcbRule.ParametersToWrite). Not-yet-modeled kinds replay the captured ordered list.
+            // Framed as [2-byte leader][4-byte length][text][null].
             string text;
             if (rule.IsModeled)
             {
-                var pairs = new List<KeyValuePair<string, string>>();
-                void Add(string k, string v) => pairs.Add(new KeyValuePair<string, string>(k, v));
-                rule.WriteCommonHeader(Add);
-                rule.WriteBody(Add);
-                text = BuildUnicodeAwareParamString(pairs);
+                text = BuildUnicodeAwareParamString(rule.ParametersToWrite());
             }
             else
             {
