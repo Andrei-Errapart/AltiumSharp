@@ -81,9 +81,10 @@ public static class ProjectNetlistBuilder
 
         // Surface multi-channel (repeated) sheets: each channel instance is solved with its own net
         // scope so a sheet-local net is distinct per channel; channel-aware lookups disambiguate them.
-        foreach (var grp in instances.GroupBy(i => i.FileName, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
+        // By document, not file name: two sheets of one name in different folders are two sheets.
+        foreach (var grp in instances.GroupBy(i => i.Doc, ReferenceEqualityComparer.Instance).Where(g => g.Count() > 1))
             diagnostics.Add(new AltiumDiagnostic(DiagnosticSeverity.Info,
-                $"Sheet '{grp.Key}' is instantiated {grp.Count()} times (multi-channel); each channel is a separate net scope."));
+                $"Sheet '{grp.First().FileName}' is instantiated {grp.Count()} times (multi-channel); each channel is a separate net scope."));
 
         // --- Build all sheet graphs (global element id space) ---
         var elements = new List<Element>();
@@ -172,7 +173,7 @@ public static class ProjectNetlistBuilder
 
             var parent = instances[sheet.Parent.Index];
             var sameFile = sheet.Parent.Children
-                .Where(c => string.Equals(c.FileName, sheet.FileName, StringComparison.OrdinalIgnoreCase)).ToList();
+                .Where(c => ReferenceEquals(c.Document, sheet.Document)).ToList();
             var isRepeated = sameFile.Count > 1;
             var ordinal = sameFile.IndexOf(sheet) + 1;
             var symbolName = string.IsNullOrEmpty(sheet.SheetSymbol.SheetName)

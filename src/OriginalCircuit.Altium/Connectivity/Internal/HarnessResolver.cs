@@ -37,9 +37,11 @@ internal static class HarnessResolver
         // collide across instances, so qualify those per instance to keep channels separate. Single-
         // instance documents keep a project-global qualified name so a bundle spanning two different
         // documents (e.g. an MCU sheet and a connector sheet) still reconnects.
-        var instanceCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        // Counted by document, not file name: two sheets of one name in different folders are two
+        // documents, each instantiated once.
+        var instanceCounts = new Dictionary<Models.Sch.SchDocument, int>(ReferenceEqualityComparer.Instance);
         foreach (var s in sheets)
-            instanceCounts[s.FileName ?? string.Empty] = instanceCounts.GetValueOrDefault(s.FileName ?? string.Empty) + 1;
+            instanceCounts[s.Doc] = instanceCounts.GetValueOrDefault(s.Doc) + 1;
 
         foreach (var sheet in sheets)
         {
@@ -47,7 +49,7 @@ internal static class HarnessResolver
                 continue;
 
             var bundleName = ResolveBundleNames(sheet, tolRaw);
-            var repeated = instanceCounts.GetValueOrDefault(sheet.FileName ?? string.Empty) > 1;
+            var repeated = instanceCounts.GetValueOrDefault(sheet.Doc) > 1;
             var scope = repeated ? $"@{sheet.SheetId}|" : string.Empty;
 
             foreach (var info in sheet.HarnessConnectors)
