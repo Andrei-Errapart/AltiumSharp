@@ -112,6 +112,7 @@ public static class ProjectNetlistBuilder
         var labelsGlobal = scope is NetIdentifierScope.Flat or NetIdentifierScope.Global;
         var portsGlobal = scope is NetIdentifierScope.Flat or NetIdentifierScope.Global;
         SchematicNetlistBuilder.MergeIdentifiers(graphs, labelReps, uf, labelsGlobal, portsGlobal);
+        SchematicNetlistBuilder.JoinLabelsToPower(graphs, labelReps, uf, labelsGlobal, repeatedInstanceIds);
 
         var labelsByRoot = SchematicNetlistBuilder.BindLabelsToRoots(labelReps, uf);
 

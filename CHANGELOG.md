@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- A net label now joins the power net of the same name, as in Altium: project-wide where labels are global (flat / global scope), through a power port on its own sheet where they are sheet-local. The two used to stay separate nets of one name.
 - `ProjectHierarchy.LoadAsync` tries every path of a sheet's name until one gives a document. It marked a name as asked for before the callback found it, so a listed path the folder lacked, or an earlier symbol's path, hid every later path of that name. A path that gave nothing is not asked for again from the same sheet, and the duplicate-name warning now says "only one is read".
 - `ProjectDocumentKinds.FromPath` (and so `AltiumProject.SchematicDocuments` and `DocumentsOfKind`) takes the extension of the file name Windows opens, so a listed `Main.SchDoc `, `Main.SchDoc.` or `Main.SchDoc\.` is a schematic, and the same for BomDocs; they were kinded `Other` and never read.
 - The disk loader resolves paths itself, the same on every platform: `.`/`..`, trailing periods and spaces, drive paths as rooted, and (off Windows) file names ignoring case. It returns the file's full path, so a sheet found through `Sheets\Mid.SchDoc\.` looks for its own sheets in `Sheets`, not under a folder named after its file.

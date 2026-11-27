@@ -37,6 +37,7 @@ public static class SchematicNetlistBuilder
         UnifyPower(sheets, uf);
         var labelReps = ComputeLabelReps(sheet, uf, diagnostics);
         MergeIdentifiers(sheets, labelReps, uf, labelsGlobal: false, portsGlobal: false);
+        JoinLabelsToPower(sheets, labelReps, uf, labelsGlobal: false);
 
         if (options.ResolveHarnesses)
             HarnessResolver.Resolve(sheets, uf, tolRaw);
@@ -141,6 +142,45 @@ public static class SchematicNetlistBuilder
             foreach (var (label, rep, sheetId) in labelReps)
                 if (sheetId == sheet.SheetId)
                     Link(labels, label.Text, rep, uf);
+        }
+    }
+
+    /// <summary>
+    /// Joins net labels to the power net of the same name, as Altium does: a power port is global, so
+    /// a label naming it joins that rail. Where labels are global (flat / global scope) a label joins
+    /// the rail project-wide; where they are sheet-local, only through a power object of that name on
+    /// its own sheet. Power inside a repeated (multi-channel) instance stays channel-private.
+    /// </summary>
+    internal static void JoinLabelsToPower(
+        IReadOnlyList<SheetGraph> sheets,
+        IReadOnlyList<(SchNetLabel Label, int Rep, int SheetId)> labelReps,
+        UnionFind uf,
+        bool labelsGlobal,
+        IReadOnlySet<int>? repeatedInstanceIds = null)
+    {
+        var global = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var perSheet = new Dictionary<(int Sheet, string Name), int>();
+        foreach (var sheet in sheets)
+        {
+            var channelScoped = repeatedInstanceIds?.Contains(sheet.SheetId) == true;
+            foreach (var e in sheet.Elements)
+            {
+                if (e.IntrinsicScope != NetScope.Power || string.IsNullOrEmpty(e.IntrinsicName))
+                    continue;
+                perSheet.TryAdd((sheet.SheetId, e.IntrinsicName.ToUpperInvariant()), e.Id);
+                if (!channelScoped)
+                    global.TryAdd(e.IntrinsicName, e.Id);
+            }
+        }
+
+        foreach (var (label, rep, sheetId) in labelReps)
+        {
+            if (string.IsNullOrEmpty(label.Text))
+                continue;
+            if (perSheet.TryGetValue((sheetId, label.Text.ToUpperInvariant()), out var local))
+                uf.Union(local, rep);
+            else if (labelsGlobal && global.TryGetValue(label.Text, out var rail))
+                uf.Union(rail, rep);
         }
     }
 
