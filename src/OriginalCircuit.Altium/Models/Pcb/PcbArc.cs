@@ -65,9 +65,19 @@ public sealed class PcbArc : IPcbArc
     public bool UserRouted { get; set; }
 
     /// <summary>
-    /// Union index for grouped primitives.
+    /// The union (a length-tuning pattern, a room's grouped primitives) this arc belongs to; 0 for
+    /// none. Bytes 48-51 of the record, where KiCad's importer reads it.
     /// </summary>
     public int UnionIndex { get; set; }
+
+    /// <summary>
+    /// The index of the polygon piece this arc was poured as, within the polygon its
+    /// record names; 0 for a arc that is not polygon copper. Bytes 45-46 of the record.
+    /// </summary>
+    public int SubPolyIndex { get; set; }
+
+    /// <summary>The record bytes between the indices that no field is known for, kept verbatim.</summary>
+    internal byte[]? RawTailBytes { get; set; }
 
     /// <summary>
     /// Whether this arc is part of a polygon outline.
@@ -161,13 +171,19 @@ public sealed class PcbArc : IPcbArc
     public int ReliefEntries { get; set; }
 
     /// <summary>
-    /// Solder mask expansion.
+    /// Not a property of a arc: the bytes this was read from are the subpolygon index, an
+    /// unknown byte and the union index (see <see cref="SubPolyIndex"/> and <see cref="UnionIndex"/>).
+    /// Neither read nor written.
     /// </summary>
+    [Obsolete("A arc has no mask expansion; the bytes this was read from are SubPolyIndex and UnionIndex.")]
     public Coord SolderMaskExpansion { get; set; }
 
     /// <summary>
-    /// Paste mask expansion override.
+    /// Not a property of a arc: the bytes this was read from are the subpolygon index, an
+    /// unknown byte and the union index (see <see cref="SubPolyIndex"/> and <see cref="UnionIndex"/>).
+    /// Neither read nor written.
     /// </summary>
+    [Obsolete("A arc has no mask expansion; the bytes this was read from are SubPolyIndex and UnionIndex.")]
     public Coord PasteMaskExpansion { get; set; }
 
     /// <summary>

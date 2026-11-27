@@ -654,6 +654,8 @@ public sealed class PcbLibWriter
         };
     }
 
+    private static byte TailByte(byte[]? raw, int index) => raw is not null && index < raw.Length ? raw[index] : (byte)0;
+
     internal static void WriteArc(BinaryFormatWriter writer, PcbArc arc)
     {
         writer.WriteBlock(w =>
@@ -667,9 +669,9 @@ public sealed class PcbLibWriter
             w.Write(arc.EndAngle);                         // 33-40
             w.WriteCoord(arc.Width);                       // 41-44
             // Extended tail (offsets 45-59)
-            w.Write((short)0);                              // 45-46 subpoly index
-            w.WriteCoord(arc.SolderMaskExpansion);          // 47-50 solder mask expansion
-            w.Write((byte)0);                               // 51 paste mask expansion
+            w.Write((ushort)arc.SubPolyIndex);              // 45-46 subpolygon index
+            w.Write(TailByte(arc.RawTailBytes, 0));         // 47 unknown, kept as read
+            w.Write(arc.UnionIndex);                        // 48-51 union index
             w.Write(V7LayerId(arc.Layer));                  // 52-55 v7 layer id (derived from layer)
             w.Write((byte)arc.KeepoutRestrictions);         // 56 keepout restrictions
             w.Write(new byte[3]);                           // 57-59 reserved
@@ -956,9 +958,10 @@ public sealed class PcbLibWriter
             w.WriteCoordPoint(track.End);                    // 21-28
             w.WriteCoord(track.Width);                       // 29-32
             // Extended tail (offsets 33-48)
-            w.Write((short)0);                              // 33-34 subpoly index
-            w.WriteCoord(track.SolderMaskExpansion);        // 35-38 solder mask expansion
-            w.Write((short)0);                              // 39-40 paste mask expansion
+            w.Write((ushort)track.SubPolyIndex);            // 33-34 subpolygon index
+            w.Write(TailByte(track.RawTailBytes, 0));       // 35 unknown, kept as read
+            w.Write(track.UnionIndex);                      // 36-39 union index
+            w.Write(TailByte(track.RawTailBytes, 1));       // 40 unknown, kept as read
             w.Write(V7LayerId(track.Layer));                // 41-44 v7 layer id (derived from layer)
             w.Write((byte)track.KeepoutRestrictions);       // 45 keepout restrictions
             w.Write(new byte[3]);                           // 46-48 reserved
