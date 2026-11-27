@@ -1,4 +1,6 @@
 using OriginalCircuit.Altium.Diagnostics;
+using OriginalCircuit.Altium.Models.Project;
+using OriginalCircuit.Altium.Models.Sch;
 
 namespace OriginalCircuit.Altium.Connectivity;
 
@@ -69,8 +71,10 @@ public sealed class ProjectNetlist
         IReadOnlyList<NetPin> unconnectedPins,
         IReadOnlyList<ProjectSheetInstance> sheets,
         NetIdentifierScope scope,
-        IReadOnlyList<AltiumDiagnostic> diagnostics)
+        IReadOnlyList<AltiumDiagnostic> diagnostics,
+        ProjectHierarchy? hierarchy = null)
     {
+        Hierarchy = hierarchy;
         Nets = nets;
         UnconnectedPins = unconnectedPins;
         Sheets = sheets;
@@ -92,6 +96,47 @@ public sealed class ProjectNetlist
     }
 
     private static string UidKey(IEnumerable<string> path) => string.Join("", path);
+
+    /// <summary>
+    /// The compiled sheet hierarchy the netlist was solved over, or <see langword="null"/> when there
+    /// was none to solve (no readable document). Its sheets are the solver's sheet instances:
+    /// <see cref="NetPin.SheetInstanceId"/> is a <see cref="HierarchySheetInstance.Index"/>.
+    /// </summary>
+    public ProjectHierarchy? Hierarchy { get; }
+
+    private Dictionary<(int, SchComponent), string>? _physicalDesignators;
+
+    /// <summary>
+    /// The physical designator of a pin's component on the pin's sheet instance: on a sheet
+    /// instantiated more than once (a multi-channel design) the channel's designator, such as
+    /// <c>U1_CH2</c>, which is what the board carries and what keeps the channels' pins apart;
+    /// elsewhere the logical <see cref="NetPin.ComponentDesignator"/> itself. See
+    /// <see cref="ProjectHierarchy"/> for how channel designators are formed.
+    /// </summary>
+    public string PhysicalDesignatorOf(NetPin pin)
+    {
+        ArgumentNullException.ThrowIfNull(pin);
+        if (Hierarchy is null)
+            return pin.ComponentDesignator;
+
+        _physicalDesignators ??= Hierarchy.Parts.ToDictionary(
+            part => (part.Sheet.Index, part.Component),
+            part => part.PhysicalDesignator,
+            new InstanceComponentComparer());
+        return _physicalDesignators.TryGetValue((pin.SheetInstanceId, pin.Component), out var physical)
+            ? physical
+            : pin.ComponentDesignator;
+    }
+
+    // A component record is identified by reference, as the hierarchy and the solver share them.
+    private sealed class InstanceComponentComparer : IEqualityComparer<(int Sheet, SchComponent Component)>
+    {
+        public bool Equals((int Sheet, SchComponent Component) x, (int Sheet, SchComponent Component) y) =>
+            x.Sheet == y.Sheet && ReferenceEquals(x.Component, y.Component);
+
+        public int GetHashCode((int Sheet, SchComponent Component) obj) =>
+            HashCode.Combine(obj.Sheet, System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj.Component));
+    }
 
     /// <summary>The merged project-wide nets.</summary>
     public IReadOnlyList<SchematicNet> Nets { get; }

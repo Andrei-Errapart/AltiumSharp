@@ -68,7 +68,9 @@ under Altium's implicit rules:
   channel-private and escapes only through the port/sheet-entry boundary (so
   `GND` stays global). Each `ProjectSheetInstance` exposes its channel identity
   (`SymbolUidPath`, matching a PCB component's `SourceUniqueId`), and
-  `ProjectNetlist.NetForPin(sheetInstanceId, …)` selects a specific channel's net.
+  `ProjectNetlist.NetForPin(sheetInstanceId, …)` selects a specific channel's net;
+  `ProjectNetlist.PhysicalDesignatorOf(pin)` gives a pin's channel designator
+  (`U1_CH2`), the one the board carries.
 
 A pin's electrical tip is computed as `Location + Length` along its orientation;
 for a placed multi-part component only the displayed part's pins are used.

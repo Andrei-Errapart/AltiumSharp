@@ -269,6 +269,44 @@ public class ProjectNetlistTests : IDisposable
     }
 
     [Fact]
+    public async Task A_Channel_Pin_Carries_The_Channels_Physical_Designator()
+    {
+        await WriteDoc("rchild.SchDoc", doc =>
+        {
+            doc.AddPrimitive(Wire(0, 0, 100, 0));
+            doc.AddComponent(Comp("X1", "1", 0, 0));
+            doc.AddPrimitive(new SchNetLabel { Text = "SIG", Location = new CoordPoint(Coord.FromMils(0), Coord.FromMils(0)) });
+        });
+        await WriteDoc("rparent.SchDoc", doc =>
+        {
+            doc.AddComponent(Comp("P1", "1", 3000, 0));
+            doc.AddPrimitive(new SchSheetSymbol
+            {
+                Location = new CoordPoint(Coord.FromMils(1000), Coord.FromMils(2000)),
+                XSize = Coord.FromMils(500),
+                YSize = Coord.FromMils(400),
+                FileName = "rchild.SchDoc",
+                SheetName = "Repeat(CH,1,3)",
+                NameLabel = new SchLabel { Text = "Repeat(CH,1,3)" },
+            });
+        });
+
+        var project = await Project("rparent.SchDoc", "rchild.SchDoc");
+        var pnl = await ProjectNetlistBuilder.BuildAsync(project);
+
+        Assert.NotNull(pnl.Hierarchy);
+        Assert.Equal(pnl.Sheets.Select(s => s.Id), pnl.Hierarchy!.Sheets.Select(s => s.Index));
+
+        // One X1.1 per channel, told apart by the designator the board carries.
+        var channelPins = pnl.Nets.SelectMany(n => n.Pins).Where(p => p.ComponentDesignator == "X1").ToList();
+        Assert.Equal(new[] { "X1_CH1", "X1_CH2", "X1_CH3" }, channelPins.Select(pnl.PhysicalDesignatorOf).OrderBy(d => d, StringComparer.Ordinal));
+
+        // A component on a sheet placed once keeps its logical designator.
+        var parentPin = pnl.Nets.SelectMany(n => n.Pins).Concat(pnl.UnconnectedPins).Single(p => p.ComponentDesignator == "P1");
+        Assert.Equal("P1", pnl.PhysicalDesignatorOf(parentPin));
+    }
+
+    [Fact]
     public async Task Repeat_Channel_UidPath_Matches_Altiums_Pcb_SourceUniqueId()
     {
         await WriteDoc("rchild.SchDoc", doc => doc.AddComponent(Comp("X1", "1", 0, 0)));
